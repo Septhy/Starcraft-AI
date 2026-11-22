@@ -45,6 +45,7 @@ class FakeGame:
         self.m_on_barracks = self.m_elsewhere = self.rallies = 0
         self.time, self.inputs, self.arrivals = 0.0, 0, {}
         self.groups, self.key_orders = {}, 0
+        self.lifted, self.tax_flight = False, None
         self.money, self.spawned_at, self.last_key = 1000, None, None
 
     def alive(self):
@@ -88,7 +89,9 @@ class FakeGame:
         mx = (x - m["left"] + 0.5) / m["width"] * live.MAP_PX[0]
         my = (y - m["top"] + 0.5) / m["height"] * live.MAP_PX[1]
         if button == "right":
-            if self.selected == "barracks" and on_map:
+            if self.selected == "barracks" and on_map and self.lifted:
+                self.tax_flight = (mx, my)
+            elif self.selected == "barracks" and on_map:
                 self.rallies += 1
             elif isinstance(self.selected, list) and on_map:
                 self.send(self.selected, mx, my)         # a plain move
@@ -102,7 +105,7 @@ class FakeGame:
                 self.camera = live.camera_after_click(x, y)
             self.attack = False
             return
-        self.selected = None
+        self.selected, self.lifted = None, False
         for b in self.barracks:
             px, py = self._screen(b["x"], b["y"])
             if abs(x - px) < 130 and abs(y - py) < 95:
@@ -132,6 +135,9 @@ class FakeGame:
                                        "born": self.time + 15 + 25})
             else:
                 self.m_elsewhere += 1
+        if name == "l":
+            assert self.selected == "barracks"       # never L on anything else
+            self.lifted = True
         if name == "a":
             assert isinstance(self.selected, list)   # never A on nothing
             self.attack = True
@@ -148,6 +154,14 @@ class FakeGame:
 
     def sleep(self, s):
         self.time += s
+
+    def card(self):
+        self.time += 0.01
+        card = "barracks" if self.selected == "barracks" else \
+            "units" if self.selected else None
+        if not self.showing or not card:
+            return Image.new("RGB", (92, 90))
+        return live.card_cell(screen(card))
 
     def now(self):
         return self.time
@@ -197,7 +211,7 @@ def test_map_data():
     m = trial.load_map()
     assert len(trial.barracks_of(m)) == 8
     assert len(m["slots"]["5"]["units"]) == 175
-    w = trial.place(m, trial.TARGET)
+    w = trial.place(m, trial.TARGETS[0])
     assert (w["x"] // 32, w["y"] // 32) == (100, 89)        # Berlin
     x, y = live.minimap_point(w["x"], w["y"])
     assert 13 < x < 302 and 817 < y < 1033
@@ -230,7 +244,7 @@ def test_watch_sees_units_and_not_buildings():
 
 def test_opening_masses_fast_and_hits_berlin():
     m = trial.load_map()
-    w = trial.place(m, trial.TARGET)
+    w = trial.place(m, trial.TARGETS[0])
     for error in [(0, 0), (40, 80), (-60, 10), (70, -60)]:
         g = FakeGame(m, error=error)
         seen = {}
@@ -241,7 +255,10 @@ def test_opening_masses_fast_and_hits_berlin():
                 seen["n"] = sum(near(io.where(u), trial.MASS, 14)
                                 for u in io.alive())
                 seen["t"] = io.time
-            return real_hit(io, *a, **k)
+            out = real_hit(io, *a, **k)
+            if not hasattr(io, "time_first_hit_done"):
+                io.time_first_hit_done = io.time
+            return out
         trial.hit = hit
         try:
             result = trial.run(g, m)
@@ -254,17 +271,27 @@ def test_opening_masses_fast_and_hits_berlin():
         # eight ground groups on number keys, and they were used to hit
         assert len(g.groups) >= 8 and g.key_orders >= 8, (error, result)
         # most of the starting army is massed when the first hit goes
-        assert seen["t"] <= 110, (error, seen)
+        assert seen["t"] <= 100, (error, seen)
+        assert result["hits"][0] and g.time_first_hit_done <= 110, \
+            (error, g.time_first_hit_done)
         assert seen["n"] >= 0.7 * 175, (error, seen)
         # in the end most of everything, Middle East marines included,
-        # has been sent at Berlin, spread along its front
+        # has been sent at a target, spread along its front
         alive = g.alive()
-        at_berlin = [u for u in alive if near(u["to"], (w["x"], w["y"]), 20)]
-        assert len(at_berlin) >= 0.7 * len(alive), (error, len(at_berlin))
-        spawned = [u for u in at_berlin if u.get("spawn")]
-        assert len(spawned) >= 20, (error, len(spawned))
-        ys = {round(u["to"][1] / 64) for u in at_berlin}
-        assert len(ys) >= 6                         # a wall, not one point
+        spots = [trial.place(m, n) for n in set(trial.TARGETS)]
+        sent = [u for u in alive
+                if any(near(u["to"], (p["x"], p["y"]), 20) for p in spots)]
+        assert len(sent) >= 0.7 * len(alive), (error, len(sent), len(alive))
+        assert sum(1 for u in sent if u.get("spawn")) >= 20, error
+        at_berlin = [u for u in sent if near(u["to"], (w["x"], w["y"]), 20)]
+        assert len(at_berlin) >= 150                # the first hit: Berlin
+        assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 6   # a wall
+        romania = trial.place(m, "Romania 300")
+        assert sum(near(u["to"], (romania["x"], romania["y"]), 20)
+                   for u in sent) >= 20             # the second hit: Romania
+        # the Smolensk barracks was lifted and sent to Warsaw
+        warsaw = trial.place(m, trial.TAX_CITY)
+        assert g.tax_flight and near(g.tax_flight, (warsaw["x"], warsaw["y"]), 3)
         # later hits found the newly trained marines
         assert sum(1 for h in result["hits"][1:] if h) >= 1, (error, result)
         # few boxes come up empty
@@ -279,8 +306,8 @@ def test_opening_does_nothing_without_the_game_screen():
 
 
 def test_wave_goes_back_to_front():
-    berlin_x = trial.place(trial.load_map(), trial.TARGET)["x"]
-    assert berlin_x < trial.MASS[0]                 # Berlin is to the west
-    groups = [[(150, 70)], [(170, 70), (172, 71)], [(160, 72)]]
-    ordered = trial.back_to_front(groups, berlin_x)
-    assert [g[0][0] for g in ordered] == [170, 160, 150]   # east goes first
+    berlin = trial.place(trial.load_map(), "Berlin 1000")
+    groups = [(150, 70), (170, 70), (160, 72)]      # minimap pixels
+    ordered = trial.back_to_front(groups, (berlin["x"], berlin["y"]),
+                                  lambda p: live.from_drawn(*p))
+    assert [p[0] for p in ordered] == [170, 160, 150]   # east goes first

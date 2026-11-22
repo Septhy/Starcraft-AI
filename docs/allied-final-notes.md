@@ -185,3 +185,38 @@ cannot be tested alone. It needs a game with at least one opponent.
 - From about 1:30 on: new marines are boxed, sent forward and put on
   keys again, and Berlin is attacked again around 1:55. Hits keep
   coming through the game.
+
+## Sixth trial (a game with a second player, so triggers ran)
+
+- Scout sent at 2 s; the Middle East marines appeared and were sent to
+  the mass. Number keys 1 to 8 assigned; no air group got a key.
+- Mass at 64 s. The eight key groups were sent in 2.5 s; the rest took
+  until 131 s. Three more hits followed, each finding new marines.
+- 21 of 183 boxes empty; about 1.3 s per box.
+- The repository owner: still too many empty selections and too slow;
+  later hits should also go to the Balkans through Romania; Russia
+  should contest the tax of cities such as Warsaw and Odessa; the tax
+  turn is when the round timer reaches 2:00. penny[eef] is also a very
+  good Russia to learn from.
+
+## Tax (from the map's triggers)
+
+Each city pays when the countdown timer is at 2:00 (120 s), to the
+player who has at least one building at the city's location while the
+other sides have none there. Rounds are 5 minutes, so the first tax
+falls at 3:00 into the game.
+
+- Odessa (tile 164, 103): Russia starts with a barracks inside the
+  location (163, 99), so it holds Odessa's tax from the start.
+- Warsaw (130, 91): no Russian building. qororo98 lifts the Smolensk
+  barracks (173, 80) at about 70 s and flies it west. A lifted barracks
+  moves under a tile a second, so Warsaw is about a minute's flight.
+- Russia's liftable buildings: 8 barracks, 4 starports, 2 factories,
+  2 command centres, 2 engineering bays, a science facility.
+- Not yet known: whether a building still in the air counts, or
+  whether it has to land.
+
+## Russia players in the 25 replays
+
+qororo98: 5 games (36, 17, 4, 1 and under 1 minute). penny[eef]: 2
+(9 and 5 minutes). zapda: 2 (26, 12). 1939-iknockoutz: 3 (38, 22, 17).

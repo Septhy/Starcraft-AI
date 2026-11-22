@@ -62,11 +62,19 @@ def minimap_showing(screen):
 _templates = {}
 
 
-def _first_button_is(screen, name):
+def card_cell(screen):
+    """Cut the first command button out of a picture of the screen."""
+    return screen.crop(CARD_CELL)
+
+
+def _first_button_is(picture, name):
+    """picture: the whole screen, or just the first command button."""
     if name not in _templates:
         _templates[name] = np.asarray(
             Image.open(data_path(name)).convert("RGB")).astype(int)
-    cell = np.asarray(screen.convert("RGB").crop(CARD_CELL)).astype(int)
+    if picture.size != (CARD_CELL[2] - CARD_CELL[0], CARD_CELL[3] - CARD_CELL[1]):
+        picture = picture.crop(CARD_CELL)
+    cell = np.asarray(picture.convert("RGB")).astype(int)
     return bool(np.abs(cell - _templates[name]).mean() < CARD_MATCH)
 
 

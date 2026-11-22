@@ -15,7 +15,7 @@ GAME_WINDOW = "Brood War"
 STOP_KEY = 0x78            # F9
 SCAN = {"m": 0x32, "a": 0x1E, "esc": 0x01, "shift": 0x2A, "ctrl": 0x1D,
         "1": 0x02, "2": 0x03, "3": 0x04, "4": 0x05, "5": 0x06, "6": 0x07,
-        "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B}
+        "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B, "l": 0x26}
 
 ULONG_PTR = ctypes.c_size_t
 
@@ -83,26 +83,27 @@ class WinIO:
 
     def _move(self, x, y):
         self.user.SetCursorPos(int(x), int(y))
-        time.sleep(0.03)
+        time.sleep(0.02)
 
     def click(self, x, y, button="left"):
         self._check()
         self._move(x, y)
+        time.sleep(0.02)
         down, up = (LEFT_DOWN, LEFT_UP) if button == "left" else (RIGHT_DOWN, RIGHT_UP)
         self._mouse(down)
-        time.sleep(0.05)
+        time.sleep(0.045)
         self._mouse(up)
         self.log(f"click {button} {int(x)},{int(y)}", quiet=True)
 
     def drag(self, x0, y0, x1, y1):
         self._check()
         self._move(x0, y0)
-        time.sleep(0.06)
+        time.sleep(0.04)
         self._mouse(LEFT_DOWN)
-        time.sleep(0.12)                # the game must see the press first
-        for k in range(1, 7):
-            self._move(x0 + (x1 - x0) * k / 6, y0 + (y1 - y0) * k / 6)
-        time.sleep(0.08)
+        time.sleep(0.09)                # the game must see the press first
+        for k in range(1, 5):
+            self._move(x0 + (x1 - x0) * k / 4, y0 + (y1 - y0) * k / 4)
+        time.sleep(0.06)
         self._mouse(LEFT_UP)
         self.log(f"drag {int(x0)},{int(y0)} to {int(x1)},{int(y1)}", quiet=True)
 
@@ -144,6 +145,16 @@ class WinIO:
             self.names.append(name)
             self.n += 1
         return img
+
+    def card(self):
+        """A quick look at just the first command button."""
+        from PIL import Image
+        from eyes.live import CARD_CELL
+        mon = self.sct.monitors[1]
+        l, t, r, b = CARD_CELL
+        s = self.sct.grab({"left": mon["left"] + l, "top": mon["top"] + t,
+                           "width": r - l, "height": b - t})
+        return Image.frombytes("RGB", s.size, s.bgra, "raw", "BGRX")
 
     def log(self, text, quiet=False):
         self.lines.append(f"{time.time() - self.t0:7.2f}  {text}")
