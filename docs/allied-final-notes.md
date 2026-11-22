@@ -397,3 +397,9 @@ What changed:
 qororo98 7 games, penny[eef] 2, as before. New names: kor-boy (2 games,
 10 and 13 minutes, over 200 commands a minute), 1939-RavExel, and more
 from STC-Goliath and danger[eef] (one of 46 minutes).
+
+## Whose games to use, and whose not
+
+- Learn mostly from qororo98; penny[eef] is also very good.
+- Do not use kor-boy's games as examples (the repository owner).
+- Do not use the repository owner's own games as examples of good play.
