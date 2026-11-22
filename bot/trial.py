@@ -110,6 +110,11 @@ BIG_HIT = 240                  # after a hit was lost or stalled
 COUNT_WHEN = 0.6               # count once the minimap suggests this share of the need
 RECOUNT_GROWTH = 1.15          # and again when the minimap figure has grown this much
 NEW_TROOPS = 40                # a new hit needs at least this many at the mass
+COUNT_LEAST = 20               # minimap pixels at the mass worth a count
+RECOUNT_EVERY = 20             # seconds: count again at least this often
+RECOUNT_CAPPED = 10            # and this often at the supply limit
+SUPPLY_SLACK = 4               # this close to the limit counts as at it
+RETRY_IDLE = 30                # seconds before the same idle group is tried again
 BIG_MASS = WANT_HIT
 RETRAIN_EVERY = 55             # seconds between rounds of the barracks
 FIRST_HIT_SWEEPS = 2           # stragglers wait for the next mass
@@ -888,8 +893,10 @@ def gather_idle(io, watch, mapdata, st, tried):
     orders = 0
     for group in live.clusters(idle, *GROUP)[:4]:
         key = min(group)
-        if len(group) >= 9 and key not in tried:
-            tried.add(key)
+        # a place is tried again after a while: new troops appear at
+        # the same spots all game
+        if len(group) >= 9 and io.now() - tried.get(key, -1e9) >= RETRY_IDLE:
+            tried[key] = io.now()
             if select_group(io, group, st, watch):
                 attack_move(io, *MASS)
                 orders += 1
@@ -1163,8 +1170,9 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     general to what it is shown."""
     began = last_train = io.now()
     train_everywhere(io, mapdata, st)
-    collected, tried, gathered = False, set(), 0
+    collected, tried, gathered = False, {}, 0
     need, readings, strength = WANT_HIT, [], 0
+    last_count, capped = -1e9, False
     counted, counted_at = None, 0       # men counted on screen, and the
                                         # minimap figure when they were
     while io.now() - t0 < TRIAL_SECONDS:
@@ -1179,13 +1187,25 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         readings.append(len(mass_pixels))
         rough = sorted(readings[-5:])[len(readings[-5:]) // 2]
         guess = (rough + st.reserve) * st.men_per_pixel
-        if guess >= COUNT_WHEN * need and rough >= NEW_TROOPS and \
-                rough >= counted_at * RECOUNT_GROWTH:
+        # At the supply limit the army cannot grow: whatever is there
+        # is the hit, so the least is enough.
+        supply = numbers.read_supply(picture)
+        capped = bool(supply) and supply[0] >= supply[1] - SUPPLY_SLACK
+        if capped:
+            need = min(need, MIN_HIT)
+        grown = guess >= COUNT_WHEN * need and rough >= NEW_TROOPS and \
+            rough >= counted_at * RECOUNT_GROWTH
+        # The minimap cannot tell a crowd from a few: men standing close
+        # share its pixels. So count again every so often whatever it
+        # says, and sooner at the supply limit.
+        due = rough >= COUNT_LEAST and io.now() - last_count >= \
+            (RECOUNT_CAPPED if capped else RECOUNT_EVERY)
+        if grown or due:
             # count the men themselves, on the game screen
             men = count_men(io, mass_pixels & still)
-            counted_at = rough
+            counted_at, last_count = rough, io.now()
             if len(mass_pixels) >= 20 and men:
-                st.men_per_pixel = min(3.0, max(0.3, men / len(mass_pixels)))
+                st.men_per_pixel = min(6.0, max(0.3, men / len(mass_pixels)))
             counted = men
             io.log(f"counted {men} men at the massing place "
                    f"({len(mass_pixels)} minimap pixels)")

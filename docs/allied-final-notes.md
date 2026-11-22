@@ -600,3 +600,20 @@ real game.
   wants Russia to set allied chat under Messages at the start; the bot
   uses Ctrl+Enter for every line instead. No picture of the Messages
   window yet.
+
+## Trial 13 (real opponents): froze after the first hit
+
+- First hit left 64-102 s (orders spread over 36 s) and was destroyed
+  near the German border: supply 190 -> 119 by 147 s.
+- Spawns and training took supply back to 204/200 by 236 s, all of it
+  standing in a tight crowd at the massing place. The bot had counted
+  18 men there at 121 s and never counted again: a crowd covers hardly
+  more minimap pixels than a few men, so the "it has grown" test never
+  fired. It believed 39 men, needed 140, could not train (supply), and
+  did nothing for four minutes.
+- Fix: count again every 20 s (10 s at the supply limit) whatever the
+  minimap says; at the supply limit the least hit (140) is enough;
+  idle groups at a place are tried again after 30 s (they were tried
+  once per mass, so later spawns at the same spots were left).
+- Still open: the first hit is sent too slowly and too thin against a
+  defended border.
