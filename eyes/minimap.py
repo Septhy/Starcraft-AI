@@ -26,7 +26,7 @@ SLOT_COLOURS = {
     7: ("yellow", (252, 252, 56)),    # Spain
 }
 TOLERANCE = 14          # how far a pixel may be from a slot's colour
-VIEW_BOX = 250          # the view rectangle is drawn in pure white
+VIEW_BOX = 235          # the view rectangle is drawn in pure white
 
 
 def _crop(screen, layout):
