@@ -80,3 +80,95 @@ def units_selected(screen):
     """True when the first command button is Move, which means units
     that can be ordered about are selected."""
     return _first_button_is(screen, "units_card.png")
+
+
+# ------------------------------------------------- own forces on the minimap
+# Where things are DRAWN on the minimap, fitted to the known positions of
+# Russia's starting units and buildings on a real picture. It is two
+# pixels lower than the frame MINIMAP describes, which is still what
+# clicks are worked out from (that pairing is what the trials tested).
+DRAWN = {"left": 14, "top": 819, "width": 288, "height": 217}
+
+
+def _drawn(screen):
+    d = DRAWN
+    a = np.asarray(screen.convert("RGB")).astype(int)
+    return a[d["top"]:d["top"] + d["height"] + 3,
+             d["left"]:d["left"] + d["width"] + 3]
+
+
+def to_drawn(map_x, map_y):
+    """(column, row) on the drawn minimap of a point in map pixels."""
+    return (int(map_x / MAP_PX[0] * DRAWN["width"]),
+            int(map_y / MAP_PX[1] * DRAWN["height"]))
+
+
+def from_drawn(col, row):
+    """Map pixels of the middle of a drawn minimap pixel."""
+    return ((col + 0.5) / DRAWN["width"] * MAP_PX[0],
+            (row + 0.5) / DRAWN["height"] * MAP_PX[1])
+
+
+class Watch:
+    """Sees our own units on the minimap.
+
+    Made from a picture taken at the very start of the game, when the
+    map file says exactly where our units stand. Everything in our
+    colour that is not one of those units is a building; buildings do
+    not move, so from then on our colour anywhere else is a unit.
+    Where a unit stood in front of a building at the start, the
+    building shows through once the unit leaves; forget() removes it.
+    A unit is drawn as a block about three pixels across, and one pixel
+    is about 0.9 map tiles.
+    """
+
+    def __init__(self, screen, structures, units):
+        mm = _drawn(screen)
+        seen = {}
+        for x, y in structures:
+            c, r = to_drawn(x, y)
+            p = mm[r, c]
+            if p.max() > 140:
+                seen.setdefault(tuple(int(v) // 32 for v in p), []).append(p)
+        self.ok = bool(seen)
+        if not self.ok:
+            return
+        self.colour = np.mean(max(seen.values(), key=len), axis=0)
+        own = self._own(mm)
+        at_units = np.zeros_like(own)
+        for x, y in units:
+            c, r = to_drawn(x, y)
+            at_units[max(r - 1, 0):r + 2, max(c - 1, 0):c + 2] = True
+        self.buildings = own & ~at_units
+
+    def _own(self, mm):
+        return np.abs(mm - self.colour).max(axis=2) < 70
+
+    def units(self, screen):
+        """Set of (column, row) drawn-minimap pixels showing our units."""
+        mask = self._own(_drawn(screen)) & ~self.buildings
+        rows, cols = np.nonzero(mask)
+        return set(zip(cols.tolist(), rows.tolist()))
+
+
+    def forget(self, pixels):
+        """These pixels turned out not to be units (a box there came up
+        empty): a building that a unit was standing in front of at the
+        start. Stop reporting them."""
+        for c, r in pixels:
+            self.buildings[r, c] = True
+
+
+def clusters(pixels, max_w, max_h):
+    """Group minimap pixels into clusters no wider than max_w and no
+    taller than max_h. Returns lists of pixels, biggest cluster first."""
+    left = set(pixels)
+    out = []
+    while left:
+        c0, r0 = min(left, key=lambda p: (p[1], p[0]))
+        group = [p for p in left
+                 if c0 - max_w // 2 <= p[0] < c0 - max_w // 2 + max_w
+                 and r0 <= p[1] < r0 + max_h]
+        left.difference_update(group)
+        out.append(group)
+    return sorted(out, key=len, reverse=True)
