@@ -46,7 +46,7 @@ def main():
         io = None
         # Hide this window while the bot plays. Left on screen, the bot
         # can click it by accident, which takes StarCraft out of front.
-        root.withdraw()
+        root.after(0, root.withdraw)
         try:
             with mss.mss() as sct:
                 io = WinIO(out, sct, status=lambda s: status.set(s[:200]))
@@ -64,7 +64,7 @@ def main():
             os.startfile(out)
         except Exception as e:
             status.set(f"Something went wrong:\n{e!r}"[:300])
-        root.deiconify()
+        root.after(0, root.deiconify)
         time.sleep(1.0)
         state["busy"] = False
 

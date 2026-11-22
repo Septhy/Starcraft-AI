@@ -16,10 +16,9 @@ What the replays show Russia doing, and what this copies:
   6. Fly the Smolensk barracks to Warsaw, to take Warsaw's tax. Tax is
      paid when the round timer reaches 2:00, to whoever has a building
      at a city while the other sides have none. Floating counts.
-  7. Keep going: train again, let a new mass build, hit again. Not
-     always Berlin: the second hit goes to Romania, and a starport is
-     flown there for its tax; the third goes to Belgrade, where the
-     Balkan factory is. That factory goes to whoever has a building
+  7. Keep going: train again, let a new mass build, hit again: Berlin
+     a second time, then Romania, with a starport flown there for its
+     tax, then Belgrade, where the Balkan factory is. That factory goes to whoever has a building
      there with the round timer between 5:00 and 2:00, and then pays
      out units each round at 2:00.
 
@@ -37,7 +36,12 @@ from eyes import live
 
 SLOT = "5"                     # Russia
 # Where each hit goes. "Factory 7" is the factory at Belgrade.
-TARGETS = ["Berlin 1000", "Romania 300", "Factory 7", "Berlin 1000"]
+# The second hit is not always the Balkans. In the replays Russia turns
+# south early (minutes 2 to 4) mostly when the Axis is busy in the
+# Balkans, and otherwise keeps hitting Berlin until minutes 5 to 9.
+# The bot cannot see the Axis yet, so it takes the usual case: Berlin
+# twice, then Romania.
+TARGETS = ["Berlin 1000", "Berlin 1000", "Romania 300", "Factory 7"]
 # Points across a target's front, in tiles from its centre. Each group
 # is sent to its own, so the army arrives as a wall, not a line.
 FRONT = [(4, -5), (4, -1), (4, 3), (6, -3), (6, 1), (6, 5), (2, -3),
@@ -49,7 +53,7 @@ MIDDLE_EAST = (219 * 32, 129 * 32)   # bring a unit here for the spawn
 # been sent: (hit, kind of building, its tile, the city). A building
 # floating over a city counts as holding it.
 FLIGHTS = [(1, "Barracks", (173, 80), "Warsaw 200"),     # Smolensk's
-           (2, "Starport", (190, 110), "Romania 300")]   # Sevastopol's
+           (3, "Starport", (190, 110), "Romania 300")]   # Sevastopol's
 MARINES_PER_BARRACKS = 5       # a building queues at most five
 # Where to try clicking, relative to where the barracks should appear.
 TRIES = [(0, 0), (40, 80), (-60, 0), (60, 0), (0, -70), (0, 150), (-90, 90)]

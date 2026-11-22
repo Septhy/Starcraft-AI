@@ -234,3 +234,36 @@ location "Factory 7" (tile 137, 129).
   gets 6 hero marines and 2 artillery pieces there, each round.
 
 The bot's third hit goes there. It does not yet fly a building to it.
+
+## Seventh trial
+
+It stopped at 72 s, in the middle of the first hit: a box was dragged
+across the bot's own status window, which took StarCraft out of front,
+and the safety check halted it. The window is now hidden during play.
+Up to then: orders to the starting army done by 46 s with air on keys
+9 and 0, mass at 58 s, 0.9 s per box (was 1.3), 9 of 61 boxes empty.
+
+## North or south for the second hit (`fronts.py`, 34 replays)
+
+The repository owner: the second hit is not always the Balkans;
+sometimes Berlin again is much better.
+
+In the replays (26 Russia games of 8 minutes or more) Russia's first
+real push into the Balkans comes anywhere from minute 0 to minute 17.
+The clearest pattern is the Axis: counting Italy's and Germany's orders
+into the Balkans in minutes 2 to 5,
+
+- with 140 or more such orders, Russia goes south early, by minute 2
+  to 4 (11 of 12 games);
+- with fewer, Russia mostly keeps hitting Berlin and Poland until
+  minute 5 to 9 or later (9 of 14 games).
+
+So the choice depends on seeing the Axis in the Balkans, which the bot
+cannot do yet. Until it can, it hits Berlin twice, then Romania.
+
+## Russia players in the 34 replays
+
+qororo98 5 games (36, 17, 4, 1, 0 min); penny[eef] 2 (9, 5);
+STC-Goliath 5; zapda 3; 1939-iknockoutz 3; Teia 3; WestKronos 2;
+danger[eef] 2; alysaliufan 2; and one each for Exo001, rocky1242,
+DaeDroy[EEF], unit[u], 1939-Lurker, PosingasMe, Harrison000.
