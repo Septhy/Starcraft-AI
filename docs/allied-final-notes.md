@@ -1,6 +1,6 @@
 # WWII Euro - AF 4.0 ("Allied Final"): notes from replays
 
-Worked out from five replays of the same map version. A replay stores
+Worked out from ten replays of the same map version. A replay stores
 the whole map, so the map's rules can be read without the map file.
 
 ## Reading replays
@@ -46,6 +46,7 @@ Countries are matched to slots by start position and the team names.
 
 ## Examples so far
 
-Four full games, so four examples per slot. The repository owner asked
+Seven full games (ten replays; three ended in the first minutes), so
+seven examples per slot. The repository owner asked
 that their own games not be used as examples of good play; that leaves
-one example for Italy and three for Spain.
+one example for Italy and six for Spain.
