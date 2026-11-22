@@ -499,3 +499,8 @@ What changed:
 - A refused key stops the general at once and is said plainly in the
   log; the app checks a key when it is entered and says whether it
   works.
+
+The road south (the repository owner): Belgrade, then roughly toward
+the Netherlands. In the bot: Romania, Factory 7 (Belgrade), Hungary,
+Munich, Frankfurt, Amsterdam. The cities in between are the bot's own
+choice of stepping stones and have not been confirmed.

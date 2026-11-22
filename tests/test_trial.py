@@ -541,8 +541,10 @@ def test_idle_troops_forward_are_sent_on():
     # the watch moves on too: Belgrade, and with nobody there to fight,
     # further down the same road
     assert "Factory 7" in st.sent_at
-    assert st.battle.target in ("Factory 7", "Serbia 100", "Athens 400")
-    onward = [trial.place(m, n) for n in ("Factory 7", "Serbia 100", "Athens 400")]
+    road = ("Factory 7", "Hungary 200", "Munich 200", "Frankfurt 200",
+            "Amsterdam 100")
+    assert st.battle.target in road
+    onward = [trial.place(m, n) for n in road]
     moved = sum(any(near(u["to"], (p["x"], p["y"]), 12) for p in onward)
                 for u in there)
     assert moved >= 40, moved
@@ -559,3 +561,13 @@ def test_idle_troops_forward_are_sent_on():
         trial.advance_front(g, watch, m, st, still, g.shot("c"))
         g.time += 6
     assert all(near(u["to"], (berlin["x"], berlin["y"]), 6) for u in holders)
+
+
+def test_the_road_south_leads_to_belgrade_and_on_to_the_netherlands():
+    m = trial.load_map()
+    road, at = [], "Romania 300"
+    while at in trial.NEXT:
+        at = trial.NEXT[at]
+        road.append(at)
+        trial.place(m, at)                          # every stop is on the map
+    assert road[0] == "Factory 7" and road[-1] == "Amsterdam 100"

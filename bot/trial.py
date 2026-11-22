@@ -55,8 +55,12 @@ AXIS = [0, 1, 7]               # Germany, Italy, Spain: Russia's enemies
 HOSTILE = AXIS + [6]
 # Where a hit goes on to once it has taken its target, so the troops do
 # not stand idle there.
-NEXT = {"Romania 300": "Factory 7", "Factory 7": "Serbia 100",
-        "Serbia 100": "Athens 400", "Konigsberg 200": "Berlin 1000",
+# In the south: Romania, the factory at Belgrade, then north-west
+# toward the Netherlands (the repository owner), by way of the cities
+# that lie between.
+NEXT = {"Romania 300": "Factory 7", "Factory 7": "Hungary 200",
+        "Hungary 200": "Munich 200", "Munich 200": "Frankfurt 200",
+        "Frankfurt 200": "Amsterdam 100", "Konigsberg 200": "Berlin 1000",
         "Warsaw 200": "Berlin 1000", "Krakow 200": "Berlin 1000"}
 ADVANCE_EVERY = 5              # seconds between checks for idle troops forward
 IDLE_FORWARD = 20              # minimap pixels of idle forward units worth an order
