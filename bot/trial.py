@@ -140,6 +140,8 @@ class State:
         self.reserve = 0           # minimap pixels of troops standing forward in reserve
         self.strength = 0          # men for the next hit: mass plus reserve
         self.men_per_pixel = 1.0   # from the last count on the game screen
+        self.selected = 0          # units picked up by the hit's boxes, in all
+        self.selections = 0        # and how many boxes that took
         self.last_consult = -1e9
         self.last_chat = -1e9
         self.hit_wanted = False    # the general has said "hit now"
@@ -512,18 +514,69 @@ def back_to_front(items, target_xy, where):
     return sorted(items, key=far)
 
 
+FULL = 12                      # the most units one selection holds
+GOOD_BOX = 9                   # a box with at least this many is good enough
+
+
+def box_around(pixels, cam, pad=36):
+    """The screen box round the troops drawn at these minimap pixels,
+    for the view `cam`, kept inside the game area. None if too small."""
+    l, t, r, b = live.GAME_AREA
+    pts = []
+    for c, row in pixels:           # a pixel covers a square of ground
+        pts.append(live.on_screen(*live.from_drawn(c - 0.5, row - 0.5), cam))
+        pts.append(live.on_screen(*live.from_drawn(c + 0.5, row + 0.5), cam))
+    box = (max(l + 3, min(p[0] for p in pts) - pad),
+           max(t + 3, min(p[1] for p in pts) - pad),
+           min(r - 3, max(p[0] for p in pts) + pad),
+           min(b - 3, max(p[1] for p in pts) + pad))
+    return box if box[2] - box[0] >= 40 and box[3] - box[1] >= 40 else None
+
+
+def select_full(io, st, seed, pool, cam):
+    """Select as near to twelve units as it can, starting from the
+    troops at `seed` and reaching out to their neighbours in `pool`.
+
+    The box is sized from how many men a minimap pixel has been holding
+    (from the last count). It then reads how many the game selected:
+    if that is well short of twelve and there are neighbours left, it
+    draws a bigger box round more of them and looks again. Returns (the
+    pixels boxed, how many units were selected)."""
+    near_first = sorted(pool, key=lambda p: (p[0] - seed[0]) ** 2
+                        + (p[1] - seed[1]) ** 2)
+    want = max(3, round(FULL / max(st.men_per_pixel, 0.2)))
+    take, chosen, n = want, [], 0
+    for attempt in range(3):
+        chosen = near_first[:take]
+        box = box_around(chosen, cam)
+        if box is None:
+            break
+        io.drag(*box)
+        io.sleep(0.05)
+        st.boxes += 1
+        n = live.selected_count(io.shot("box", keep=False))
+        if n >= GOOD_BOX or take >= len(near_first):
+            break
+        # too few: reach for more, in proportion to how short it fell
+        take = min(len(near_first), int(take * min(3.0, FULL / max(n, 2))) + 2)
+    if n == 0:
+        st.empty += 1
+    st.selected += n
+    st.selections += 1
+    return chosen, n
+
+
 def sweep_mass(io, watch, mapdata, st, target):
-    """One pass over the massing place: look at it once or twice, and
-    box every part of the view where the minimap shows units standing
-    still, back to front. Returns (orders given, pixels found)."""
+    """One pass over the massing place: every part of it where the
+    minimap shows units standing still is boxed, back to front, each
+    box drawn to hold as near to twelve units as it can. Returns
+    (orders given, pixels found)."""
     w = place(mapdata, target)
     a = watch.units(io.shot("sweep"))
     io.sleep(1.2)                       # only those still standing there
     there = at_mass(a) & watch.units(io.shot("watch", keep=False))
     if len(there) < 12:
         return 0, len(there)
-    l, t, r, b = live.GAME_AREA
-    cw, ch = (r - l) / CELLS[0], (b - t) / CELLS[1]
     orders = 0
     # the mass is often wider than one view: take it a view at a time
     views = back_to_front(live.clusters(there, 20, 8), (w["x"], w["y"]),
@@ -535,30 +588,24 @@ def sweep_mass(io, watch, mapdata, st, target):
         cx, cy = live.from_drawn((min(cols) + max(cols)) / 2,
                                  (min(rows) + max(rows)) / 2)
         cam = look_at(io, *centred(cx, cy))
-        cells = {}
-        for p in view:
-            sx, sy = live.on_screen(*live.from_drawn(*p), cam)
-            i, j = int((sx - l) // cw), int((sy - t) // ch)
-            if 0 <= i < CELLS[0] and 0 <= j < CELLS[1]:
-                cells.setdefault((i, j), []).append(p)
-        order = back_to_front(list(cells), (w["x"], w["y"]),
-                              lambda c: live.from_drawn(*cells[c][0]))
-        for i, j in order:
-            if len(cells[(i, j)]) < 2:
-                continue                # the edge of a neighbour's block
-            box = (int(l + i * cw) + 3, int(t + j * ch) + 3,
-                   int(l + (i + 1) * cw) - 3, int(t + (j + 1) * ch) - 3)
-            if box_and_check(io, box, st):
-                attack_move(io, *front_point(mapdata, st, target))
-                orders += 1
-                if st.rekey < len(GROUND_KEYS):
-                    # the newest groups take over the number keys, so
-                    # they can be recalled and given orders
-                    io.combo("ctrl", GROUND_KEYS[st.rekey])
-                    io.sleep(0.04)
-                    st.rekey += 1
-            else:
-                watch.forget(cells[(i, j)])
+        left = set(view)
+        while left:
+            # the troops farthest from the target go first
+            seed = back_to_front(list(left), (w["x"], w["y"]),
+                                 lambda p: live.from_drawn(*p))[0]
+            boxed, n = select_full(io, st, seed, left, cam)
+            left -= set(boxed) or {seed}
+            if n == 0:
+                watch.forget(boxed)
+                continue
+            attack_move(io, *front_point(mapdata, st, target))
+            orders += 1
+            if st.rekey < len(GROUND_KEYS):
+                # the newest groups take over the number keys, so
+                # they can be recalled and given orders
+                io.combo("ctrl", GROUND_KEYS[st.rekey])
+                io.sleep(0.04)
+                st.rekey += 1
     return orders, len(there)
 
 
@@ -588,7 +635,9 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
         io.sleep(0.035)
         attack_move(io, *front_point(mapdata, st, target))
         orders += 1
-    io.log(f"hit: {orders} groups sent at {target}")
+    per_box = st.selected / max(st.selections, 1)
+    io.log(f"hit: {orders} groups sent at {target}; its boxes have held "
+           f"{per_box:.1f} units each on average so far")
     return orders
 
 
@@ -1276,6 +1325,7 @@ def run(io, mapdata=None, general=None, save_lessons=None):
                 io.log("general's lessons for next game saved")
             io.log(general.summary())
     result.update({"targets": st.sent_at,
+                   "units_per_box": round(st.selected / max(st.selections, 1), 1),
                    "keys": "".join(st.ground_keys + st.air_keys),
                    "boxes": st.boxes, "empty": st.empty})
     return result

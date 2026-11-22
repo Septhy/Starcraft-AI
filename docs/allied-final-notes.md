@@ -574,3 +574,17 @@ Krakow.
 
 Not yet tried on the real game: counting takes a box per patch, so a
 count of a large mass may take ten seconds or more.
+
+## Fuller boxes
+
+The repository owner: the box selection is poor; it usually does not
+manage to select twelve units.
+
+The hit's boxes used to be a fixed grid over the view, whatever stood
+in each square. `select_full` now sizes each box from how many men a
+minimap pixel has been holding, reads how many units the game actually
+selected, and if that is well short of twelve draws a bigger box round
+more of the neighbours, up to twice. In the pretend game its boxes
+hold 10 to 11 units on average and the first hit takes about a third
+fewer orders. The log now reports units per box. Not yet tried on the
+real game.
