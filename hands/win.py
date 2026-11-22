@@ -81,7 +81,7 @@ class WinIO:
 
     def _move(self, x, y):
         self.user.SetCursorPos(int(x), int(y))
-        time.sleep(0.06)
+        time.sleep(0.03)
 
     def click(self, x, y, button="left"):
         self._check()
@@ -95,12 +95,12 @@ class WinIO:
     def drag(self, x0, y0, x1, y1):
         self._check()
         self._move(x0, y0)
-        time.sleep(0.1)
+        time.sleep(0.06)
         self._mouse(LEFT_DOWN)
-        time.sleep(0.2)                 # the game must see the press first
-        for k in range(1, 13):
-            self._move(x0 + (x1 - x0) * k / 12, y0 + (y1 - y0) * k / 12)
-        time.sleep(0.15)
+        time.sleep(0.12)                # the game must see the press first
+        for k in range(1, 7):
+            self._move(x0 + (x1 - x0) * k / 6, y0 + (y1 - y0) * k / 6)
+        time.sleep(0.08)
         self._mouse(LEFT_UP)
         self.log(f"drag {int(x0)},{int(y0)} to {int(x1)},{int(y1)}", quiet=True)
 
@@ -112,7 +112,10 @@ class WinIO:
         self.log(f"key {name}", quiet=True)
 
     # --- seeing and reporting
-    def shot(self, label):
+    def now(self):
+        return time.time()
+
+    def shot(self, label, keep=True):
         from PIL import Image, ImageStat
         for _ in range(4):
             s = self.sct.grab(self.sct.monitors[1])
@@ -121,10 +124,11 @@ class WinIO:
             if max(ImageStat.Stat(img.crop((400, 800, 1500, 1080))).mean) > 6:
                 break
             time.sleep(0.12)
-        name = f"{self.n:03d}-{label}.jpg"
-        img.save(os.path.join(self.out_dir, name), quality=85)
-        self.names.append(name)
-        self.n += 1
+        if keep:
+            name = f"{self.n:03d}-{label}.jpg"
+            img.save(os.path.join(self.out_dir, name), quality=85)
+            self.names.append(name)
+            self.n += 1
         return img
 
     def log(self, text, quiet=False):

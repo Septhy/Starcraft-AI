@@ -80,3 +80,19 @@ tax):
   (the drag started too fast); a few screen captures came back black.
 - A solo game ends the map's triggers, and gives only the starting
   1,000 minerals: 20 marines.
+
+## Second trial
+
+- Right-clicking the minimap with a barracks selected sets its rally
+  point; the gathering spot (tile 160, 74) is open ground.
+- 20 marines gathered there and were sent on in two box selections;
+  they reached Warsaw.
+
+## Russia's opening, from the replays and the repository owner
+
+- Russia starts with about 175 units that can move, spread over the
+  whole east (96 marines, 42 hero marines, tanks, vultures, ships).
+  Players bring all of them into the first mass attack.
+- It has to be fast: players give their first orders within seconds,
+  20 to 70 orders into the gathering area in the first two minutes,
+  and most send their first attack west inside the first minute.

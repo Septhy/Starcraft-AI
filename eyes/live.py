@@ -59,15 +59,24 @@ def minimap_showing(screen):
     return bool(row.min() > 150 and row.std(axis=0).max() < 12)
 
 
-_template = None
+_templates = {}
+
+
+def _first_button_is(screen, name):
+    if name not in _templates:
+        _templates[name] = np.asarray(
+            Image.open(data_path(name)).convert("RGB")).astype(int)
+    cell = np.asarray(screen.convert("RGB").crop(CARD_CELL)).astype(int)
+    return bool(np.abs(cell - _templates[name]).mean() < CARD_MATCH)
 
 
 def barracks_selected(screen):
     """True when the first command button is the Marine button, which
     means a barracks is selected."""
-    global _template
-    if _template is None:
-        _template = np.asarray(
-            Image.open(data_path("barracks_card.png")).convert("RGB")).astype(int)
-    cell = np.asarray(screen.convert("RGB").crop(CARD_CELL)).astype(int)
-    return bool(np.abs(cell - _template).mean() < CARD_MATCH)
+    return _first_button_is(screen, "barracks_card.png")
+
+
+def units_selected(screen):
+    """True when the first command button is Move, which means units
+    that can be ordered about are selected."""
+    return _first_button_is(screen, "units_card.png")
