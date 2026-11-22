@@ -129,3 +129,25 @@ tax):
   The repository owner: Russia selects from the back to the front, so
   the army arrives as a wall and not a "conga line". The wave now goes
   back to front.
+
+## Whose Russia to learn from
+
+The repository owner: focus mostly on qororo98. Two of the fifteen
+replays have qororo98 as Russia: one full game (36 minutes) and one
+that ended after a minute. `onegame.py` prints a game minute by minute.
+
+What the full game shows:
+
+- All ten number-key groups are in use from the first minute, and
+  re-assigned through the game (10 to 20 times each). Hotkey presses
+  run at 30 to 180 a minute. The bot uses none yet.
+- First minute: about 48 train commands and the first orders toward
+  Smolensk (the massing area).
+- Second minute (1:00 to 2:00): the attack is already going: 45 move
+  orders at Konigsberg, attack-moves at Berlin and the German invasion
+  area. That matches "mass complete by 1:30 to 2:00".
+- In the fight, plain right-click moves outnumber attack-moves several
+  times over: units are pulled back and pushed forward by hand.
+- Minutes 4 to 8: a second front in the south, at Romania and Odessa.
+- Marines are trained in bursts right after each tax round (about
+  minutes 5, 9 to 10, 12, 14 to 15, ...), not steadily.
