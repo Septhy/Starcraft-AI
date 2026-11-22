@@ -44,11 +44,43 @@ def main():
              justify="left").pack(padx=10, pady=8)
     state = {"busy": False, "down": False}
     key_label = tk.StringVar()
+    # The light beside the key: green when Anthropic accepts it, red
+    # when it does not, yellow while checking, grey with no key.
+    LIGHTS = {"ok": "#2ecc40", "bad": "#e03131", "checking": "#f0b400",
+              "none": "#9a9a9a"}
+    key_row = tk.Frame(root)
+    key_row.pack()
+    light = tk.Canvas(key_row, width=18, height=18, highlightthickness=0)
+    light.pack(side="left", padx=(0, 6))
+    dot = light.create_oval(2, 2, 16, 16, fill=LIGHTS["none"], outline="#555555")
+    tk.Label(key_row, textvariable=key_label, width=50, anchor="w").pack(side="left")
+    key_state = {"light": "none", "text": ""}
 
-    def show_key_state():
-        key_label.set("Claude key: saved on this PC. The general will advise."
-                      if secret.load() else
-                      "Claude key: none. The bot plays by its rules alone.")
+    def show(light_name, text):
+        # called from the checking thread too: the window is only
+        # touched from its own loop, in refresh() below
+        key_state["light"], key_state["text"] = light_name, text
+
+    def refresh():
+        light.itemconfig(dot, fill=LIGHTS[key_state["light"]])
+        key_label.set(key_state["text"])
+        root.after(200, refresh)
+
+    def check_key():
+        """Ask Anthropic whether the saved key is accepted."""
+        key = secret.load()
+        if not key:
+            show("none", "Claude key: none. The bot plays by its rules alone.")
+            return
+        show("checking", "Claude key: checking it ...")
+
+        def work():
+            ok, message = general_module.check_key(
+                key, memory.load_model(general_module.MODEL))
+            show("ok" if ok else "bad",
+                 "Claude key: active. " + message if ok
+                 else "Claude key: NOT working. " + message)
+        threading.Thread(target=work, daemon=True).start()
 
     def set_key():
         key = simpledialog.askstring(
@@ -57,22 +89,15 @@ def main():
             "Leave empty to remove it.", show="*", parent=root)
         if key is None:
             return
-        if not key.strip():
+        if key.strip():
+            secret.save(key)
+        else:
             secret.forget()
-            show_key_state()
-            return
-        secret.save(key)
-        key_label.set("Claude key: checking it ...")
+        check_key()
 
-        def check():
-            ok, message = general_module.check_key(
-                secret.load(), memory.load_model(general_module.MODEL))
-            key_label.set("Claude key: " + message)
-        threading.Thread(target=check, daemon=True).start()
-
-    tk.Label(root, textvariable=key_label, width=52).pack()
     tk.Button(root, text="Set Claude API key", command=set_key).pack(pady=(0, 6))
-    show_key_state()
+    check_key()                         # the saved key is checked at start
+    refresh()
     labels = {text: model for model, text in general_module.CHOICES}
     by_model = {model: text for model, text in general_module.CHOICES}
     chosen = tk.StringVar(value=by_model.get(
@@ -80,7 +105,8 @@ def main():
         by_model[general_module.MODEL]))
     tk.Label(root, text="Which Claude model commands:").pack()
     tk.OptionMenu(root, chosen, *labels,
-                  command=lambda text: memory.save_model(labels[text])
+                  command=lambda text: (memory.save_model(labels[text]),
+                                        check_key())
                   ).pack(pady=(0, 8))
 
     def work():
