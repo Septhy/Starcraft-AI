@@ -456,3 +456,18 @@ Measured (attack waves are bursts of eight or more attack-moves):
 In the bot: the first hit may leave from 45 s; `PLAN` sends later hits
 south from 3:30 to 7:30 and from 12:00 to 16:00, north otherwise,
 unless the general chooses differently.
+
+## Commands per minute
+
+Counted from the tenth trial's log the way the game counts them
+(selections, hotkeys, orders, training, key assignments): 124 a minute
+on average, about 150 in the busy minutes, from about 207 raw mouse
+and key actions a minute. An earlier guess of 60 to 90 was too low.
+The players in the replays give 100 to 250.
+
+The repository owner wants more. The pauses between actions were cut
+by about a third (a click from about 90 ms to 60, a box drag from
+about 290 ms to 190, shorter waits after each order). The game reads
+input once a frame, 24 times a second, so much shorter pauses risk
+dropped inputs; if the next run shows more empty boxes or missed
+orders, lengthen them again.

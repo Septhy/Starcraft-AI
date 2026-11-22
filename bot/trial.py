@@ -138,7 +138,7 @@ def front_point(mapdata, st, target):
     return w["x"] + dx * 32, w["y"] + dy * 32
 
 
-def look_at(io, x, y, wait=0.15):
+def look_at(io, x, y, wait=0.12):
     """Move the view to a map point. Returns the camera centre."""
     mx, my = live.minimap_point(x, y)
     io.click(mx, my)
@@ -157,7 +157,7 @@ def centred(x, y):
 def box_and_check(io, box, st):
     """Drag a box. True if the screen then shows units selected."""
     io.drag(*box)
-    io.sleep(0.07)
+    io.sleep(0.05)
     st.boxes += 1
     if live.units_selected(io.card()):
         return True
@@ -189,9 +189,9 @@ def select_group(io, pixels, st, watch=None):
 def attack_move(io, map_x, map_y):
     """Attack-move whatever is selected to a map point."""
     io.key("a")
-    io.sleep(0.06)
+    io.sleep(0.04)
     io.click(*live.minimap_point(map_x, map_y))
-    io.sleep(0.06)
+    io.sleep(0.04)
 
 
 def near(pixels, map_xy, radius):
@@ -266,7 +266,7 @@ def train_everywhere(io, mapdata, st, check_supply=True):
         io.sleep(0.06)
         for _ in range(MARINES_PER_BARRACKS):
             io.key("m")
-            io.sleep(0.04)
+            io.sleep(0.03)
         return True
 
     todo = [b for b in barracks_of(mapdata)
@@ -477,7 +477,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
     if use_keys:
         for key in st.ground_keys:      # all the key groups in a few seconds
             io.key(key)
-            io.sleep(0.05)
+            io.sleep(0.035)
             attack_move(io, *front_point(mapdata, st, target))
             orders += 1
         io.sleep(1.5)                   # let them step off
@@ -494,7 +494,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
         orders += push_front(io, watch, mapdata, st, target)
     for key in st.air_keys:             # air is fastest, so it goes last
         io.key(key)
-        io.sleep(0.05)
+        io.sleep(0.035)
         attack_move(io, *front_point(mapdata, st, target))
         orders += 1
     io.log(f"hit: {orders} groups sent at {target}")
@@ -977,7 +977,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         if io.now() - last_train >= RETRAIN_EVERY:
             last_train = io.now()
             train_everywhere(io, mapdata, st)
-        io.sleep(1.0 if general else 2.0)
+        io.sleep(0.5 if general else 1.5)
     io.shot("mass")
     if battle:
         io.log(f"last hit at {battle.target}: {battle.verdict(mapdata)[0]} "

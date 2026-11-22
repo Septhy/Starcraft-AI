@@ -64,9 +64,12 @@ class WinIO:
 
     def sleep(self, seconds):
         end = time.time() + seconds
-        while time.time() < end:
+        while True:
             self._check()
-            time.sleep(0.03)
+            left = end - time.time()
+            if left <= 0:
+                return
+            time.sleep(min(0.03, left))     # exact, even for short pauses
 
     # --- input
     def _send(self, inp):
@@ -82,36 +85,38 @@ class WinIO:
         i.u.ki = KEYBDINPUT(0, SCAN[name], KEY_SCAN | (KEY_UP if up else 0), 0, 0)
         self._send(i)
 
+    # The pauses below are about as short as the game reliably accepts:
+    # it reads input once a frame, 24 times a second at Fastest.
     def _move(self, x, y):
         self.user.SetCursorPos(int(x), int(y))
-        time.sleep(0.02)
+        time.sleep(0.015)
 
     def click(self, x, y, button="left"):
         self._check()
         self._move(x, y)
-        time.sleep(0.02)
+        time.sleep(0.01)
         down, up = (LEFT_DOWN, LEFT_UP) if button == "left" else (RIGHT_DOWN, RIGHT_UP)
         self._mouse(down)
-        time.sleep(0.045)
+        time.sleep(0.035)
         self._mouse(up)
         self.log(f"click {button} {int(x)},{int(y)}", quiet=True)
 
     def drag(self, x0, y0, x1, y1):
         self._check()
         self._move(x0, y0)
-        time.sleep(0.04)
+        time.sleep(0.03)
         self._mouse(LEFT_DOWN)
-        time.sleep(0.09)                # the game must see the press first
-        for k in range(1, 5):
-            self._move(x0 + (x1 - x0) * k / 4, y0 + (y1 - y0) * k / 4)
-        time.sleep(0.06)
+        time.sleep(0.07)                # the game must see the press first
+        for k in range(1, 4):
+            self._move(x0 + (x1 - x0) * k / 3, y0 + (y1 - y0) * k / 3)
+        time.sleep(0.045)
         self._mouse(LEFT_UP)
         self.log(f"drag {int(x0)},{int(y0)} to {int(x1)},{int(y1)}", quiet=True)
 
     def key(self, name):
         self._check()
         self._key(name)
-        time.sleep(0.04)
+        time.sleep(0.03)
         self._key(name, up=True)
         self.log(f"key {name}", quiet=True)
 
