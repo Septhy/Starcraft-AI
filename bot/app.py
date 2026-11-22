@@ -34,6 +34,7 @@ def main():
     root.resizable(False, False)
     status = tk.StringVar(value="Get into a game as Russia, then press F9.\n"
                                 "It will use your mouse and keyboard.\n"
+                                "This window hides while it plays.\n"
                                 "Press F9 again to stop it.")
     tk.Label(root, textvariable=status, width=52, height=5,
              justify="left").pack(padx=10, pady=8)
@@ -43,6 +44,9 @@ def main():
         out = os.path.join(desktop,
                            "starcraft-trial-" + time.strftime("%Y%m%d-%H%M%S"))
         io = None
+        # Hide this window while the bot plays. Left on screen, the bot
+        # can click it by accident, which takes StarCraft out of front.
+        root.withdraw()
         try:
             with mss.mss() as sct:
                 io = WinIO(out, sct, status=lambda s: status.set(s[:200]))
@@ -60,6 +64,7 @@ def main():
             os.startfile(out)
         except Exception as e:
             status.set(f"Something went wrong:\n{e!r}"[:300])
+        root.deiconify()
         time.sleep(1.0)
         state["busy"] = False
 
