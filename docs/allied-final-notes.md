@@ -220,3 +220,17 @@ falls at 3:00 into the game.
 
 qororo98: 5 games (36, 17, 4, 1 and under 1 minute). penny[eef]: 2
 (9 and 5 minutes). zapda: 2 (26, 12). 1939-iknockoutz: 3 (38, 22, 17).
+
+## Belgrade and the Balkan factory (repository owner; triggers 234, 235)
+
+After Romania, the Balkan city that matters most is Belgrade: the
+location "Factory 7" (tile 137, 129).
+
+- Taking it: a player with at least one building at the location, while
+  the opposing side has none there, is given the factory, but only
+  while the round timer is at 2:00 or more: from the round's start
+  (5:00) down to 2:00. Players float a building there.
+- Paying out: once the timer is at 2:00 or less, the factory's owner
+  gets 6 hero marines and 2 artillery pieces there, each round.
+
+The bot's third hit goes there. It does not yet fly a building to it.

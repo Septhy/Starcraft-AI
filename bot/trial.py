@@ -15,9 +15,13 @@ What the replays show Russia doing, and what this copies:
      at the massing place from the back to the front, then the air.
   6. Fly the Smolensk barracks to Warsaw, to take Warsaw's tax. Tax is
      paid when the round timer reaches 2:00, to whoever has a building
-     at a city while the other sides have none.
+     at a city while the other sides have none. Floating counts.
   7. Keep going: train again, let a new mass build, hit again. Not
-     always Berlin: the second hit goes to Romania, toward the Balkans.
+     always Berlin: the second hit goes to Romania, and a starport is
+     flown there for its tax; the third goes to Belgrade, where the
+     Balkan factory is. That factory goes to whoever has a building
+     there with the round timer between 5:00 and 2:00, and then pays
+     out units each round at 2:00.
 
 The steps only use an `io` object (see hands/win.py for the real one),
 so they can be tested without Windows or the game.
@@ -32,7 +36,8 @@ import json
 from eyes import live
 
 SLOT = "5"                     # Russia
-TARGETS = ["Berlin 1000", "Romania 300", "Berlin 1000", "Serbia 100"]
+# Where each hit goes. "Factory 7" is the factory at Belgrade.
+TARGETS = ["Berlin 1000", "Romania 300", "Factory 7", "Berlin 1000"]
 # Points across a target's front, in tiles from its centre. Each group
 # is sent to its own, so the army arrives as a wall, not a line.
 FRONT = [(4, -5), (4, -1), (4, 3), (6, -3), (6, 1), (6, 5), (2, -3),
@@ -40,8 +45,11 @@ FRONT = [(4, -5), (4, -1), (4, 3), (6, -3), (6, 1), (6, 5), (2, -3),
 MASS = (160 * 32, 76 * 32)     # map pixels: where the army masses
 MASS_RADIUS = 13               # minimap pixels around it that count as there
 MIDDLE_EAST = (219 * 32, 129 * 32)   # bring a unit here for the spawn
-TAX_CITY = "Warsaw 200"        # fly a barracks here after the first hit
-TAX_BARRACKS = (173, 80)       # tile of the barracks to fly: Smolensk's
+# Buildings to fly to a city, each after the hit with that number has
+# been sent: (hit, kind of building, its tile, the city). A building
+# floating over a city counts as holding it.
+FLIGHTS = [(1, "Barracks", (173, 80), "Warsaw 200"),     # Smolensk's
+           (2, "Starport", (190, 110), "Romania 300")]   # Sevastopol's
 MARINES_PER_BARRACKS = 5       # a building queues at most five
 # Where to try clicking, relative to where the barracks should appear.
 TRIES = [(0, 0), (40, 80), (-60, 0), (60, 0), (0, -70), (0, 150), (-90, 90)]
@@ -296,7 +304,7 @@ def at_home(pixels, mapdata):
     reach = ((mc - tc) ** 2 + (mr - tr) ** 2) ** 0.5 - MASS_RADIUS
     out = {p for p in pixels
            if ((p[0] - tc) ** 2 + (p[1] - tr) ** 2) ** 0.5 > reach}
-    for name in set(TARGETS) | {TAX_CITY}:
+    for name in set(TARGETS) | {f[3] for f in FLIGHTS}:
         t = place(mapdata, name)
         out -= near(out, (t["x"], t["y"]), 22)
     return out
@@ -419,22 +427,50 @@ def hit(io, watch, mapdata, st, target, use_keys=True):
     return orders
 
 
-def fly_tax_barracks(io, mapdata, st):
-    """Lift the Smolensk barracks and fly it to Warsaw for the tax."""
-    b = next((b for b in barracks_of(mapdata)
-              if (b["x"] // 32, b["y"] // 32) == TAX_BARRACKS), None)
-    if not b or not select_barracks(io, b):
-        io.log("tax: the barracks to fly was not found")
+def round_timer(seconds_in):
+    """What the round's countdown shows, given the seconds since the
+    game began. Rounds are five minutes; tax is paid at 2:00."""
+    left = 300 - int(seconds_in) % 300
+    return f"{left // 60}:{left % 60:02d}"
+
+
+def fly_building(io, mapdata, st, kind, tile, city_name):
+    """Lift a building and send it to float over a city."""
+    b = next((b for b in mapdata["slots"][SLOT]["buildings"]
+              if b["type"] == kind and (b["x"] // 32, b["y"] // 32) == tile),
+             None)
+    if not b:
+        return False
+    l, t, r, btm = live.GAME_AREA
+    cam = look_at(io, b["x"], b["y"], wait=0.25)
+    px, py = live.on_screen(b["x"], b["y"], cam)
+    for dx, dy in TRIES:
+        x, y = px + dx, py + dy
+        if not (l + 5 < x < r - 5 and t + 5 < y < btm - 5):
+            continue
+        io.click(x, y)
+        io.sleep(0.12)
+        if live.building_selected(io.card()):
+            break
+    else:
+        io.log(f"flight: the {kind} was not found")
         return False
     io.key("l")                         # lift off
     io.sleep(0.3)
-    city = place(mapdata, TAX_CITY)
+    city = place(mapdata, city_name)
     io.click(*live.minimap_point(city["x"], city["y"]), button="right")
     io.sleep(0.1)
-    io.shot("tax-barracks")
-    st.flown.add(TAX_BARRACKS)
-    io.log(f"tax: barracks lifted and sent to {TAX_CITY}")
+    io.shot("flight-" + city_name.split()[0])
+    if kind == "Barracks":
+        st.flown.add(tile)
+    io.log(f"flight: {kind} lifted and sent to {city_name}")
     return True
+
+
+def flights_after(io, mapdata, st, hit_number):
+    for n, kind, tile, city in FLIGHTS:
+        if n == hit_number:
+            fly_building(io, mapdata, st, kind, tile, city)
 
 
 def run(io, mapdata=None):
@@ -458,7 +494,7 @@ def run(io, mapdata=None):
     hits = [hit(io, watch, mapdata, st, TARGETS[0])]
     io.log(f"  first hit sent by {since()}; {st.boxes} boxes, "
            f"{st.empty} empty")
-    fly_tax_barracks(io, mapdata, st)
+    flights_after(io, mapdata, st, 1)
     for n in range(LATER_HITS):
         target = TARGETS[(n + 1) % len(TARGETS)]
         train_everywhere(io, mapdata, st)
@@ -467,11 +503,13 @@ def run(io, mapdata=None):
                                start + LATER_WAIT, start + LATER_WAIT + 15)
         if massed >= 30:
             hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
+            flights_after(io, mapdata, st, n + 2)
         else:
             io.log(f"hit {n + 2}: no new mass to send")
             hits.append(0)
-        io.log(f"  ({since()} since start)")
-    for name in (TARGETS[0], TARGETS[1], TAX_CITY):
+        io.log(f"  ({since()} since start; round timer about "
+               f"{round_timer(io.now() - t0)})")
+    for name in ("Berlin 1000", "Warsaw 200", "Romania 300", "Factory 7"):
         w = place(mapdata, name)
         look_at(io, w["x"], w["y"], wait=0.5)
         io.shot("at-" + name.split()[0])

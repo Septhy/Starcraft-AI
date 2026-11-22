@@ -45,7 +45,8 @@ class FakeGame:
         self.m_on_barracks = self.m_elsewhere = self.rallies = 0
         self.time, self.inputs, self.arrivals = 0.0, 0, {}
         self.groups, self.key_orders = {}, 0
-        self.lifted, self.tax_flight = False, None
+        self.lifted, self.flights = False, []
+        self.starports = [b for b in side["buildings"] if b["type"] == "Starport"]
         self.money, self.spawned_at, self.last_key = 1000, None, None
 
     def alive(self):
@@ -89,8 +90,8 @@ class FakeGame:
         mx = (x - m["left"] + 0.5) / m["width"] * live.MAP_PX[0]
         my = (y - m["top"] + 0.5) / m["height"] * live.MAP_PX[1]
         if button == "right":
-            if self.selected == "barracks" and on_map and self.lifted:
-                self.tax_flight = (mx, my)
+            if self.selected in ("barracks", "starport") and on_map and self.lifted:
+                self.flights.append((self.selected, mx, my))
             elif self.selected == "barracks" and on_map:
                 self.rallies += 1
             elif isinstance(self.selected, list) and on_map:
@@ -110,6 +111,10 @@ class FakeGame:
             px, py = self._screen(b["x"], b["y"])
             if abs(x - px) < 130 and abs(y - py) < 95:
                 self.selected = "barracks"
+        for b in self.starports:
+            px, py = self._screen(b["x"], b["y"])
+            if abs(x - px) < 130 and abs(y - py) < 95:
+                self.selected = "starport"
 
     def drag(self, x0, y0, x1, y1):
         self.inputs += 1
@@ -136,7 +141,7 @@ class FakeGame:
             else:
                 self.m_elsewhere += 1
         if name == "l":
-            assert self.selected == "barracks"       # never L on anything else
+            assert self.selected in ("barracks", "starport")   # only buildings
             self.lifted = True
         if name == "a":
             assert isinstance(self.selected, list)   # never A on nothing
@@ -157,10 +162,12 @@ class FakeGame:
 
     def card(self):
         self.time += 0.01
+        if self.selected == "starport":              # some other button
+            return Image.new("RGB", (92, 90), (200, 190, 40))
         card = "barracks" if self.selected == "barracks" else \
             "units" if self.selected else None
         if not self.showing or not card:
-            return Image.new("RGB", (92, 90))
+            return Image.open(live.data_path("blank_card.png"))
         return live.card_cell(screen(card))
 
     def now(self):
@@ -205,6 +212,12 @@ def test_reads_the_real_pictures():
     assert live.units_selected(screen("units"))
     assert not live.units_selected(screen("barracks"))
     assert not live.units_selected(screen(None))
+    blank = Image.open(live.data_path("blank_card.png"))
+    assert not live.building_selected(blank)
+    assert not live.building_selected(screen("units"))
+    assert live.building_selected(screen("barracks"))
+    assert trial.round_timer(0) == "5:00" and trial.round_timer(180) == "2:00"
+    assert trial.round_timer(310) == "4:50"
 
 
 def test_map_data():
@@ -289,9 +302,16 @@ def test_opening_masses_fast_and_hits_berlin():
         romania = trial.place(m, "Romania 300")
         assert sum(near(u["to"], (romania["x"], romania["y"]), 20)
                    for u in sent) >= 20             # the second hit: Romania
-        # the Smolensk barracks was lifted and sent to Warsaw
-        warsaw = trial.place(m, trial.TAX_CITY)
-        assert g.tax_flight and near(g.tax_flight, (warsaw["x"], warsaw["y"]), 3)
+        # the Smolensk barracks was flown to Warsaw after the first hit,
+        # and the Sevastopol starport to Romania after the second
+        warsaw = trial.place(m, "Warsaw 200")
+        kinds = {k: (x, y) for k, x, y in g.flights}
+        assert near(kinds["barracks"], (warsaw["x"], warsaw["y"]), 3), error
+        assert near(kinds["starport"], (romania["x"], romania["y"]), 3), error
+        # the third hit went to the factory at Belgrade
+        belgrade = trial.place(m, "Factory 7")
+        assert sum(near(u["to"], (belgrade["x"], belgrade["y"]), 20)
+                   for u in sent) >= 10, error
         # later hits found the newly trained marines
         assert sum(1 for h in result["hits"][1:] if h) >= 1, (error, result)
         # few boxes come up empty

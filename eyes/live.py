@@ -84,6 +84,13 @@ def barracks_selected(screen):
     return _first_button_is(screen, "barracks_card.png")
 
 
+def building_selected(picture):
+    """True when something with command buttons is selected that is not
+    a group of units: a building that can train or lift off."""
+    return not _first_button_is(picture, "blank_card.png") and \
+        not _first_button_is(picture, "units_card.png")
+
+
 def units_selected(screen):
     """True when the first command button is Move, which means units
     that can be ordered about are selected."""
