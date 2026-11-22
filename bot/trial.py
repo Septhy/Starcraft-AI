@@ -16,32 +16,35 @@ What the replays show Russia doing, and what this copies:
   6. Fly the Smolensk barracks to Warsaw, to take Warsaw's tax. Tax is
      paid when the round timer reaches 2:00, to whoever has a building
      at a city while the other sides have none. Floating counts.
-  7. Keep going: train again, let a new mass build, hit again: Berlin
-     a second time, then Romania, with a starport flown there for its
-     tax, then Belgrade, where the Balkan factory is. That factory goes to whoever has a building
-     there with the round timer between 5:00 and 2:00, and then pays
-     out units each round at 2:00.
+  7. Keep going, with bigger hits: keep the barracks busy and wait
+     until the new mass is large before sending it. Where it goes
+     depends on what the minimap shows: south to Romania, and then to
+     the factory at Belgrade, when the Axis is in the Balkans; Berlin
+     again when it is not. A starport is flown to Romania for its tax
+     when the first hit goes there.
 
 The steps only use an `io` object (see hands/win.py for the real one),
 so they can be tested without Windows or the game.
 
 How it sees: the minimap shows where its own units are (eyes/live.py,
 Watch). It boxes only where units are, watches the mass build up, and
-gives an order only when the screen shows units are selected. It does
-not see the enemy yet.
+gives an order only when the screen shows units are selected. It sees
+other players' colours on the minimap too, and so far uses that for
+one thing: choosing where a later hit goes.
 """
 import json
 
 from eyes import live
 
 SLOT = "5"                     # Russia
-# Where each hit goes. "Factory 7" is the factory at Belgrade.
-# The second hit is not always the Balkans. In the replays Russia turns
-# south early (minutes 2 to 4) mostly when the Axis is busy in the
-# Balkans, and otherwise keeps hitting Berlin until minutes 5 to 9.
-# The bot cannot see the Axis yet, so it takes the usual case: Berlin
-# twice, then Romania.
-TARGETS = ["Berlin 1000", "Berlin 1000", "Romania 300", "Factory 7"]
+# The first hit goes to Berlin. Later hits go to Berlin again, or south
+# to Romania and then the factory at Belgrade ("Factory 7"). In the
+# replays Russia turns south early mostly when the Axis is busy in the
+# Balkans, so the bot looks: enough Axis colour there, and it goes south.
+TARGETS = ["Berlin 1000", "Romania 300", "Factory 7"]
+AXIS = [0, 1, 7]               # Germany, Italy, Spain: Russia's enemies
+BALKANS = (126, 106, 172, 142) # tiles: left, top, right, bottom
+BALKAN_AXIS = 60               # this many more Axis pixels there than at the start: go south
 # Points across a target's front, in tiles from its centre. Each group
 # is sent to its own, so the army arrives as a wall, not a line.
 FRONT = [(4, -5), (4, -1), (4, 3), (6, -3), (6, 1), (6, 5), (2, -3),
@@ -49,11 +52,12 @@ FRONT = [(4, -5), (4, -1), (4, 3), (6, -3), (6, 1), (6, 5), (2, -3),
 MASS = (160 * 32, 76 * 32)     # map pixels: where the army masses
 MASS_RADIUS = 13               # minimap pixels around it that count as there
 MIDDLE_EAST = (219 * 32, 129 * 32)   # bring a unit here for the spawn
-# Buildings to fly to a city, each after the hit with that number has
-# been sent: (hit, kind of building, its tile, the city). A building
+# Buildings to fly to a city: (when, kind of building, its tile, the
+# city). "When" is a hit's number, or a target's name for the first
+# hit sent at that target. A building
 # floating over a city counts as holding it.
 FLIGHTS = [(1, "Barracks", (173, 80), "Warsaw 200"),     # Smolensk's
-           (3, "Starport", (190, 110), "Romania 300")]   # Sevastopol's
+           ("Romania 300", "Starport", (190, 110), "Romania 300")]   # Sevastopol's
 MARINES_PER_BARRACKS = 5       # a building queues at most five
 # Where to try clicking, relative to where the barracks should appear.
 TRIES = [(0, 0), (40, 80), (-60, 0), (60, 0), (0, -70), (0, 150), (-90, 90)]
@@ -65,8 +69,11 @@ AIR_KEYS = list("90")
 FIRST_ORDERS_UNTIL = 45        # seconds: stop the first round of orders
 WAVE_EARLIEST = 55             # seconds: do not hit before this
 WAVE_LATEST = 100              # seconds: hit by now whatever happens
-LATER_HITS = 3                 # how many more hits to try after the first
-LATER_WAIT = 45                # seconds to let each new mass build
+TRIAL_SECONDS = 480            # stop starting new hits after this long
+BIG_MASS = 140                 # minimap pixels at the mass for a later hit
+LATER_WAIT_MAX = 200           # seconds: hit with what there is by then
+RETRAIN_EVERY = 55             # seconds between rounds of the barracks
+FIRST_HIT_SWEEPS = 2           # stragglers wait for the next mass
 
 
 class Stopped(Exception):
@@ -79,6 +86,9 @@ class State:
         self.ground_keys, self.air_keys = [], []
         self.orders_sent = 0       # counts hit orders, to walk along FRONT
         self.flown = set()         # barracks (tiles) that have been flown off
+        self.sent_at = []          # the target of each hit so far
+        self.flights_done = set()
+        self.balkan_start = 0      # Axis pixels in the Balkans at the start
 
 
 def load_map():
@@ -403,7 +413,7 @@ def sweep_mass(io, watch, mapdata, st, target):
     return orders, len(there)
 
 
-def hit(io, watch, mapdata, st, target, use_keys=True):
+def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
     """Send the mass at the target as a wall."""
     orders = 0
     if use_keys:
@@ -414,7 +424,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True):
             orders += 1
         io.sleep(1.5)                   # let them step off
     start = None
-    for sweep in range(4):
+    for sweep in range(sweeps):
         n, found = sweep_mass(io, watch, mapdata, st, target)
         orders += n
         start = start or max(found, 1)
@@ -471,10 +481,63 @@ def fly_building(io, mapdata, st, kind, tile, city_name):
     return True
 
 
-def flights_after(io, mapdata, st, hit_number):
-    for n, kind, tile, city in FLIGHTS:
-        if n == hit_number:
+def flights_after(io, mapdata, st, when):
+    for w, kind, tile, city in FLIGHTS:
+        if w == when and (w, city) not in st.flights_done:
+            st.flights_done.add((w, city))
             fly_building(io, mapdata, st, kind, tile, city)
+
+
+def axis_in(watch, screen, box):
+    """How many minimap pixels of Axis colour lie in a box of tiles."""
+    l, t, r, b = box
+    n = 0
+    for c, row in watch.others(screen, AXIS):
+        x, y = live.from_drawn(c, row)
+        if l <= x / 32 < r and t <= y / 32 < b:
+            n += 1
+    return n
+
+
+def choose_target(io, watch, st):
+    """Where the next hit should go, from what the minimap shows.
+
+    Germany starts the game with troops in the Balkans, so what counts
+    is how much more Axis colour is there now than at the start."""
+    seen = axis_in(watch, io.shot("choose"), BALKANS)
+    more = seen - st.balkan_start
+    if more >= BALKAN_AXIS:
+        target = "Factory 7" if "Romania 300" in st.sent_at else "Romania 300"
+        why = "go south"
+    else:
+        target = "Berlin 1000"
+        why = "Berlin again"
+    io.log(f"next target {target} (Axis in the Balkans: {seen} pixels, "
+           f"{st.balkan_start} at the start: {why})")
+    return target
+
+
+def build_big_mass(io, watch, mapdata, st, t0):
+    """Keep the barracks busy and wait until the mass is big, or until
+    it has been long enough. Returns the size of the mass."""
+    began = last_train = io.now()
+    train_everywhere(io, mapdata, st)
+    collected = False
+    while True:
+        massed = len(at_mass(watch.units(io.shot("watch", keep=False))))
+        waited = io.now() - began
+        if massed >= BIG_MASS or waited >= LATER_WAIT_MAX:
+            break
+        if not collected:
+            collected = collect_middle_east(io, watch, st) > 0
+        if io.now() - last_train >= RETRAIN_EVERY:
+            last_train = io.now()
+            train_everywhere(io, mapdata, st)
+        io.sleep(3.0)
+    io.shot("mass")
+    io.log(f"mass at {io.now() - t0:.0f} s: {massed} minimap pixels of "
+           f"units there after {waited:.0f} s of building it")
+    return massed
 
 
 def run(io, mapdata=None):
@@ -487,6 +550,7 @@ def run(io, mapdata=None):
         io.log("The live game's minimap is not on screen. Nothing done.")
         return {"trained": 0, "gathered": 0, "hits": []}
     t0, st = io.now(), State()
+    st.balkan_start = axis_in(watch, first, BALKANS)
     since = lambda: f"{io.now() - t0:.0f} s"
     send_scout(io, mapdata, st)
     trained = train_everywhere(io, mapdata, st)
@@ -495,22 +559,22 @@ def run(io, mapdata=None):
     io.log(f"  ({since()} since start)")
     wait_for_mass(io, watch, mapdata, st, t0, WAVE_EARLIEST, WAVE_LATEST)
     hit_at = round(io.now() - t0)
-    hits = [hit(io, watch, mapdata, st, TARGETS[0])]
+    hits = [hit(io, watch, mapdata, st, TARGETS[0], sweeps=FIRST_HIT_SWEEPS)]
+    st.sent_at.append(TARGETS[0])
     io.log(f"  first hit sent by {since()}; {st.boxes} boxes, "
            f"{st.empty} empty")
     flights_after(io, mapdata, st, 1)
-    for n in range(LATER_HITS):
-        target = TARGETS[(n + 1) % len(TARGETS)]
-        train_everywhere(io, mapdata, st)
-        start = io.now() - t0
-        massed = wait_for_mass(io, watch, mapdata, st, t0,
-                               start + LATER_WAIT, start + LATER_WAIT + 15)
-        if massed >= 30:
-            hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
-            flights_after(io, mapdata, st, n + 2)
-        else:
-            io.log(f"hit {n + 2}: no new mass to send")
+    while io.now() - t0 < TRIAL_SECONDS:
+        massed = build_big_mass(io, watch, mapdata, st, t0)
+        if massed < 30:
+            io.log("no new mass to send")
             hits.append(0)
+            continue
+        target = choose_target(io, watch, st)
+        hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
+        st.sent_at.append(target)
+        flights_after(io, mapdata, st, len(hits))
+        flights_after(io, mapdata, st, target)
         io.log(f"  ({since()} since start; round timer about "
                f"{round_timer(io.now() - t0)})")
     for name in ("Berlin 1000", "Warsaw 200", "Romania 300", "Factory 7"):
@@ -518,5 +582,6 @@ def run(io, mapdata=None):
         look_at(io, w["x"], w["y"], wait=0.5)
         io.shot("at-" + name.split()[0])
     return {"trained": trained, "gathered": gathered, "hit_at": hit_at,
-            "hits": hits, "keys": "".join(st.ground_keys + st.air_keys),
+            "hits": hits, "targets": st.sent_at,
+            "keys": "".join(st.ground_keys + st.air_keys),
             "boxes": st.boxes, "empty": st.empty}

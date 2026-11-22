@@ -299,15 +299,12 @@ def test_opening_masses_fast_and_hits_berlin():
         at_berlin = [u for u in sent if near(u["to"], (w["x"], w["y"]), 20)]
         assert len(at_berlin) >= 150                # the first hit: Berlin
         assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 6   # a wall
-        romania = trial.place(m, "Romania 300")
-        assert sum(near(u["to"], (romania["x"], romania["y"]), 20)
-                   for u in sent) >= 20             # the third hit: Romania
-        # the Smolensk barracks was flown to Warsaw after the first hit,
-        # and the Sevastopol starport to Romania after the third
+        # the Smolensk barracks was flown to Warsaw after the first hit
         warsaw = trial.place(m, "Warsaw 200")
         kinds = {k: (x, y) for k, x, y in g.flights}
         assert near(kinds["barracks"], (warsaw["x"], warsaw["y"]), 3), error
-        assert near(kinds["starport"], (romania["x"], romania["y"]), 3), error
+        # with no Axis to be seen, every hit went to Berlin
+        assert set(result["targets"]) == {"Berlin 1000"}
         # later hits found the newly trained marines
         assert sum(1 for h in result["hits"][1:] if h) >= 1, (error, result)
         # few boxes come up empty
@@ -327,3 +324,77 @@ def test_wave_goes_back_to_front():
     ordered = trial.back_to_front(groups, (berlin["x"], berlin["y"]),
                                   lambda p: live.from_drawn(*p))
     assert [p[0] for p in ordered] == [170, 160, 150]   # east goes first
+
+
+class OneShot:
+    """Just enough of the game for choosing a target: one picture."""
+    def __init__(self, picture):
+        self.picture, self.lines = picture, []
+
+    def shot(self, label, keep=True):
+        return self.picture
+
+    def log(self, text, quiet=False):
+        self.lines.append(text)
+
+
+def real_game_screen():
+    """A screen with the minimap of a real seven-player game pasted in:
+    Russia green, everyone else in their own colour, Germany in Hungary
+    and Romania."""
+    s = Image.new("RGB", (1920, 1080))
+    s.paste(Image.open(os.path.join(DATA, "real_minimap.png")), (0, 780))
+    return s
+
+
+def test_sees_other_players_on_a_real_minimap():
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    s = real_game_screen()
+    watch = live.Watch(s, side["structures"], side["units"])
+    assert watch.ok
+
+    def centre(slot):
+        px = watch.others(s, [slot])
+        xs = [live.from_drawn(c, r)[0] / 32 for c, r in px]
+        ys = [live.from_drawn(c, r)[1] / 32 for c, r in px]
+        return sum(xs) / len(xs), sum(ys) / len(ys)
+    assert centre(7)[0] < 50 and centre(7)[1] > 140      # Spain: south-west
+    assert centre(4)[1] < 50                             # Norway: north
+    assert 95 < centre(0)[0] < 130                       # Germany: middle
+    assert centre(1)[1] > centre(0)[1] + 30              # Italy: south of it
+    assert len(trial.at_mass(watch.others(s, trial.AXIS))) == 0
+
+
+def test_target_follows_the_axis_in_the_balkans():
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    s = real_game_screen()
+    watch = live.Watch(s, side["structures"], side["units"])
+    seen = trial.axis_in(watch, s, trial.BALKANS)
+    assert seen > 100                                    # Germany is there
+    st = trial.State()
+    st.balkan_start = seen - 80                          # 80 more than at the start
+    assert trial.choose_target(OneShot(s), watch, st) == "Romania 300"
+    st.sent_at.append("Romania 300")
+    assert trial.choose_target(OneShot(s), watch, st) == "Factory 7"
+    st.balkan_start = seen                               # no more than at the start
+    assert trial.choose_target(OneShot(s), watch, st) == "Berlin 1000"
+    g = FakeGame(m)                                      # nobody else in sight
+    quiet = g.shot("x")
+    watch2 = live.Watch(quiet, side["structures"], side["units"])
+    assert trial.choose_target(OneShot(quiet), watch2, trial.State()) \
+        == "Berlin 1000"
+
+
+def test_romania_flight_follows_the_first_romania_hit():
+    m = trial.load_map()
+    g = FakeGame(m)
+    g.camera = (0, 0)
+    st = trial.State()
+    trial.flights_after(g, m, st, "Romania 300")
+    romania = trial.place(m, "Romania 300")
+    assert g.flights and g.flights[0][0] == "starport"
+    assert near(g.flights[0][1:], (romania["x"], romania["y"]), 3)
+    trial.flights_after(g, m, st, "Romania 300")         # only once
+    assert len(g.flights) == 1

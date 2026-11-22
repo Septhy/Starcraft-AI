@@ -166,6 +166,20 @@ class Watch:
         return set(zip(cols.tolist(), rows.tolist()))
 
 
+    def others(self, screen, slots):
+        """Minimap pixels in the colours of the given slots (see
+        eyes/minimap.py SLOT_COLOURS): other players' units and
+        buildings. In a real game our own side is drawn in green and
+        everyone else in their own colour."""
+        from eyes.minimap import SLOT_COLOURS
+        mm = _drawn(screen)
+        out = set()
+        for slot in slots:
+            mask = np.abs(mm - np.array(SLOT_COLOURS[slot][1])).max(axis=2) < 45
+            rows, cols = np.nonzero(mask)
+            out.update(zip(cols.tolist(), rows.tolist()))
+        return out
+
     def forget(self, pixels):
         """These pixels turned out not to be units (a box there came up
         empty): a building that a unit was standing in front of at the

@@ -267,3 +267,34 @@ qororo98 5 games (36, 17, 4, 1, 0 min); penny[eef] 2 (9, 5);
 STC-Goliath 5; zapda 3; 1939-iknockoutz 3; Teia 3; WestKronos 2;
 danger[eef] 2; alysaliufan 2; and one each for Exo001, rocky1242,
 DaeDroy[EEF], unit[u], 1939-Lurker, PosingasMe, Harrison000.
+
+## Eighth trial: a full run among idle computer players
+
+The repository owner filled the other slots with computer players that
+do nothing. So this is not a real game, but the map's triggers ran and
+the minimap showed every player.
+
+- Four hits completed. 0.66 s per box; 25 of 238 boxes empty.
+- The first hit took from 55 s to 131 s to send: the key groups left in
+  2.5 s, then 85 more orders over four sweeps of the massing place.
+- Money was not being spent: 3,750 minerals at 1:00 and 5,500 at 6:00,
+  with supply at 154 to 200 of 200.
+- The repository owner: hits after the first two are too small; the
+  mass must be much bigger before it goes.
+
+## Seeing other players (the live minimap among other players)
+
+Our own side is drawn bright green; every other player in their own
+colour (Germany red, Italy blue, Spain yellow, UK teal, France purple,
+Norway orange, the computer white). `Watch.others` reads them.
+
+Germany starts with troops in the Balkans: about 190 minimap pixels of
+Axis colour in the box of tiles (126, 106) to (172, 142) at the very
+start. So "the Axis is in the Balkans" has to be measured as growth
+over that starting count.
+
+## Russia players in 48 replays (47 different games)
+
+qororo98 7 games (36, 17, 10, 4, 1, 0, 0 min); penny[eef] 2 (9, 5);
+1939-iknockoutz 6; STC-Goliath 6; WestKronos 5; zapda 3; Teia 3; and
+one or two each for ten others.
