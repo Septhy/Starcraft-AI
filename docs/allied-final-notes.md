@@ -418,7 +418,7 @@ hit, read and write chat, change the opening, and remember.
   point in the picture. Later hits put their newest groups on keys 1 to
   8 so the general has current groups to command.
 - Chat: it reads chat in the screenshot and may type one line to the
-  allies (Shift+Enter), at most every 45 seconds.
+  allies (Ctrl+Enter; Shift+Enter is all players), at most every 45 seconds.
 - The opening: it is asked at the very start, and its target becomes
   the first hit's target; "hit now" can launch the first hit early.
   The scout, the training and the massing stay fixed.
@@ -428,7 +428,7 @@ hit, read and write chat, change the opening, and remember.
 - The app has a model choice: Opus 5.5 (default), Sonnet 5.5, Haiku
   5.5. The spending cap is 5 dollars a run.
 - None of this has been tried against the real API or a real game yet.
-  Unknowns: whether Shift+Enter opens ally chat in this client; how
+  Unknowns: how
   well a model can point at things in a shrunken screenshot; whether
   typing reaches the chat box.
 

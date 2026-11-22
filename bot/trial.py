@@ -1093,7 +1093,7 @@ def say(io, st, text):
     if not text or io.now() - st.last_chat < CHAT_EVERY:
         return False
     st.last_chat = io.now()
-    io.combo("shift", "enter")          # opens chat to allies
+    io.combo("ctrl", "enter")           # Ctrl+Enter: allies only (Shift+Enter is everyone)
     io.sleep(0.15)
     io.type_text(text)
     io.sleep(0.1)

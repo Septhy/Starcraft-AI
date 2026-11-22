@@ -172,7 +172,7 @@ class FakeGame:
     def combo(self, held, name):
         self.inputs += 1
         self.time += 0.15
-        if held == "shift" and name == "enter":
+        if held == "ctrl" and name == "enter":
             self.chat_open = True
             return
         assert held == "ctrl" and isinstance(self.selected, list)
