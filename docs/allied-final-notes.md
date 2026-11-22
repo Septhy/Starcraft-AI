@@ -588,3 +588,15 @@ more of the neighbours, up to twice. In the pretend game its boxes
 hold 10 to 11 units on average and the first hit takes about a third
 fewer orders. The log now reports units per box. Not yet tried on the
 real game.
+
+## Live recordings 3 and 4 (user playing Italy, real opponents)
+
+- Both came from the old recorder (first 5-6 minutes only, full
+  pictures every 3 s). Italy's view, so little on Russia.
+- A paused game greys the whole screen, minimap included. The bot now
+  waits while the minimap has no colour (hands/win.py `paused`),
+  checked against recording 4: only its four paused pictures match.
+- Allied chat: Ctrl+Enter is allies, Shift+Enter is everyone. The user
+  wants Russia to set allied chat under Messages at the start; the bot
+  uses Ctrl+Enter for every line instead. No picture of the Messages
+  window yet.

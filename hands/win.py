@@ -45,6 +45,18 @@ LEFT_DOWN, LEFT_UP, RIGHT_DOWN, RIGHT_UP = 0x02, 0x04, 0x08, 0x10
 KEY_SCAN, KEY_UP = 0x08, 0x02
 
 
+def paused(img):
+    """True if the picture is the greyed-out screen of a paused game:
+    lit, but with no colour anywhere on the minimap."""
+    from PIL import ImageStat
+    r, g, b = img.crop((14, 819, 302, 1036)).split()
+    from PIL import ImageChops
+    spread = ImageStat.Stat(ImageChops.difference(r, b)).mean[0] \
+        + ImageStat.Stat(ImageChops.difference(r, g)).mean[0]
+    return max(ImageStat.Stat(img.crop((14, 819, 302, 1036))).mean) > 6 \
+        and spread < 2.0
+
+
 class WinIO:
     def __init__(self, out_dir, sct, status=lambda s: None):
         self.user = ctypes.windll.user32
@@ -156,11 +168,30 @@ class WinIO:
             if max(ImageStat.Stat(img.crop((400, 800, 1500, 1080))).mean) > 6:
                 break
             time.sleep(0.12)
+        img = self._wait_out_pause(img)
         if keep:
             name = f"{self.n:03d}-{label}.jpg"
             img.save(os.path.join(self.out_dir, name), quality=85)
             self.names.append(name)
             self.n += 1
+        return img
+
+    def _grab(self):
+        from PIL import Image
+        s = self.sct.grab(self.sct.monitors[1])
+        return Image.frombytes("RGB", s.size, s.bgra, "raw", "BGRX")
+
+    def _wait_out_pause(self, img, longest=600):
+        """When a player pauses, the whole screen turns grey. Do nothing
+        until the colour comes back, so no order is given blind."""
+        if not paused(img):
+            return img
+        self.log("the game is paused; waiting")
+        start = time.time()
+        while paused(img) and time.time() - start < longest:
+            self.sleep(1.0)             # also notices F9 and a lost window
+            img = self._grab()
+        self.log(f"pause over after {time.time() - start:.0f} s")
         return img
 
     def card(self):
