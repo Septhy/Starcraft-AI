@@ -61,26 +61,31 @@ class Recorder:
                   encoding="utf-8") as f:
             json.dump({"frames": self.frames}, f, indent=1)
         names = ["info.json"] + [n for e in self.frames for n in e["files"]]
-        parts, current, size = [], [], 0
-        for n in names:
-            s = os.path.getsize(os.path.join(self.out_dir, n))
-            if current and size + s > part_bytes:
-                parts.append(current)
-                current, size = [], 0
-            current.append(n)
-            size += s
-        if current:
+        return pack(self.out_dir, names, part_bytes)
+
+
+def pack(out_dir, names, part_bytes=PART_BYTES):
+    """Pack the named files into zip parts and remove the loose files."""
+    parts, current, size = [], [], 0
+    for n in names:
+        s = os.path.getsize(os.path.join(out_dir, n))
+        if current and size + s > part_bytes:
             parts.append(current)
-        paths = []
-        for i, part in enumerate(parts, 1):
-            path = os.path.join(self.out_dir, f"recording-part{i}.zip")
-            with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as z:
-                for n in part:
-                    z.write(os.path.join(self.out_dir, n), n)
-            paths.append(path)
-        for n in names:
-            os.remove(os.path.join(self.out_dir, n))
-        return paths
+            current, size = [], 0
+        current.append(n)
+        size += s
+    if current:
+        parts.append(current)
+    paths = []
+    for i, part in enumerate(parts, 1):
+        path = os.path.join(out_dir, f"recording-part{i}.zip")
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as z:
+            for n in part:
+                z.write(os.path.join(out_dir, n), n)
+        paths.append(path)
+    for n in names:
+        os.remove(os.path.join(out_dir, n))
+    return paths
 
 
 # ---------------------------------------------------------------- Windows

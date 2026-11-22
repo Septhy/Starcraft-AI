@@ -1,0 +1,55 @@
+name: Build Windows apps
+
+on:
+  push:
+    branches: [main]
+    paths: ['recorder/**', 'bot/**', 'eyes/**', 'hands/**', 'data/**', 'tests/**', '.github/workflows/apps.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: pip install -r recorder/requirements.txt numpy pyinstaller pytest
+      - name: Test
+        run: python -m pytest -q tests/test_recorder.py tests/test_minimap.py tests/test_trial.py
+      - name: Check the Windows input layer loads
+        run: python -c "import hands.win, ctypes; print(ctypes.sizeof(hands.win.INPUT))"
+      - name: Build the apps
+        run: |
+          pyinstaller --onefile --windowed --name StarcraftRecorder recorder/recorder.py
+          pyinstaller --onefile --windowed --name StarcraftTrial --paths . --add-data "data;data" bot/app.py
+      - name: Check the apps start
+        shell: bash
+        run: |
+          ./dist/StarcraftRecorder.exe &
+          ./dist/StarcraftTrial.exe &
+          sleep 20
+          tasklist | grep -i StarcraftRecorder
+          tasklist | grep -i StarcraftTrial
+          taskkill //F //IM StarcraftRecorder.exe
+          taskkill //F //IM StarcraftTrial.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apps
+          path: dist/*.exe
+      - name: Publish the downloads
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Recorder: takes screenshots. Trial: the first bot test. Built from commit $GITHUB_SHA."
+          if gh release view recorder >/dev/null 2>&1; then
+            gh release upload recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe --clobber
+            gh release edit recorder --title "StarCraft apps" --notes "$notes"
+          else
+            gh release create recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe --title "StarCraft apps" --notes "$notes" --target "$GITHUB_SHA"
+          fi

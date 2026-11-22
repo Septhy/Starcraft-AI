@@ -1,0 +1,3769 @@
+{
+ "map": "WWII Euro - AF 4.0",
+ "tiles": [
+  256,
+  192
+ ],
+ "slots": {
+  "0": {
+   "start": [
+    3136,
+    2800
+   ],
+   "buildings": [
+    {
+     "type": "Supply Depot",
+     "x": 4656,
+     "y": 640
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4688,
+     "y": 928
+    },
+    {
+     "type": "Barracks",
+     "x": 4576,
+     "y": 1008
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4464,
+     "y": 1024
+    },
+    {
+     "type": "Bunker",
+     "x": 4304,
+     "y": 1152
+    },
+    {
+     "type": "Bunker",
+     "x": 4496,
+     "y": 1248
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4192,
+     "y": 1280
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4400,
+     "y": 1376
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4256,
+     "y": 1408
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4512,
+     "y": 1440
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4384,
+     "y": 1440
+    },
+    {
+     "type": "Bunker",
+     "x": 4048,
+     "y": 2432
+    },
+    {
+     "type": "Bunker",
+     "x": 3536,
+     "y": 2496
+    },
+    {
+     "type": "Bunker",
+     "x": 2928,
+     "y": 2528
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3392,
+     "y": 2528
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2544,
+     "y": 2560
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2624,
+     "y": 2560
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3040,
+     "y": 2560
+    },
+    {
+     "type": "Barracks",
+     "x": 2944,
+     "y": 2608
+    },
+    {
+     "type": "Bunker",
+     "x": 3920,
+     "y": 2656
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2416,
+     "y": 2656
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3536,
+     "y": 2688
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2800,
+     "y": 2688
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2704,
+     "y": 2688
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2336,
+     "y": 2688
+    },
+    {
+     "type": "Bunker",
+     "x": 3248,
+     "y": 2720
+    },
+    {
+     "type": "Command Center",
+     "x": 3168,
+     "y": 2800
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2512,
+     "y": 2784
+    },
+    {
+     "type": "Starport",
+     "x": 3392,
+     "y": 2800
+    },
+    {
+     "type": "Bunker",
+     "x": 2352,
+     "y": 2816
+    },
+    {
+     "type": "Bunker",
+     "x": 3728,
+     "y": 2848
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2272,
+     "y": 2848
+    },
+    {
+     "type": "Starport",
+     "x": 3168,
+     "y": 2896
+    },
+    {
+     "type": "Barracks",
+     "x": 3360,
+     "y": 2896
+    },
+    {
+     "type": "Factory",
+     "x": 2976,
+     "y": 2896
+    },
+    {
+     "type": "Bunker",
+     "x": 4112,
+     "y": 2912
+    },
+    {
+     "type": "Factory",
+     "x": 2624,
+     "y": 2928
+    },
+    {
+     "type": "Bunker",
+     "x": 3216,
+     "y": 2976
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3536,
+     "y": 2976
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3696,
+     "y": 3008
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3440,
+     "y": 3008
+    },
+    {
+     "type": "Bunker",
+     "x": 2288,
+     "y": 3072
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2608,
+     "y": 3072
+    },
+    {
+     "type": "Bunker",
+     "x": 3824,
+     "y": 3104
+    },
+    {
+     "type": "Bunker",
+     "x": 4240,
+     "y": 3104
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2896,
+     "y": 3104
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2608,
+     "y": 3136
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2864,
+     "y": 3168
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3664,
+     "y": 3232
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3600,
+     "y": 3296
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3120,
+     "y": 3296
+    },
+    {
+     "type": "Bunker",
+     "x": 2256,
+     "y": 3328
+    },
+    {
+     "type": "Bunker",
+     "x": 2800,
+     "y": 3360
+    },
+    {
+     "type": "Bunker",
+     "x": 3920,
+     "y": 3360
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3184,
+     "y": 3360
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3280,
+     "y": 3360
+    },
+    {
+     "type": "Command Center",
+     "x": 3552,
+     "y": 3376
+    },
+    {
+     "type": "Bunker",
+     "x": 2416,
+     "y": 3392
+    },
+    {
+     "type": "Bunker",
+     "x": 4208,
+     "y": 3456
+    },
+    {
+     "type": "Factory",
+     "x": 3680,
+     "y": 3472
+    },
+    {
+     "type": "Starport",
+     "x": 3456,
+     "y": 3504
+    },
+    {
+     "type": "Bunker",
+     "x": 4048,
+     "y": 3552
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4400,
+     "y": 3616
+    },
+    {
+     "type": "Barracks",
+     "x": 4000,
+     "y": 3760
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4208,
+     "y": 3744
+    },
+    {
+     "type": "Bunker",
+     "x": 4720,
+     "y": 3744
+    },
+    {
+     "type": "Bunker",
+     "x": 4336,
+     "y": 3872
+    },
+    {
+     "type": "Bunker",
+     "x": 5008,
+     "y": 3904
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4656,
+     "y": 3936
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4912,
+     "y": 3936
+    },
+    {
+     "type": "Bunker",
+     "x": 3888,
+     "y": 3968
+    },
+    {
+     "type": "Bunker",
+     "x": 3472,
+     "y": 3968
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4928,
+     "y": 4032
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3424,
+     "y": 4064
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5456,
+     "y": 5760
+    },
+    {
+     "type": "Bunker",
+     "x": 5520,
+     "y": 5856
+    },
+    {
+     "type": "Bunker",
+     "x": 3152,
+     "y": 5920
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5504,
+     "y": 5920
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3376,
+     "y": 5952
+    },
+    {
+     "type": "Bunker",
+     "x": 5520,
+     "y": 5984
+    },
+    {
+     "type": "Bunker",
+     "x": 3696,
+     "y": 6048
+    },
+    {
+     "type": "Bunker",
+     "x": 3312,
+     "y": 6080
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3456,
+     "y": 6080
+    }
+   ]
+  },
+  "1": {
+   "start": [
+    2944,
+    4336
+   ],
+   "buildings": [
+    {
+     "type": "Bunker",
+     "x": 3056,
+     "y": 3904
+    },
+    {
+     "type": "Bunker",
+     "x": 2800,
+     "y": 4000
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2576,
+     "y": 4096
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3600,
+     "y": 4128
+    },
+    {
+     "type": "Command Center",
+     "x": 3840,
+     "y": 4176
+    },
+    {
+     "type": "Bunker",
+     "x": 2288,
+     "y": 4192
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2272,
+     "y": 4256
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2832,
+     "y": 4256
+    },
+    {
+     "type": "Bunker",
+     "x": 2992,
+     "y": 4256
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4512,
+     "y": 4256
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4336,
+     "y": 4288
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2864,
+     "y": 4320
+    },
+    {
+     "type": "Command Center",
+     "x": 2976,
+     "y": 4336
+    },
+    {
+     "type": "Bunker",
+     "x": 4528,
+     "y": 4320
+    },
+    {
+     "type": "Barracks",
+     "x": 4224,
+     "y": 4368
+    },
+    {
+     "type": "Factory",
+     "x": 3232,
+     "y": 4368
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4400,
+     "y": 4384
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3088,
+     "y": 4448
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3424,
+     "y": 4480
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4064,
+     "y": 4512
+    },
+    {
+     "type": "Bunker",
+     "x": 4272,
+     "y": 4544
+    },
+    {
+     "type": "Bunker",
+     "x": 3408,
+     "y": 4608
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3600,
+     "y": 4672
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3680,
+     "y": 4704
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3536,
+     "y": 4736
+    },
+    {
+     "type": "Bunker",
+     "x": 2512,
+     "y": 4960
+    },
+    {
+     "type": "Bunker",
+     "x": 3088,
+     "y": 5120
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3200,
+     "y": 5152
+    },
+    {
+     "type": "Barracks",
+     "x": 5344,
+     "y": 5776
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5232,
+     "y": 5792
+    },
+    {
+     "type": "Bunker",
+     "x": 5168,
+     "y": 5856
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4864,
+     "y": 5920
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4096,
+     "y": 5920
+    },
+    {
+     "type": "Starport",
+     "x": 4928,
+     "y": 6000
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4624,
+     "y": 6016
+    },
+    {
+     "type": "Bunker",
+     "x": 4816,
+     "y": 6048
+    },
+    {
+     "type": "Bunker",
+     "x": 5168,
+     "y": 6080
+    }
+   ]
+  },
+  "2": {
+   "start": [
+    1632,
+    2608
+   ],
+   "buildings": [
+    {
+     "type": "Missile Turret",
+     "x": 32,
+     "y": 160
+    },
+    {
+     "type": "Supply Depot",
+     "x": 144,
+     "y": 224
+    },
+    {
+     "type": "Bunker",
+     "x": 144,
+     "y": 320
+    },
+    {
+     "type": "Missile Turret",
+     "x": 256,
+     "y": 320
+    },
+    {
+     "type": "Supply Depot",
+     "x": 48,
+     "y": 512
+    },
+    {
+     "type": "Missile Turret",
+     "x": 384,
+     "y": 672
+    },
+    {
+     "type": "Bunker",
+     "x": 112,
+     "y": 928
+    },
+    {
+     "type": "Missile Turret",
+     "x": 288,
+     "y": 928
+    },
+    {
+     "type": "Starport",
+     "x": 64,
+     "y": 1072
+    },
+    {
+     "type": "Missile Turret",
+     "x": 224,
+     "y": 1120
+    },
+    {
+     "type": "Supply Depot",
+     "x": 80,
+     "y": 1216
+    },
+    {
+     "type": "Bunker",
+     "x": 48,
+     "y": 1408
+    },
+    {
+     "type": "Missile Turret",
+     "x": 192,
+     "y": 1408
+    },
+    {
+     "type": "Bunker",
+     "x": 1552,
+     "y": 1632
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1392,
+     "y": 1696
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1536,
+     "y": 1760
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1744,
+     "y": 1792
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1648,
+     "y": 1792
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1568,
+     "y": 1888
+    },
+    {
+     "type": "Missile Turret",
+     "x": 672,
+     "y": 2048
+    },
+    {
+     "type": "Missile Turret",
+     "x": 832,
+     "y": 2048
+    },
+    {
+     "type": "Supply Depot",
+     "x": 752,
+     "y": 2048
+    },
+    {
+     "type": "Bunker",
+     "x": 1552,
+     "y": 2080
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1392,
+     "y": 2080
+    },
+    {
+     "type": "Supply Depot",
+     "x": 624,
+     "y": 2112
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1392,
+     "y": 2144
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1568,
+     "y": 2144
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1392,
+     "y": 2304
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1648,
+     "y": 2336
+    },
+    {
+     "type": "Factory",
+     "x": 1280,
+     "y": 2352
+    },
+    {
+     "type": "Barracks",
+     "x": 1536,
+     "y": 2352
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1200,
+     "y": 2432
+    },
+    {
+     "type": "Bunker",
+     "x": 1136,
+     "y": 2496
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1232,
+     "y": 2496
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1760,
+     "y": 2496
+    },
+    {
+     "type": "Command Center",
+     "x": 1632,
+     "y": 2608
+    },
+    {
+     "type": "Bunker",
+     "x": 1744,
+     "y": 2624
+    },
+    {
+     "type": "Starport",
+     "x": 1408,
+     "y": 2672
+    },
+    {
+     "type": "Starport",
+     "x": 1216,
+     "y": 2768
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1504,
+     "y": 2752
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1632,
+     "y": 2752
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1120,
+     "y": 2752
+    },
+    {
+     "type": "Bunker",
+     "x": 1392,
+     "y": 2784
+    },
+    {
+     "type": "Missile Turret",
+     "x": 7904,
+     "y": 4800
+    },
+    {
+     "type": "Bunker",
+     "x": 7760,
+     "y": 4864
+    },
+    {
+     "type": "Missile Turret",
+     "x": 7968,
+     "y": 4896
+    },
+    {
+     "type": "Bunker",
+     "x": 4688,
+     "y": 4928
+    },
+    {
+     "type": "Missile Turret",
+     "x": 7744,
+     "y": 4928
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4752,
+     "y": 4992
+    },
+    {
+     "type": "Bunker",
+     "x": 7760,
+     "y": 4992
+    },
+    {
+     "type": "Missile Turret",
+     "x": 7840,
+     "y": 5024
+    },
+    {
+     "type": "Bunker",
+     "x": 1936,
+     "y": 5056
+    },
+    {
+     "type": "Bunker",
+     "x": 1168,
+     "y": 5088
+    },
+    {
+     "type": "Bunker",
+     "x": 1040,
+     "y": 5120
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1248,
+     "y": 5120
+    },
+    {
+     "type": "Bunker",
+     "x": 4720,
+     "y": 5216
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4800,
+     "y": 5248
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3968,
+     "y": 5408
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4048,
+     "y": 5440
+    },
+    {
+     "type": "Bunker",
+     "x": 4304,
+     "y": 5504
+    },
+    {
+     "type": "Starport",
+     "x": 4160,
+     "y": 5552
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4448,
+     "y": 5568
+    },
+    {
+     "type": "Missile Turret",
+     "x": 6112,
+     "y": 5632
+    },
+    {
+     "type": "Command Center",
+     "x": 5952,
+     "y": 5648
+    },
+    {
+     "type": "Bunker",
+     "x": 6256,
+     "y": 5664
+    },
+    {
+     "type": "Barracks",
+     "x": 6368,
+     "y": 5712
+    },
+    {
+     "type": "Bunker",
+     "x": 5936,
+     "y": 5792
+    },
+    {
+     "type": "Bunker",
+     "x": 6288,
+     "y": 5824
+    },
+    {
+     "type": "Bunker",
+     "x": 5936,
+     "y": 5984
+    }
+   ]
+  },
+  "3": {
+   "start": [
+    1632,
+    3632
+   ],
+   "buildings": [
+    {
+     "type": "Bunker",
+     "x": 1872,
+     "y": 2976
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1760,
+     "y": 3040
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1872,
+     "y": 3104
+    },
+    {
+     "type": "Bunker",
+     "x": 1968,
+     "y": 3136
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1376,
+     "y": 3200
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1520,
+     "y": 3200
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1856,
+     "y": 3200
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1072,
+     "y": 3232
+    },
+    {
+     "type": "Bunker",
+     "x": 1424,
+     "y": 3328
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1264,
+     "y": 3360
+    },
+    {
+     "type": "Bunker",
+     "x": 1936,
+     "y": 3456
+    },
+    {
+     "type": "Bunker",
+     "x": 2128,
+     "y": 3584
+    },
+    {
+     "type": "Barracks",
+     "x": 1440,
+     "y": 3600
+    },
+    {
+     "type": "Command Center",
+     "x": 1632,
+     "y": 3632
+    },
+    {
+     "type": "Barracks",
+     "x": 1760,
+     "y": 3632
+    },
+    {
+     "type": "Factory",
+     "x": 1632,
+     "y": 3728
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2032,
+     "y": 3776
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1392,
+     "y": 3872
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1680,
+     "y": 3904
+    },
+    {
+     "type": "Bunker",
+     "x": 2128,
+     "y": 3936
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1584,
+     "y": 4000
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1968,
+     "y": 4000
+    },
+    {
+     "type": "Bunker",
+     "x": 2032,
+     "y": 4064
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1456,
+     "y": 4224
+    },
+    {
+     "type": "Bunker",
+     "x": 1360,
+     "y": 4288
+    },
+    {
+     "type": "Bunker",
+     "x": 1680,
+     "y": 4288
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2528,
+     "y": 4640
+    },
+    {
+     "type": "Bunker",
+     "x": 7120,
+     "y": 4992
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6928,
+     "y": 5056
+    },
+    {
+     "type": "Barracks",
+     "x": 7136,
+     "y": 5168
+    },
+    {
+     "type": "Supply Depot",
+     "x": 7152,
+     "y": 5248
+    },
+    {
+     "type": "Bunker",
+     "x": 6960,
+     "y": 5280
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2592,
+     "y": 5408
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2352,
+     "y": 5440
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2432,
+     "y": 5440
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2016,
+     "y": 5504
+    },
+    {
+     "type": "Command Center",
+     "x": 2432,
+     "y": 5520
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1936,
+     "y": 5536
+    },
+    {
+     "type": "Bunker",
+     "x": 1744,
+     "y": 5600
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2320,
+     "y": 5632
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2592,
+     "y": 5664
+    },
+    {
+     "type": "Bunker",
+     "x": 368,
+     "y": 5760
+    },
+    {
+     "type": "Bunker",
+     "x": 2672,
+     "y": 5760
+    },
+    {
+     "type": "Bunker",
+     "x": 1808,
+     "y": 5792
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2640,
+     "y": 5824
+    },
+    {
+     "type": "Factory",
+     "x": 2208,
+     "y": 5904
+    },
+    {
+     "type": "Bunker",
+     "x": 272,
+     "y": 5920
+    },
+    {
+     "type": "Supply Depot",
+     "x": 144,
+     "y": 5984
+    },
+    {
+     "type": "Bunker",
+     "x": 2512,
+     "y": 5984
+    }
+   ]
+  },
+  "4": {
+   "start": [
+    3104,
+    1616
+   ],
+   "buildings": [
+    {
+     "type": "Missile Turret",
+     "x": 4128,
+     "y": 32
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4368,
+     "y": 224
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3712,
+     "y": 224
+    },
+    {
+     "type": "Bunker",
+     "x": 4464,
+     "y": 224
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3488,
+     "y": 320
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3600,
+     "y": 320
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4048,
+     "y": 352
+    },
+    {
+     "type": "Bunker",
+     "x": 4240,
+     "y": 416
+    },
+    {
+     "type": "Bunker",
+     "x": 3280,
+     "y": 448
+    },
+    {
+     "type": "Bunker",
+     "x": 4304,
+     "y": 640
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3232,
+     "y": 640
+    },
+    {
+     "type": "Bunker",
+     "x": 3312,
+     "y": 800
+    },
+    {
+     "type": "Bunker",
+     "x": 3856,
+     "y": 832
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3312,
+     "y": 896
+    },
+    {
+     "type": "Bunker",
+     "x": 3664,
+     "y": 992
+    },
+    {
+     "type": "Barracks",
+     "x": 3584,
+     "y": 1136
+    },
+    {
+     "type": "Bunker",
+     "x": 2928,
+     "y": 1216
+    },
+    {
+     "type": "Supply Depot",
+     "x": 3024,
+     "y": 1248
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2720,
+     "y": 1312
+    },
+    {
+     "type": "Starport",
+     "x": 3296,
+     "y": 1328
+    },
+    {
+     "type": "Factory",
+     "x": 3488,
+     "y": 1456
+    },
+    {
+     "type": "Missile Turret",
+     "x": 3104,
+     "y": 1664
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2736,
+     "y": 1664
+    },
+    {
+     "type": "Bunker",
+     "x": 3664,
+     "y": 1696
+    },
+    {
+     "type": "Command Center",
+     "x": 2912,
+     "y": 1744
+    },
+    {
+     "type": "Bunker",
+     "x": 3120,
+     "y": 1792
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2656,
+     "y": 1824
+    },
+    {
+     "type": "Bunker",
+     "x": 2800,
+     "y": 1856
+    },
+    {
+     "type": "Bunker",
+     "x": 3344,
+     "y": 2176
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2912,
+     "y": 2176
+    },
+    {
+     "type": "Bunker",
+     "x": 2832,
+     "y": 2208
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2720,
+     "y": 2240
+    }
+   ]
+  },
+  "5": {
+   "start": [
+    6688,
+    1584
+   ],
+   "buildings": [
+    {
+     "type": "Supply Depot",
+     "x": 8144,
+     "y": 96
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5200,
+     "y": 128
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4832,
+     "y": 128
+    },
+    {
+     "type": "Starport",
+     "x": 4992,
+     "y": 176
+    },
+    {
+     "type": "Barracks",
+     "x": 6656,
+     "y": 240
+    },
+    {
+     "type": "Bunker",
+     "x": 4880,
+     "y": 320
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6736,
+     "y": 320
+    },
+    {
+     "type": "Barracks",
+     "x": 5056,
+     "y": 400
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5152,
+     "y": 416
+    },
+    {
+     "type": "Supply Depot",
+     "x": 7568,
+     "y": 448
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5040,
+     "y": 576
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6384,
+     "y": 640
+    },
+    {
+     "type": "Bunker",
+     "x": 5072,
+     "y": 672
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6672,
+     "y": 736
+    },
+    {
+     "type": "Bunker",
+     "x": 5552,
+     "y": 768
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5936,
+     "y": 832
+    },
+    {
+     "type": "Bunker",
+     "x": 5552,
+     "y": 864
+    },
+    {
+     "type": "Bunker",
+     "x": 5008,
+     "y": 1088
+    },
+    {
+     "type": "Supply Depot",
+     "x": 7952,
+     "y": 1120
+    },
+    {
+     "type": "Supply Depot",
+     "x": 7280,
+     "y": 1120
+    },
+    {
+     "type": "Barracks",
+     "x": 6688,
+     "y": 1200
+    },
+    {
+     "type": "Barracks",
+     "x": 6560,
+     "y": 1200
+    },
+    {
+     "type": "Bunker",
+     "x": 4816,
+     "y": 1280
+    },
+    {
+     "type": "Starport",
+     "x": 6304,
+     "y": 1296
+    },
+    {
+     "type": "Factory",
+     "x": 6688,
+     "y": 1488
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6416,
+     "y": 1472
+    },
+    {
+     "type": "Command Center",
+     "x": 6688,
+     "y": 1584
+    },
+    {
+     "type": "Factory",
+     "x": 5280,
+     "y": 1584
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5680,
+     "y": 1600
+    },
+    {
+     "type": "Command Center",
+     "x": 5024,
+     "y": 1648
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4768,
+     "y": 1664
+    },
+    {
+     "type": "Bunker",
+     "x": 5136,
+     "y": 1696
+    },
+    {
+     "type": "Bunker",
+     "x": 5872,
+     "y": 1696
+    },
+    {
+     "type": "Bunker",
+     "x": 6608,
+     "y": 1728
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4544,
+     "y": 1728
+    },
+    {
+     "type": "Missile Turret",
+     "x": 6048,
+     "y": 1760
+    },
+    {
+     "type": "Supply Depot",
+     "x": 7952,
+     "y": 1888
+    },
+    {
+     "type": "Bunker",
+     "x": 4592,
+     "y": 1888
+    },
+    {
+     "type": "Bunker",
+     "x": 4784,
+     "y": 1920
+    },
+    {
+     "type": "Bunker",
+     "x": 5008,
+     "y": 1952
+    },
+    {
+     "type": "Bunker",
+     "x": 6064,
+     "y": 1952
+    },
+    {
+     "type": "Bunker",
+     "x": 6992,
+     "y": 1952
+    },
+    {
+     "type": "Missile Turret",
+     "x": 6304,
+     "y": 1952
+    },
+    {
+     "type": "Bunker",
+     "x": 5200,
+     "y": 1984
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5680,
+     "y": 2048
+    },
+    {
+     "type": "Bunker",
+     "x": 6480,
+     "y": 2080
+    },
+    {
+     "type": "Bunker",
+     "x": 6736,
+     "y": 2080
+    },
+    {
+     "type": "Bunker",
+     "x": 4272,
+     "y": 2208
+    },
+    {
+     "type": "Supply Depot",
+     "x": 7216,
+     "y": 2208
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5008,
+     "y": 2208
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4592,
+     "y": 2240
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6064,
+     "y": 2272
+    },
+    {
+     "type": "Supply Depot",
+     "x": 8144,
+     "y": 2336
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5296,
+     "y": 2368
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6608,
+     "y": 2400
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5696,
+     "y": 2432
+    },
+    {
+     "type": "Starport",
+     "x": 7232,
+     "y": 2480
+    },
+    {
+     "type": "Bunker",
+     "x": 6992,
+     "y": 2496
+    },
+    {
+     "type": "Bunker",
+     "x": 4464,
+     "y": 2528
+    },
+    {
+     "type": "Bunker",
+     "x": 7408,
+     "y": 2560
+    },
+    {
+     "type": "Barracks",
+     "x": 5536,
+     "y": 2576
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5632,
+     "y": 2560
+    },
+    {
+     "type": "Bunker",
+     "x": 5712,
+     "y": 2624
+    },
+    {
+     "type": "Barracks",
+     "x": 7328,
+     "y": 2672
+    },
+    {
+     "type": "Missile Turret",
+     "x": 6784,
+     "y": 2688
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5904,
+     "y": 2752
+    },
+    {
+     "type": "Bunker",
+     "x": 4592,
+     "y": 2752
+    },
+    {
+     "type": "Supply Depot",
+     "x": 6288,
+     "y": 2816
+    },
+    {
+     "type": "Supply Depot",
+     "x": 4784,
+     "y": 2848
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5392,
+     "y": 2912
+    },
+    {
+     "type": "Bunker",
+     "x": 6928,
+     "y": 3072
+    },
+    {
+     "type": "Bunker",
+     "x": 4752,
+     "y": 3104
+    },
+    {
+     "type": "Bunker",
+     "x": 5648,
+     "y": 3104
+    },
+    {
+     "type": "Barracks",
+     "x": 5216,
+     "y": 3184
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5696,
+     "y": 3200
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5328,
+     "y": 3264
+    },
+    {
+     "type": "Supply Depot",
+     "x": 8048,
+     "y": 3296
+    },
+    {
+     "type": "Barracks",
+     "x": 7328,
+     "y": 3312
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5888,
+     "y": 3360
+    },
+    {
+     "type": "Bunker",
+     "x": 5072,
+     "y": 3424
+    },
+    {
+     "type": "Bunker",
+     "x": 7216,
+     "y": 3520
+    },
+    {
+     "type": "Starport",
+     "x": 6080,
+     "y": 3536
+    },
+    {
+     "type": "Bunker",
+     "x": 7888,
+     "y": 3552
+    },
+    {
+     "type": "Bunker",
+     "x": 7568,
+     "y": 3552
+    },
+    {
+     "type": "Bunker",
+     "x": 5104,
+     "y": 3584
+    },
+    {
+     "type": "Bunker",
+     "x": 8112,
+     "y": 3616
+    }
+   ]
+  },
+  "6": {
+   "start": [
+    5824,
+    4720
+   ],
+   "buildings": [
+    {
+     "type": "Missile Turret",
+     "x": 1504,
+     "y": 384
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1312,
+     "y": 448
+    },
+    {
+     "type": "Supply Depot",
+     "x": 2032,
+     "y": 1056
+    },
+    {
+     "type": "Missile Turret",
+     "x": 1952,
+     "y": 1088
+    },
+    {
+     "type": "Supply Depot",
+     "x": 496,
+     "y": 2208
+    },
+    {
+     "type": "Supply Depot",
+     "x": 688,
+     "y": 2240
+    },
+    {
+     "type": "Missile Turret",
+     "x": 448,
+     "y": 2368
+    },
+    {
+     "type": "Supply Depot",
+     "x": 528,
+     "y": 2368
+    },
+    {
+     "type": "Missile Turret",
+     "x": 576,
+     "y": 2432
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2528,
+     "y": 3616
+    },
+    {
+     "type": "Bunker",
+     "x": 7408,
+     "y": 3808
+    },
+    {
+     "type": "Missile Turret",
+     "x": 2464,
+     "y": 3840
+    },
+    {
+     "type": "Bunker",
+     "x": 7664,
+     "y": 3872
+    },
+    {
+     "type": "Supply Depot",
+     "x": 7472,
+     "y": 3968
+    },
+    {
+     "type": "Bunker",
+     "x": 7888,
+     "y": 4000
+    },
+    {
+     "type": "Bunker",
+     "x": 8080,
+     "y": 4064
+    },
+    {
+     "type": "Barracks",
+     "x": 7552,
+     "y": 4112
+    },
+    {
+     "type": "Bunker",
+     "x": 4976,
+     "y": 4320
+    },
+    {
+     "type": "Starport",
+     "x": 6400,
+     "y": 4400
+    },
+    {
+     "type": "Supply Depot",
+     "x": 5136,
+     "y": 4416
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5664,
+     "y": 4480
+    },
+    {
+     "type": "Barracks",
+     "x": 4832,
+     "y": 4528
+    },
+    {
+     "type": "Bunker",
+     "x": 5520,
+     "y": 4512
+    },
+    {
+     "type": "Bunker",
+     "x": 5808,
+     "y": 4576
+    },
+    {
+     "type": "Bunker",
+     "x": 5424,
+     "y": 4576
+    },
+    {
+     "type": "Bunker",
+     "x": 6800,
+     "y": 4640
+    },
+    {
+     "type": "Missile Turret",
+     "x": 4960,
+     "y": 4640
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5344,
+     "y": 4704
+    },
+    {
+     "type": "Bunker",
+     "x": 5808,
+     "y": 4864
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5216,
+     "y": 4896
+    },
+    {
+     "type": "Bunker",
+     "x": 5328,
+     "y": 4992
+    },
+    {
+     "type": "Missile Turret",
+     "x": 6080,
+     "y": 4992
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5536,
+     "y": 5024
+    },
+    {
+     "type": "Missile Turret",
+     "x": 5824,
+     "y": 5088
+    },
+    {
+     "type": "Bunker",
+     "x": 7696,
+     "y": 5376
+    },
+    {
+     "type": "Bunker",
+     "x": 8080,
+     "y": 5760
+    },
+    {
+     "type": "Bunker",
+     "x": 6832,
+     "y": 5888
+    },
+    {
+     "type": "Bunker",
+     "x": 7984,
+     "y": 5952
+    },
+    {
+     "type": "Command Center",
+     "x": 5824,
+     "y": 4720
+    }
+   ]
+  },
+  "7": {
+   "start": [
+    704,
+    4656
+   ],
+   "buildings": [
+    {
+     "type": "Supply Depot",
+     "x": 336,
+     "y": 4192
+    },
+    {
+     "type": "Missile Turret",
+     "x": 256,
+     "y": 4192
+    },
+    {
+     "type": "Missile Turret",
+     "x": 736,
+     "y": 4288
+    },
+    {
+     "type": "Starport",
+     "x": 512,
+     "y": 4336
+    },
+    {
+     "type": "Supply Depot",
+     "x": 528,
+     "y": 4416
+    },
+    {
+     "type": "Bunker",
+     "x": 976,
+     "y": 4512
+    },
+    {
+     "type": "Bunker",
+     "x": 560,
+     "y": 4512
+    },
+    {
+     "type": "Bunker",
+     "x": 1264,
+     "y": 4544
+    },
+    {
+     "type": "Bunker",
+     "x": 1552,
+     "y": 4576
+    },
+    {
+     "type": "Supply Depot",
+     "x": 720,
+     "y": 4576
+    },
+    {
+     "type": "Bunker",
+     "x": 400,
+     "y": 4640
+    },
+    {
+     "type": "Supply Depot",
+     "x": 912,
+     "y": 4640
+    },
+    {
+     "type": "Command Center",
+     "x": 736,
+     "y": 4720
+    },
+    {
+     "type": "Factory",
+     "x": 480,
+     "y": 4752
+    },
+    {
+     "type": "Bunker",
+     "x": 912,
+     "y": 4800
+    },
+    {
+     "type": "Supply Depot",
+     "x": 912,
+     "y": 4864
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1232,
+     "y": 4864
+    },
+    {
+     "type": "Bunker",
+     "x": 720,
+     "y": 4864
+    },
+    {
+     "type": "Supply Depot",
+     "x": 368,
+     "y": 4896
+    },
+    {
+     "type": "Supply Depot",
+     "x": 368,
+     "y": 4960
+    },
+    {
+     "type": "Missile Turret",
+     "x": 288,
+     "y": 5056
+    },
+    {
+     "type": "Supply Depot",
+     "x": 368,
+     "y": 5088
+    },
+    {
+     "type": "Bunker",
+     "x": 656,
+     "y": 5216
+    },
+    {
+     "type": "Supply Depot",
+     "x": 944,
+     "y": 5664
+    },
+    {
+     "type": "Bunker",
+     "x": 1104,
+     "y": 5664
+    },
+    {
+     "type": "Bunker",
+     "x": 1456,
+     "y": 5760
+    },
+    {
+     "type": "Supply Depot",
+     "x": 912,
+     "y": 5792
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1136,
+     "y": 5792
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1552,
+     "y": 5952
+    },
+    {
+     "type": "Bunker",
+     "x": 1712,
+     "y": 5984
+    },
+    {
+     "type": "Barracks",
+     "x": 896,
+     "y": 6000
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1040,
+     "y": 6048
+    },
+    {
+     "type": "Supply Depot",
+     "x": 1296,
+     "y": 6048
+    }
+   ]
+  }
+ },
+ "places": [
+  {
+   "name": "Athens 400",
+   "x": 4640,
+   "y": 5104,
+   "w": 448,
+   "h": 480
+  },
+  {
+   "name": "London 400",
+   "x": 1616,
+   "y": 2592,
+   "w": 352,
+   "h": 448
+  },
+  {
+   "name": "Paris 500",
+   "x": 1536,
+   "y": 3648,
+   "w": 576,
+   "h": 320
+  },
+  {
+   "name": "Serbia 100",
+   "x": 4336,
+   "y": 4304,
+   "w": 416,
+   "h": 416
+  },
+  {
+   "name": "Warsaw 200",
+   "x": 4160,
+   "y": 2928,
+   "w": 320,
+   "h": 288
+  },
+  {
+   "name": "Murmansk 100",
+   "x": 4896,
+   "y": 240,
+   "w": 448,
+   "h": 288
+  },
+  {
+   "name": "Sweden 300",
+   "x": 3392,
+   "y": 1744,
+   "w": 512,
+   "h": 992
+  },
+  {
+   "name": "Trondheim 100",
+   "x": 2912,
+   "y": 1280,
+   "w": 448,
+   "h": 576
+  },
+  {
+   "name": "Strasbourg 200",
+   "x": 2016,
+   "y": 3728,
+   "w": 384,
+   "h": 416
+  },
+  {
+   "name": "Vichy 300",
+   "x": 1712,
+   "y": 4112,
+   "w": 224,
+   "h": 608
+  },
+  {
+   "name": "Madrid 1000",
+   "x": 832,
+   "y": 4752,
+   "w": 512,
+   "h": 544
+  },
+  {
+   "name": "Portugal 200",
+   "x": 432,
+   "y": 4976,
+   "w": 352,
+   "h": 480
+  },
+  {
+   "name": "Ankara 200",
+   "x": 5936,
+   "y": 4704,
+   "w": 608,
+   "h": 384
+  },
+  {
+   "name": "Istanbul 400",
+   "x": 5184,
+   "y": 4528,
+   "w": 832,
+   "h": 480
+  },
+  {
+   "name": "Berlin 1000",
+   "x": 3216,
+   "y": 2848,
+   "w": 544,
+   "h": 384
+  },
+  {
+   "name": "Cologne 200",
+   "x": 2384,
+   "y": 3280,
+   "w": 352,
+   "h": 352
+  },
+  {
+   "name": "Munich 200",
+   "x": 3440,
+   "y": 3376,
+   "w": 480,
+   "h": 416
+  },
+  {
+   "name": "Rome 800",
+   "x": 3120,
+   "y": 4368,
+   "w": 736,
+   "h": 352
+  },
+  {
+   "name": "Belgium 200",
+   "x": 1856,
+   "y": 3008,
+   "w": 320,
+   "h": 192
+  },
+  {
+   "name": "Konigsberg 200",
+   "x": 3792,
+   "y": 2560,
+   "w": 608,
+   "h": 384
+  },
+  {
+   "name": "Scotland 150",
+   "x": 1488,
+   "y": 1856,
+   "w": 352,
+   "h": 640
+  },
+  {
+   "name": "Tallinn 200",
+   "x": 4592,
+   "y": 1728,
+   "w": 288,
+   "h": 320
+  },
+  {
+   "name": "Ukraine 200",
+   "x": 5760,
+   "y": 3024,
+   "w": 576,
+   "h": 288
+  },
+  {
+   "name": "Leningrad 400",
+   "x": 5088,
+   "y": 1728,
+   "w": 704,
+   "h": 448
+  },
+  {
+   "name": "Moscow 1000",
+   "x": 6704,
+   "y": 1632,
+   "w": 800,
+   "h": 576
+  },
+  {
+   "name": "Denmark 150",
+   "x": 2816,
+   "y": 2240,
+   "w": 320,
+   "h": 320
+  },
+  {
+   "name": "Hungary 200",
+   "x": 4112,
+   "y": 3776,
+   "w": 736,
+   "h": 384
+  },
+  {
+   "name": "Algiers 300",
+   "x": 1856,
+   "y": 5632,
+   "w": 448,
+   "h": 320
+  },
+  {
+   "name": "Alexandria 500",
+   "x": 6000,
+   "y": 5840,
+   "w": 416,
+   "h": 608
+  },
+  {
+   "name": "Baghdad 200",
+   "x": 7792,
+   "y": 4912,
+   "w": 416,
+   "h": 416
+  },
+  {
+   "name": "Caucasus Mountains 100",
+   "x": 7888,
+   "y": 3552,
+   "w": 608,
+   "h": 320
+  },
+  {
+   "name": "Cherbourg 150",
+   "x": 1456,
+   "y": 3328,
+   "w": 672,
+   "h": 320
+  },
+  {
+   "name": "El Alamein 200",
+   "x": 4512,
+   "y": 6032,
+   "w": 768,
+   "h": 224
+  },
+  {
+   "name": "Krakow 200",
+   "x": 4352,
+   "y": 3200,
+   "w": 320,
+   "h": 256
+  },
+  {
+   "name": "Frankfurt 200",
+   "x": 2880,
+   "y": 3360,
+   "w": 448,
+   "h": 384
+  },
+  {
+   "name": "Attack to Norway",
+   "x": 2960,
+   "y": 2544,
+   "w": 288,
+   "h": 224
+  },
+  {
+   "name": "SpHvyArt",
+   "x": 816,
+   "y": 4896,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Tunis 150",
+   "x": 2384,
+   "y": 5520,
+   "w": 608,
+   "h": 288
+  },
+  {
+   "name": "Tripoli 200",
+   "x": 3424,
+   "y": 5984,
+   "w": 704,
+   "h": 320
+  },
+  {
+   "name": "Izmir 200",
+   "x": 5360,
+   "y": 4928,
+   "w": 480,
+   "h": 320
+  },
+  {
+   "name": "8 French Fighters Player 4",
+   "x": 784,
+   "y": 3792,
+   "w": 224,
+   "h": 288
+  },
+  {
+   "name": "Narvik 200",
+   "x": 3456,
+   "y": 368,
+   "w": 448,
+   "h": 288
+  },
+  {
+   "name": "Arkhangelsk 100",
+   "x": 6656,
+   "y": 336,
+   "w": 384,
+   "h": 352
+  },
+  {
+   "name": "Bunker 1",
+   "x": 7552,
+   "y": 3856,
+   "w": 448,
+   "h": 224
+  },
+  {
+   "name": "Bunker 2",
+   "x": 7984,
+   "y": 4016,
+   "w": 352,
+   "h": 224
+  },
+  {
+   "name": "Bunker 3",
+   "x": 4992,
+   "y": 4336,
+   "w": 128,
+   "h": 160
+  },
+  {
+   "name": "Bunker 5",
+   "x": 5360,
+   "y": 4976,
+   "w": 160,
+   "h": 96
+  },
+  {
+   "name": "Bunker 6",
+   "x": 6800,
+   "y": 4640,
+   "w": 352,
+   "h": 192
+  },
+  {
+   "name": "Bunker 7",
+   "x": 7904,
+   "y": 5696,
+   "w": 576,
+   "h": 768
+  },
+  {
+   "name": "ZGerman Fighter",
+   "x": 3008,
+   "y": 3072,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Bunker 8",
+   "x": 6864,
+   "y": 5744,
+   "w": 288,
+   "h": 608
+  },
+  {
+   "name": "Italian Units",
+   "x": 5248,
+   "y": 5984,
+   "w": 128,
+   "h": 128
+  },
+  {
+   "name": "Norwegian Military",
+   "x": 4048,
+   "y": 624,
+   "w": 416,
+   "h": 224
+  },
+  {
+   "name": "Italian Units 2",
+   "x": 4384,
+   "y": 6080,
+   "w": 128,
+   "h": 128
+  },
+  {
+   "name": "Russian army-Finland",
+   "x": 4880,
+   "y": 1120,
+   "w": 160,
+   "h": 256
+  },
+  {
+   "name": "More German Fighters",
+   "x": 2768,
+   "y": 2992,
+   "w": 352,
+   "h": 352
+  },
+  {
+   "name": "Capital City 1",
+   "x": 5232,
+   "y": 4448,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 2",
+   "x": 6064,
+   "y": 5696,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 3",
+   "x": 848,
+   "y": 4736,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 4",
+   "x": 1552,
+   "y": 3552,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 5",
+   "x": 3088,
+   "y": 4384,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 6",
+   "x": 4624,
+   "y": 5152,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 7",
+   "x": 3440,
+   "y": 3360,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Anywhere",
+   "x": 4096,
+   "y": 3072,
+   "w": 8192,
+   "h": 6144
+  },
+  {
+   "name": "Venice 250",
+   "x": 3040,
+   "y": 3968,
+   "w": 384,
+   "h": 256
+  },
+  {
+   "name": "Namsos 200",
+   "x": 3392,
+   "y": 800,
+   "w": 320,
+   "h": 256
+  },
+  {
+   "name": "Stockholm 300",
+   "x": 3632,
+   "y": 1088,
+   "w": 416,
+   "h": 320
+  },
+  {
+   "name": "Milan 300",
+   "x": 2512,
+   "y": 4144,
+   "w": 416,
+   "h": 352
+  },
+  {
+   "name": "Capital City 8",
+   "x": 3280,
+   "y": 2816,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Taranto 200",
+   "x": 3520,
+   "y": 4752,
+   "w": 576,
+   "h": 416
+  },
+  {
+   "name": "Barcelona 150",
+   "x": 1280,
+   "y": 4608,
+   "w": 320,
+   "h": 320
+  },
+  {
+   "name": "Aleppo 300",
+   "x": 6928,
+   "y": 4992,
+   "w": 224,
+   "h": 256
+  },
+  {
+   "name": "Beirut 300",
+   "x": 6976,
+   "y": 5248,
+   "w": 256,
+   "h": 256
+  },
+  {
+   "name": "Capital City 9",
+   "x": 1616,
+   "y": 2688,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Damascus 300",
+   "x": 7216,
+   "y": 4992,
+   "w": 352,
+   "h": 256
+  },
+  {
+   "name": "Capital City 10",
+   "x": 2832,
+   "y": 1664,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 11",
+   "x": 3664,
+   "y": 1056,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 12",
+   "x": 5136,
+   "y": 1632,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 13",
+   "x": 6704,
+   "y": 1664,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Capital City 14",
+   "x": 5936,
+   "y": 4704,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Siberian Reinforcements",
+   "x": 8016,
+   "y": 1520,
+   "w": 352,
+   "h": 352
+  },
+  {
+   "name": "Whole of France!!",
+   "x": 1536,
+   "y": 3696,
+   "w": 1280,
+   "h": 1312
+  },
+  {
+   "name": "Gilbritar 100",
+   "x": 1056,
+   "y": 5152,
+   "w": 448,
+   "h": 256
+  },
+  {
+   "name": "Helsinki 400",
+   "x": 4384,
+   "y": 1264,
+   "w": 448,
+   "h": 416
+  },
+  {
+   "name": "Kiruna 200",
+   "x": 4288,
+   "y": 496,
+   "w": 512,
+   "h": 416
+  },
+  {
+   "name": "Casablanca 200",
+   "x": 224,
+   "y": 5888,
+   "w": 448,
+   "h": 448
+  },
+  {
+   "name": "Bordeaux 300",
+   "x": 1392,
+   "y": 4272,
+   "w": 480,
+   "h": 288
+  },
+  {
+   "name": "Tangiers 200",
+   "x": 1056,
+   "y": 5696,
+   "w": 512,
+   "h": 384
+  },
+  {
+   "name": "Arctic Russia 50",
+   "x": 8032,
+   "y": 176,
+   "w": 320,
+   "h": 352
+  },
+  {
+   "name": "Kasserine 150",
+   "x": 2480,
+   "y": 5824,
+   "w": 672,
+   "h": 320
+  },
+  {
+   "name": "Benghazi 200",
+   "x": 5216,
+   "y": 5888,
+   "w": 384,
+   "h": 512
+  },
+  {
+   "name": "Lisbon 700",
+   "x": 448,
+   "y": 4560,
+   "w": 320,
+   "h": 352
+  },
+  {
+   "name": "Wales 150",
+   "x": 1264,
+   "y": 2368,
+   "w": 352,
+   "h": 384
+  },
+  {
+   "name": "St. Nazaire 200",
+   "x": 1440,
+   "y": 3968,
+   "w": 384,
+   "h": 320
+  },
+  {
+   "name": "Cairo 100",
+   "x": 6400,
+   "y": 5840,
+   "w": 384,
+   "h": 608
+  },
+  {
+   "name": "ZEnglish Spitfire",
+   "x": 1504,
+   "y": 2336,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "ZItalian Tank",
+   "x": 4160,
+   "y": 4640,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "ZGerman Jeep",
+   "x": 3008,
+   "y": 3136,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Kars 400",
+   "x": 7504,
+   "y": 4016,
+   "w": 416,
+   "h": 352
+  },
+  {
+   "name": "ZEnglish Scout Plane",
+   "x": 1568,
+   "y": 2336,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Oslo 1000",
+   "x": 2864,
+   "y": 1728,
+   "w": 544,
+   "h": 320
+  },
+  {
+   "name": "Sarajevo 200",
+   "x": 3728,
+   "y": 4192,
+   "w": 416,
+   "h": 320
+  },
+  {
+   "name": "Amsterdam 100",
+   "x": 2528,
+   "y": 2656,
+   "w": 448,
+   "h": 320
+  },
+  {
+   "name": "Romania 300",
+   "x": 4912,
+   "y": 3952,
+   "w": 544,
+   "h": 288
+  },
+  {
+   "name": "Stalingrad 400",
+   "x": 7424,
+   "y": 2544,
+   "w": 512,
+   "h": 352
+  },
+  {
+   "name": "ZFrench Fighter",
+   "x": 1184,
+   "y": 3648,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "ZNowegian Partisan",
+   "x": 3152,
+   "y": 1232,
+   "w": 32,
+   "h": 32
+  },
+  {
+   "name": "ZRussian Winter Soldier",
+   "x": 6576,
+   "y": 1488,
+   "w": 32,
+   "h": 32
+  },
+  {
+   "name": "ZSpanish Fighter",
+   "x": 768,
+   "y": 5056,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Switzerland 200",
+   "x": 2560,
+   "y": 3712,
+   "w": 448,
+   "h": 384
+  },
+  {
+   "name": "ZOil Wells",
+   "x": 8096,
+   "y": 4912,
+   "w": 192,
+   "h": 352
+  },
+  {
+   "name": "Turkey Moutain Attack",
+   "x": 7920,
+   "y": 4192,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "Russian Moutain Attack",
+   "x": 7648,
+   "y": 3360,
+   "w": 256,
+   "h": 128
+  },
+  {
+   "name": "Prague 200",
+   "x": 3856,
+   "y": 3376,
+   "w": 352,
+   "h": 416
+  },
+  {
+   "name": "Faeroe 300",
+   "x": 1408,
+   "y": 432,
+   "w": 448,
+   "h": 288
+  },
+  {
+   "name": "Shetland 300",
+   "x": 2048,
+   "y": 1072,
+   "w": 384,
+   "h": 288
+  },
+  {
+   "name": "Basra 200",
+   "x": 7888,
+   "y": 5968,
+   "w": 608,
+   "h": 352
+  },
+  {
+   "name": "Ireland Control",
+   "x": 608,
+   "y": 2208,
+   "w": 448,
+   "h": 512
+  },
+  {
+   "name": "American Invasion Fleet",
+   "x": 1104,
+   "y": 1312,
+   "w": 416,
+   "h": 256
+  },
+  {
+   "name": "bunker 15",
+   "x": 5808,
+   "y": 4704,
+   "w": 160,
+   "h": 448
+  },
+  {
+   "name": "Italian Army",
+   "x": 3536,
+   "y": 3744,
+   "w": 288,
+   "h": 192
+  },
+  {
+   "name": "Spainish Armada",
+   "x": 112,
+   "y": 4960,
+   "w": 160,
+   "h": 384
+  },
+  {
+   "name": "Sevastopol 100",
+   "x": 6000,
+   "y": 3392,
+   "w": 544,
+   "h": 448
+  },
+  {
+   "name": "Nomandy beach",
+   "x": 1424,
+   "y": 3264,
+   "w": 352,
+   "h": 320
+  },
+  {
+   "name": "Italian African Army",
+   "x": 3952,
+   "y": 6080,
+   "w": 352,
+   "h": 128
+  },
+  {
+   "name": "Bunker 16",
+   "x": 5504,
+   "y": 4512,
+   "w": 256,
+   "h": 256
+  },
+  {
+   "name": "French Foreign Aid",
+   "x": 1280,
+   "y": 3504,
+   "w": 192,
+   "h": 224
+  },
+  {
+   "name": "Russian Revenge",
+   "x": 7344,
+   "y": 3040,
+   "w": 416,
+   "h": 320
+  },
+  {
+   "name": "French African Aid",
+   "x": 496,
+   "y": 5792,
+   "w": 96,
+   "h": 384
+  },
+  {
+   "name": "Egyptian Army",
+   "x": 6192,
+   "y": 6032,
+   "w": 160,
+   "h": 224
+  },
+  {
+   "name": "Italian Fleet",
+   "x": 3040,
+   "y": 4896,
+   "w": 320,
+   "h": 192
+  },
+  {
+   "name": "Germany-Invasion on Russia",
+   "x": 3872,
+   "y": 2960,
+   "w": 192,
+   "h": 224
+  },
+  {
+   "name": "American Invasion Fleet 2",
+   "x": 1168,
+   "y": 1824,
+   "w": 288,
+   "h": 192
+  },
+  {
+   "name": "Invasion on Italy",
+   "x": 3856,
+   "y": 5456,
+   "w": 352,
+   "h": 224
+  },
+  {
+   "name": "Invasion on Italy 2",
+   "x": 3328,
+   "y": 4480,
+   "w": 128,
+   "h": 128
+  },
+  {
+   "name": "Italian Defensive Force",
+   "x": 2928,
+   "y": 4144,
+   "w": 160,
+   "h": 96
+  },
+  {
+   "name": "French Invade African Germany",
+   "x": 2992,
+   "y": 5936,
+   "w": 160,
+   "h": 416
+  },
+  {
+   "name": "America 500",
+   "x": 144,
+   "y": 1200,
+   "w": 288,
+   "h": 672
+  },
+  {
+   "name": "Sicily 200",
+   "x": 3120,
+   "y": 5152,
+   "w": 352,
+   "h": 128
+  },
+  {
+   "name": "Odessa 200",
+   "x": 5264,
+   "y": 3312,
+   "w": 352,
+   "h": 352
+  },
+  {
+   "name": "Halifax 200",
+   "x": 128,
+   "y": 272,
+   "w": 256,
+   "h": 352
+  },
+  {
+   "name": "British Invade African Axis",
+   "x": 5680,
+   "y": 5904,
+   "w": 224,
+   "h": 480
+  },
+  {
+   "name": "Russians in Middle East",
+   "x": 6992,
+   "y": 4096,
+   "w": 2400,
+   "h": 192
+  },
+  {
+   "name": "Italy Draft",
+   "x": 4192,
+   "y": 4000,
+   "w": 512,
+   "h": 192
+  },
+  {
+   "name": "FFighter",
+   "x": 2160,
+   "y": 5584,
+   "w": 160,
+   "h": 224
+  },
+  {
+   "name": "German Messers",
+   "x": 3280,
+   "y": 2512,
+   "w": 160,
+   "h": 160
+  },
+  {
+   "name": "ZEnglish BC",
+   "x": 2032,
+   "y": 2592,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "German BC",
+   "x": 2032,
+   "y": 2720,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "Luxembourg 100",
+   "x": 1920,
+   "y": 3232,
+   "w": 256,
+   "h": 256
+  },
+  {
+   "name": "Newfound Land 100",
+   "x": 288,
+   "y": 576,
+   "w": 576,
+   "h": 256
+  },
+  {
+   "name": "Light Fighter shit",
+   "x": 80,
+   "y": 4272,
+   "w": 96,
+   "h": 96
+  },
+  {
+   "name": "French Medium Tank",
+   "x": 2000,
+   "y": 2496,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "ZRussia Fighter",
+   "x": 1968,
+   "y": 2432,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "ZItalian Carrier",
+   "x": 2000,
+   "y": 2352,
+   "w": 160,
+   "h": 96
+  },
+  {
+   "name": "A1",
+   "x": 992,
+   "y": 3200,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "A2",
+   "x": 1184,
+   "y": 3232,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "A3",
+   "x": 1312,
+   "y": 3200,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "A4",
+   "x": 1440,
+   "y": 3200,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "A5",
+   "x": 1568,
+   "y": 3200,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "A6",
+   "x": 1696,
+   "y": 3136,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Ab1",
+   "x": 1296,
+   "y": 3296,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Ab2",
+   "x": 1552,
+   "y": 3296,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Location 162",
+   "x": 1712,
+   "y": 3200,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "A7",
+   "x": 1120,
+   "y": 3488,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "A8",
+   "x": 1056,
+   "y": 3328,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Ab3",
+   "x": 1200,
+   "y": 3424,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Adforce1",
+   "x": 1392,
+   "y": 3424,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "Antioch 200",
+   "x": 6800,
+   "y": 4704,
+   "w": 288,
+   "h": 256
+  },
+  {
+   "name": "Marseilles 600",
+   "x": 1968,
+   "y": 4112,
+   "w": 288,
+   "h": 352
+  },
+  {
+   "name": "Reserves",
+   "x": 3232,
+   "y": 3504,
+   "w": 320,
+   "h": 160
+  },
+  {
+   "name": "German Naval Fleet",
+   "x": 2496,
+   "y": 256,
+   "w": 448,
+   "h": 320
+  },
+  {
+   "name": "British Naval Fleet",
+   "x": 1296,
+   "y": 1264,
+   "w": 416,
+   "h": 288
+  },
+  {
+   "name": "ZSpitfire",
+   "x": 1376,
+   "y": 2464,
+   "w": 448,
+   "h": 448
+  },
+  {
+   "name": "Norwegian Partisans",
+   "x": 3728,
+   "y": 864,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "ZRussian Tank",
+   "x": 7408,
+   "y": 1952,
+   "w": 480,
+   "h": 320
+  },
+  {
+   "name": "ZRocket Ammo",
+   "x": 2848,
+   "y": 2816,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Place Artillery",
+   "x": 5824,
+   "y": 1472,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "Smolensk 200",
+   "x": 5680,
+   "y": 2512,
+   "w": 480,
+   "h": 352
+  },
+  {
+   "name": "ZFrenchMideast",
+   "x": 7328,
+   "y": 5168,
+   "w": 256,
+   "h": 288
+  },
+  {
+   "name": "ZRussian Rocket beacon",
+   "x": 6928,
+   "y": 1248,
+   "w": 96,
+   "h": 64
+  },
+  {
+   "name": "Bald Hills 100",
+   "x": 6880,
+   "y": 2656,
+   "w": 384,
+   "h": 256
+  },
+  {
+   "name": "ZSpanish Army",
+   "x": 848,
+   "y": 5136,
+   "w": 288,
+   "h": 224
+  },
+  {
+   "name": "Southampton 200",
+   "x": 1232,
+   "y": 2752,
+   "w": 416,
+   "h": 256
+  },
+  {
+   "name": "ZHeavyMG",
+   "x": 2128,
+   "y": 2320,
+   "w": 32,
+   "h": 32
+  },
+  {
+   "name": "ZLMG",
+   "x": 2128,
+   "y": 2352,
+   "w": 32,
+   "h": 32
+  },
+  {
+   "name": "ZMoscow Air",
+   "x": 6448,
+   "y": 1328,
+   "w": 224,
+   "h": 160
+  },
+  {
+   "name": "ZFrenchFleet2",
+   "x": 6736,
+   "y": 5184,
+   "w": 224,
+   "h": 256
+  },
+  {
+   "name": "Factory 1",
+   "x": 5360,
+   "y": 1776,
+   "w": 288,
+   "h": 224
+  },
+  {
+   "name": "Factory 2",
+   "x": 7232,
+   "y": 2928,
+   "w": 384,
+   "h": 224
+  },
+  {
+   "name": "Factory 3",
+   "x": 6512,
+   "y": 1376,
+   "w": 288,
+   "h": 192
+  },
+  {
+   "name": "Kiel 100",
+   "x": 2912,
+   "y": 2528,
+   "w": 320,
+   "h": 256
+  },
+  {
+   "name": "Factory 4",
+   "x": 3504,
+   "y": 1280,
+   "w": 352,
+   "h": 192
+  },
+  {
+   "name": "Factory 5",
+   "x": 544,
+   "y": 5024,
+   "w": 256,
+   "h": 256
+  },
+  {
+   "name": "Factory 6",
+   "x": 2880,
+   "y": 4112,
+   "w": 320,
+   "h": 224
+  },
+  {
+   "name": "Factory 7",
+   "x": 4400,
+   "y": 4128,
+   "w": 352,
+   "h": 192
+  },
+  {
+   "name": "Factory 8",
+   "x": 5584,
+   "y": 4832,
+   "w": 288,
+   "h": 256
+  },
+  {
+   "name": "Factory 9",
+   "x": 2016,
+   "y": 5760,
+   "w": 256,
+   "h": 192
+  },
+  {
+   "name": "Factory 10",
+   "x": 4464,
+   "y": 1104,
+   "w": 288,
+   "h": 224
+  },
+  {
+   "name": "Factory 11",
+   "x": 1440,
+   "y": 3488,
+   "w": 320,
+   "h": 192
+  },
+  {
+   "name": "Factory 12",
+   "x": 7376,
+   "y": 4144,
+   "w": 288,
+   "h": 224
+  },
+  {
+   "name": "Italian Med. Navy",
+   "x": 3728,
+   "y": 4928,
+   "w": 352,
+   "h": 256
+  },
+  {
+   "name": "Brit Med. Navy",
+   "x": 1952,
+   "y": 4992,
+   "w": 384,
+   "h": 512
+  },
+  {
+   "name": "Brit Med ARmy",
+   "x": 1856,
+   "y": 5072,
+   "w": 256,
+   "h": 160
+  },
+  {
+   "name": "Norway Reinforce",
+   "x": 3616,
+   "y": 592,
+   "w": 256,
+   "h": 224
+  },
+  {
+   "name": "Ireland 300",
+   "x": 736,
+   "y": 2080,
+   "w": 512,
+   "h": 192
+  },
+  {
+   "name": "Corsica 200",
+   "x": 2480,
+   "y": 4592,
+   "w": 352,
+   "h": 288
+  },
+  {
+   "name": "Crete 200",
+   "x": 4208,
+   "y": 5520,
+   "w": 544,
+   "h": 224
+  },
+  {
+   "name": "Sardinia 200",
+   "x": 2496,
+   "y": 4960,
+   "w": 384,
+   "h": 320
+  },
+  {
+   "name": "Anticcmu",
+   "x": 8128,
+   "y": 4208,
+   "w": 128,
+   "h": 160
+  },
+  {
+   "name": "spainrush",
+   "x": 1360,
+   "y": 4592,
+   "w": 544,
+   "h": 544
+  },
+  {
+   "name": "Turkish Reinforcements I",
+   "x": 5648,
+   "y": 4672,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "Turkish Reinforcements II",
+   "x": 5648,
+   "y": 4800,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "Turkish Reinforcements III",
+   "x": 5648,
+   "y": 4928,
+   "w": 160,
+   "h": 128
+  },
+  {
+   "name": "Turk Micro",
+   "x": 6032,
+   "y": 4720,
+   "w": 160,
+   "h": 672
+  },
+  {
+   "name": "France middle east",
+   "x": 7136,
+   "y": 5136,
+   "w": 704,
+   "h": 608
+  },
+  {
+   "name": "Spain rush 1",
+   "x": 960,
+   "y": 4960,
+   "w": 128,
+   "h": 128
+  },
+  {
+   "name": "Spain rush 2",
+   "x": 736,
+   "y": 4656,
+   "w": 128,
+   "h": 96
+  },
+  {
+   "name": "ZSpa Firebat",
+   "x": 112,
+   "y": 4624,
+   "w": 32,
+   "h": 32
+  },
+  {
+   "name": "Zita firebat",
+   "x": 3888,
+   "y": 4592,
+   "w": 32,
+   "h": 32
+  },
+  {
+   "name": "physics canada",
+   "x": 160,
+   "y": 608,
+   "w": 64,
+   "h": 64
+  },
+  {
+   "name": "reserach facility canada",
+   "x": 64,
+   "y": 592,
+   "w": 128,
+   "h": 96
+  },
+  {
+   "name": "Tobruk 200",
+   "x": 5600,
+   "y": 5888,
+   "w": 384,
+   "h": 512
+  }
+ ]
+}
