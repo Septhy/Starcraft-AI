@@ -16,7 +16,11 @@ def main():
 
     import mss
 
+    from tkinter import simpledialog
+
+    from bot import general as general_module
     from bot import trial
+    from hands import secret
     from hands.win import STOP_KEY, WinIO
 
     try:
@@ -39,6 +43,29 @@ def main():
     tk.Label(root, textvariable=status, width=52, height=5,
              justify="left").pack(padx=10, pady=8)
     state = {"busy": False, "down": False}
+    key_label = tk.StringVar()
+
+    def show_key_state():
+        key_label.set("Claude key: saved on this PC. The general will advise."
+                      if secret.load() else
+                      "Claude key: none. The bot plays by its rules alone.")
+
+    def set_key():
+        key = simpledialog.askstring(
+            "Claude API key", "Paste your Claude API key.\n"
+            "It is kept on this PC only, locked to your Windows account.\n"
+            "Leave empty to remove it.", show="*", parent=root)
+        if key is None:
+            return
+        if key.strip():
+            secret.save(key)
+        else:
+            secret.forget()
+        show_key_state()
+
+    tk.Label(root, textvariable=key_label, width=52).pack()
+    tk.Button(root, text="Set Claude API key", command=set_key).pack(pady=(0, 8))
+    show_key_state()
 
     def work():
         out = os.path.join(desktop,
@@ -52,7 +79,8 @@ def main():
                 io = WinIO(out, sct, status=lambda s: status.set(s[:200]))
                 time.sleep(0.6)          # let go of F9 first
                 try:
-                    result = trial.run(io)
+                    advisor = general_module.make(secret.load())
+                    result = trial.run(io, general=advisor)
                     io.log(f"finished: {result}")
                 except trial.Stopped as e:
                     io.log(f"stopped: {e}")
@@ -80,7 +108,22 @@ def main():
     root.mainloop()
 
 
+def selftest(path):
+    """Used by the build to check that everything needed is packed in."""
+    import anthropic
+
+    from bot import general, trial
+    from eyes import numbers
+    general.General(anthropic.Anthropic(api_key="not-a-real-key"))
+    trial.load_map()
+    numbers._load()
+    open(path, "w").write("ok " + anthropic.__version__)
+
+
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--selftest":
+        selftest(sys.argv[2])
+        sys.exit(0)
     if sys.platform != "win32":
         sys.exit("The bot runs on Windows only.")
     main()

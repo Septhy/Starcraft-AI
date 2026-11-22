@@ -31,7 +31,10 @@ Watch). It boxes only where units are, watches the mass build up, and
 gives an order only when the screen shows units are selected. It reads
 the supply number, and does not train at the limit. It sees other
 players' colours on the minimap too: it uses that to choose where a
-later hit goes, and to judge how the last hit is doing (Battle).
+later hit goes, to judge how the last hit is doing (Battle), and to
+call the army back when the Axis reaches the massing place. With an
+API key, Claude is shown the fight every few seconds and advises
+(bot/general.py): keep massing, hit now, or pull back, and where.
 """
 import json
 
@@ -91,6 +94,8 @@ class State:
         self.flights_done = set()
         self.balkan_start = 0      # Axis pixels in the Balkans at the start
         self.capped = False        # supply was at its limit at the last look
+        self.last_recall = -1e9    # when the army was last called back
+        self.advised = None        # (target, when) from the general
 
 
 def load_map():
@@ -527,6 +532,9 @@ def choose_target(io, watch, st):
 
     Germany starts the game with troops in the Balkans, so what counts
     is how much more Axis colour is there now than at the start."""
+    if st.advised and io.now() - st.advised[1] <= 40:
+        io.log(f"next target {st.advised[0]} (the general's choice)")
+        return st.advised[0]
     seen = axis_in(watch, io.shot("choose"), BALKANS)
     more = seen - st.balkan_start
     if more >= BALKAN_AXIS:
@@ -592,10 +600,53 @@ def gather_idle(io, watch, mapdata, st, tried):
     return orders, b_picture
 
 
-def build_big_mass(io, watch, mapdata, st, t0, battle=None):
+TARGET_NAMES = {"Berlin": "Berlin 1000", "Romania": "Romania 300",
+                "Belgrade": "Factory 7"}
+ENEMY_AT_MASS = 12             # Axis pixels at the mass that mean "defend"
+RECALL_COOLDOWN = 20           # seconds between recalls of the army
+
+
+def recall(io, st, why):
+    """Bring the number-key groups back to the massing place."""
+    if io.now() - st.last_recall < RECALL_COOLDOWN:
+        return False
+    st.last_recall = io.now()
+    for key in st.ground_keys + st.air_keys:
+        io.key(key)
+        io.sleep(0.05)
+        attack_move(io, *MASS)
+    io.log(f"army recalled to the massing place: {why}")
+    return True
+
+
+def status_report(io, st, t0, massed, need, battle, axis_balkans, axis_mass,
+                  supply):
+    """The few lines the general is given with each screenshot."""
+    now = io.now() - t0
+    lines = [f"Time in game: {int(now) // 60}:{int(now) % 60:02d}. "
+             f"Round timer about {round_timer(now)}.",
+             f"Our mass waiting at the massing place: {massed} minimap "
+             f"pixels of units (the program wants {need} before hitting).",
+             f"Axis colour at our massing place: {axis_mass} pixels.",
+             f"Axis colour in the Balkans: {axis_balkans} pixels "
+             f"({st.balkan_start} at the start of the game)."]
+    if supply:
+        lines.append(f"Supply: {supply[0]} of {supply[1]}.")
+    if battle:
+        lines.append(f"Our last hit went to {battle.target} "
+                     f"{io.now() - battle.sent_at:.0f} s ago; the main view "
+                     f"is looking there. From the minimap: "
+                     f"{battle.verdict()[1]}.")
+    lines.append(f"Hits sent so far: {', '.join(st.sent_at) or 'none'}.")
+    return "\n".join(lines)
+
+
+def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     """Keep the barracks busy (when supply allows), bring in the
     reinforcements, watch how the last hit is doing, and wait until the
-    mass is big or it has been long enough. Returns the mass's size."""
+    mass is big or it has been long enough. All the while it reacts:
+    the rules to an enemy at the mass, the general to what it is shown.
+    Returns the mass's size."""
     began = last_train = io.now()
     train_everywhere(io, mapdata, st)
     collected, tried, gathered = False, set(), 0
@@ -605,16 +656,37 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None):
         gathered += orders
         massed = len(at_mass(watch.units(picture)))
         waited = io.now() - began
+        # the fast rule: the enemy is at the mass
+        axis_mass = len(at_mass(watch.others(picture, AXIS)))
+        if axis_mass >= ENEMY_AT_MASS:
+            recall(io, st, f"{axis_mass} pixels of Axis colour there")
         if battle:
             battle.sample(io, watch, mapdata, picture)
-            # go and look at the fight itself now and then
-            if waited >= 12 * (battle.looked + 1) and battle.looked < 4:
-                battle.looked += 1
-                w = place(mapdata, battle.target)
-                look_at(io, w["x"], w["y"], wait=0.4)
-                io.shot(f"fight-{battle.target.split()[0]}")
             if battle.verdict()[0] == "losing":
                 need = int(BIG_MASS * 1.5)      # come back with more
+        # look at the fight itself: every time for the general, now and
+        # then for the record otherwise
+        look = battle and (general or (waited >= 12 * (battle.looked + 1)
+                                       and battle.looked < 4))
+        if look:
+            battle.looked += 1
+            w = place(mapdata, battle.target)
+            look_at(io, w["x"], w["y"], wait=0.35)
+            fight = io.shot(f"fight-{battle.target.split()[0]}",
+                            keep=battle.looked <= 4)
+            if general:
+                general.submit(fight, status_report(
+                    io, st, t0, massed, need, battle,
+                    axis_in(watch, picture, BALKANS), axis_mass,
+                    numbers.read_supply(fight)))
+        advice = general.take() if general else None
+        if advice:
+            io.log(f"general: {advice}")
+            st.advised = (TARGET_NAMES[advice.target], io.now())
+            if advice.action == "pull_back":
+                recall(io, st, "the general says so")
+            elif advice.action == "hit_now" and massed >= 40:
+                break
         if massed >= need or waited >= LATER_WAIT_MAX:
             break
         if not collected:
@@ -622,7 +694,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None):
         if io.now() - last_train >= RETRAIN_EVERY:
             last_train = io.now()
             train_everywhere(io, mapdata, st)
-        io.sleep(2.0)
+        io.sleep(1.0 if general else 2.0)
     io.shot("mass")
     if battle:
         io.log(f"last hit at {battle.target}: {battle.verdict()[0]} "
@@ -633,7 +705,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None):
     return massed
 
 
-def run(io, mapdata=None):
+def run(io, mapdata=None, general=None):
     """Returns a short result for the log."""
     mapdata = mapdata or load_map()
     side = mapdata["slots"][SLOT]
@@ -659,7 +731,7 @@ def run(io, mapdata=None):
     flights_after(io, mapdata, st, 1)
     battle = Battle(TARGETS[0], io.now())
     while io.now() - t0 < TRIAL_SECONDS:
-        massed = build_big_mass(io, watch, mapdata, st, t0, battle)
+        massed = build_big_mass(io, watch, mapdata, st, t0, battle, general)
         if massed < 30:
             io.log("no new mass to send")
             hits.append(0)
@@ -672,6 +744,8 @@ def run(io, mapdata=None):
         flights_after(io, mapdata, st, target)
         io.log(f"  ({since()} since start; round timer about "
                f"{round_timer(io.now() - t0)})")
+    if general:
+        io.log(general.summary())
     for name in ("Berlin 1000", "Warsaw 200", "Romania 300", "Factory 7"):
         w = place(mapdata, name)
         look_at(io, w["x"], w["y"], wait=0.5)

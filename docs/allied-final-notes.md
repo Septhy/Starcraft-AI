@@ -331,3 +331,27 @@ What the bot does about it now:
 
 Still missing: reading the fight on the main screen itself (which
 units, whose, how hurt). The battle check is made from the minimap.
+
+## The general: Claude looks at the fight (bot/general.py)
+
+The repository owner agreed to add an LLM that looks at the game
+screen, using Claude, and asked that it be responsive.
+
+- While a mass builds, the bot goes round about once every three
+  seconds: it looks at where the last hit went, takes a screenshot, and
+  offers it to the general with a few lines of status.
+- The general runs in the background. It takes the newest screenshot
+  whenever it has finished the last one, and answers with: what it
+  sees, how the fight is going, an action (keep massing, hit now, pull
+  back) and a target (Berlin, Romania, Belgrade). Advice older than 25
+  seconds is dropped.
+- The fast rules do not wait for it: Axis colour at the massing place
+  recalls the number-key groups at once.
+- Model `claude-opus-5-5` at low effort, a 1280 x 720 JPEG per look,
+  the fixed instructions cached. It can be changed with the
+  STARCRAFT_BOT_MODEL setting. Spending is counted from each reply and
+  capped at 3 dollars a run.
+- The key is typed into the app, encrypted with Windows' own data
+  protection and kept in the user's AppData folder. It is not in the
+  log or the zips.
+- Not yet tried against the real API or a real game.
