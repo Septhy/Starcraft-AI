@@ -13,7 +13,9 @@ from bot.trial import Stopped
 
 GAME_WINDOW = "Brood War"
 STOP_KEY = 0x78            # F9
-SCAN = {"m": 0x32, "a": 0x1E, "esc": 0x01, "shift": 0x2A, "ctrl": 0x1D}
+SCAN = {"m": 0x32, "a": 0x1E, "esc": 0x01, "shift": 0x2A, "ctrl": 0x1D,
+        "1": 0x02, "2": 0x03, "3": 0x04, "4": 0x05, "5": 0x06, "6": 0x07,
+        "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B}
 
 ULONG_PTR = ctypes.c_size_t
 
@@ -110,6 +112,18 @@ class WinIO:
         time.sleep(0.04)
         self._key(name, up=True)
         self.log(f"key {name}", quiet=True)
+
+    def combo(self, held, name):
+        """Press a key while holding another, e.g. combo("ctrl", "3")."""
+        self._check()
+        self._key(held)
+        time.sleep(0.04)
+        self._key(name)
+        time.sleep(0.04)
+        self._key(name, up=True)
+        time.sleep(0.03)
+        self._key(held, up=True)
+        self.log(f"key {held}+{name}", quiet=True)
 
     # --- seeing and reporting
     def now(self):

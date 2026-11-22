@@ -151,3 +151,37 @@ What the full game shows:
 - Minutes 4 to 8: a second front in the south, at Romania and Odessa.
 - Marines are trained in bursts right after each tax round (about
   minutes 5, 9 to 10, 12, 14 to 15, ...), not steadily.
+
+## Fifth trial, and more from the repository owner
+
+- Back-to-front wave on the real game: 41 groups sent in 65 s; 11 of
+  its 52 boxes were empty.
+- Russia gets a large spawn in the Middle East, and those units go into
+  the hit too. Russia also hits several times in a game, and puts its
+  air units on number keys and controls them.
+
+## The Middle East spawn (from the map's triggers; `trig.py`)
+
+Trigger 22, Russia only, fires once: when Russia has at least one unit
+(any unit that is not a building) at the location "Russians in Middle
+East" (tile 218, 128), Russia gets 32 marines there and 4,000 minerals.
+Any unit will do; players send a scout because it flies. Two of
+Russia's scouts start at tiles (224, 75) and (224, 78).
+
+A solo game ends the map's triggers ("Mission completed"), so this
+cannot be tested alone. It needs a game with at least one opponent.
+
+## qororo98's opening (4 Russia games in 20 replays)
+
+- 2 s: a unit is sent to the Middle East spot (3 of 4 games).
+- First minute: 13 to 16 number-key groups assigned; all ten keys used.
+- Massing place: about tile (160 to 163, 76 to 78).
+- 47 to 59 s: the first attack-moves at Berlin. The hit is sent with the
+  number keys: key, attack, a point at Berlin, ten times in about eight
+  seconds, each group to a slightly different point (tiles 102 to 106,
+  84 to 94), plus boxes for the rest.
+- Two of the groups are fought by hand afterwards and fire Yamato, so
+  they hold the battlecruisers.
+- From about 1:30 on: new marines are boxed, sent forward and put on
+  keys again, and Berlin is attacked again around 1:55. Hits keep
+  coming through the game.

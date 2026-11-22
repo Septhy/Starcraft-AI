@@ -44,6 +44,31 @@ class FakeGame:
         self.camera, self.selected, self.attack = None, None, False
         self.m_on_barracks = self.m_elsewhere = self.rallies = 0
         self.time, self.inputs, self.arrivals = 0.0, 0, {}
+        self.groups, self.key_orders = {}, 0
+        self.money, self.spawned_at, self.last_key = 1000, None, None
+
+    def alive(self):
+        """Units that exist now. Also runs the map's Middle East event:
+        the first unit to arrive there brings 32 marines and 4,000."""
+        now = [u for u in self.units if u.get("born", 0) <= self.time]
+        if self.spawned_at is None and any(
+                near(self.where(u), trial.MIDDLE_EAST, 7) for u in now):
+            self.spawned_at = self.time
+            self.money += 4000
+            x, y = trial.MIDDLE_EAST
+            for k in range(32):
+                p = (x + (k % 8 - 4) * 26, y + (k // 8 - 2) * 26)
+                self.units.append({"from": p, "to": p, "t": self.time,
+                                   "spawn": True})
+            now = [u for u in self.units if u.get("born", 0) <= self.time]
+        return now
+
+    def send(self, units, mx, my):
+        key = (round(mx), round(my))
+        for u in units:                  # they form up around the point
+            k = self.arrivals[key] = self.arrivals.get(key, 0) + 1
+            u["from"], u["t"] = self.where(u), self.time
+            u["to"] = (mx + (k % 14 - 7) * 26, my + (k // 14 - 6) * 26)
 
     def where(self, u):
         (x0, y0), (x1, y1) = u["from"], u["to"]
@@ -60,19 +85,19 @@ class FakeGame:
         self.time += 0.07
         m = live.MINIMAP
         on_map = m["left"] <= x < m["left"] + m["width"] and y >= m["top"]
+        mx = (x - m["left"] + 0.5) / m["width"] * live.MAP_PX[0]
+        my = (y - m["top"] + 0.5) / m["height"] * live.MAP_PX[1]
         if button == "right":
             if self.selected == "barracks" and on_map:
                 self.rallies += 1
+            elif isinstance(self.selected, list) and on_map:
+                self.send(self.selected, mx, my)         # a plain move
             return
         if on_map:
-            mx = (x - m["left"] + 0.5) / m["width"] * live.MAP_PX[0]
-            my = (y - m["top"] + 0.5) / m["height"] * live.MAP_PX[1]
             if self.attack and isinstance(self.selected, list):
-                key = (round(mx), round(my))
-                for u in self.selected:      # they form up around the point
-                    k = self.arrivals[key] = self.arrivals.get(key, 0) + 1
-                    u["from"], u["t"] = self.where(u), self.time
-                    u["to"] = (mx + (k % 14 - 7) * 26, my + (k // 14 - 6) * 26)
+                self.send(self.selected, mx, my)
+                if self.last_key and self.last_key.isdigit():
+                    self.key_orders += 1
             else:
                 self.camera = live.camera_after_click(x, y)
             self.attack = False
@@ -87,7 +112,7 @@ class FakeGame:
         self.inputs += 1
         self.time += 0.33
         assert 0 <= x0 < x1 <= 1920 and 40 <= y0 < y1 <= 760
-        inside = [u for u in self.units
+        inside = [u for u in self.alive()
                   if x0 <= self._screen(*self.where(u))[0] <= x1
                   and y0 <= self._screen(*self.where(u))[1] <= y1]
         self.selected = inside[:12] or None
@@ -98,11 +123,28 @@ class FakeGame:
         if name == "m":
             if self.selected == "barracks":
                 self.m_on_barracks += 1
+                if self.money >= 50:             # a marine, out in 15 s
+                    self.money -= 50
+                    k = self.arrivals["new"] = self.arrivals.get("new", 0) + 1
+                    p = (trial.MASS[0] + (k % 12 - 6) * 26,
+                         trial.MASS[1] + (k // 12 % 10 - 5) * 26)
+                    self.units.append({"from": p, "to": p, "t": 0,
+                                       "born": self.time + 15 + 25})
             else:
                 self.m_elsewhere += 1
         if name == "a":
             assert isinstance(self.selected, list)   # never A on nothing
             self.attack = True
+        if name.isdigit() and name in self.groups:
+            self.selected = [u for u in self.groups[name]]
+        if name != "a":
+            self.last_key = name
+
+    def combo(self, held, name):
+        self.inputs += 1
+        self.time += 0.15
+        assert held == "ctrl" and isinstance(self.selected, list)
+        self.groups[name] = list(self.selected)
 
     def sleep(self, s):
         self.time += s
@@ -124,7 +166,7 @@ class FakeGame:
               d["left"] + c - w // 2:d["left"] + c + w - w // 2] = GREEN
         for x, y in self.structures:
             block(x, y, 5, 4)
-        for u in self.units:
+        for u in self.alive():
             block(*self.where(u), 3, 3)
         s = Image.fromarray(a)
         card = "barracks" if self.selected == "barracks" else \
@@ -191,29 +233,40 @@ def test_opening_masses_fast_and_hits_berlin():
     w = trial.place(m, trial.TARGET)
     for error in [(0, 0), (40, 80), (-60, 10), (70, -60)]:
         g = FakeGame(m, error=error)
-        massed_at_wave = {}
-        real_launch = trial.launch_wave
+        seen = {}
+        real_hit = trial.hit
 
-        def launch(io, *a, **k):                    # note the mass as it leaves
-            massed_at_wave["n"] = sum(
-                near(io.where(u), trial.MASS, 14) for u in io.units)
-            massed_at_wave["t"] = io.time
-            return real_launch(io, *a, **k)
-        trial.launch_wave = launch
+        def hit(io, *a, **k):                       # note the mass as it leaves
+            if not seen:
+                seen["n"] = sum(near(io.where(u), trial.MASS, 14)
+                                for u in io.alive())
+                seen["t"] = io.time
+            return real_hit(io, *a, **k)
+        trial.hit = hit
         try:
             result = trial.run(g, m)
         finally:
-            trial.launch_wave = real_launch
+            trial.hit = real_hit
         assert result["trained"] >= 7, error
         assert g.m_elsewhere == 0                   # never M on something else
-        assert g.m_on_barracks == 5 * result["trained"]
-        assert g.rallies == result["trained"]
-        # most of the army is massed when the wave goes, by two minutes
-        assert massed_at_wave["t"] <= 120, (error, massed_at_wave)
-        assert massed_at_wave["n"] >= 0.7 * len(g.units), (error, massed_at_wave)
-        # and most of it is then sent at Berlin
-        to_berlin = sum(near(u["to"], (w["x"], w["y"]), 12) for u in g.units)
-        assert to_berlin >= 0.65 * len(g.units), (error, to_berlin)
+        # the scout reached the Middle East early, and the event fired
+        assert g.spawned_at is not None and g.spawned_at < 40, error
+        # eight ground groups on number keys, and they were used to hit
+        assert len(g.groups) >= 8 and g.key_orders >= 8, (error, result)
+        # most of the starting army is massed when the first hit goes
+        assert seen["t"] <= 110, (error, seen)
+        assert seen["n"] >= 0.7 * 175, (error, seen)
+        # in the end most of everything, Middle East marines included,
+        # has been sent at Berlin, spread along its front
+        alive = g.alive()
+        at_berlin = [u for u in alive if near(u["to"], (w["x"], w["y"]), 20)]
+        assert len(at_berlin) >= 0.7 * len(alive), (error, len(at_berlin))
+        spawned = [u for u in at_berlin if u.get("spawn")]
+        assert len(spawned) >= 20, (error, len(spawned))
+        ys = {round(u["to"][1] / 64) for u in at_berlin}
+        assert len(ys) >= 6                         # a wall, not one point
+        # later hits found the newly trained marines
+        assert sum(1 for h in result["hits"][1:] if h) >= 1, (error, result)
         # few boxes come up empty
         assert result["empty"] <= 0.3 * result["boxes"], (error, result)
 
@@ -221,7 +274,7 @@ def test_opening_masses_fast_and_hits_berlin():
 def test_opening_does_nothing_without_the_game_screen():
     m = trial.load_map()
     g = FakeGame(m, showing=False)
-    assert trial.run(g, m) == {"trained": 0, "gathered": 0, "sent": 0}
+    assert trial.run(g, m) == {"trained": 0, "gathered": 0, "hits": []}
     assert g.inputs == 0
 
 
