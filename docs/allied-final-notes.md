@@ -298,3 +298,36 @@ over that starting count.
 qororo98 7 games (36, 17, 10, 4, 1, 0, 0 min); penny[eef] 2 (9, 5);
 1939-iknockoutz 6; STC-Goliath 6; WestKronos 5; zapda 3; Teia 3; and
 one or two each for ten others.
+
+## Ninth trial, among idle computer players
+
+Worse than the one before, as the repository owner said. Supply sat at
+its limit (200 of 200, at one point 212) with 8,800 minerals unspent,
+and the bot went round the barracks every 55 s all the same. The mass
+for the later hits stayed small (81 and 55 minimap pixels after 200 s)
+because nothing new could be trained, while reinforcements the map had
+given Russia stood idle all over the east.
+
+The repository owner:
+
+- Do not train at the population limit.
+- After the first hit Russia gets reinforcements at Moscow, Finland
+  (once), Stalingrad and Siberia. They have to be brought in.
+- Watching the minimap is not enough. The bot has to look at the game
+  screen itself and check how well its attacks are doing.
+
+What the bot does about it now:
+
+- `eyes/numbers.py` reads the supply number from the screen; at the
+  limit the bot skips the barracks, and below it visits only as many
+  as there is room for.
+- While building a mass it sends idle groups anywhere at home to the
+  massing place (`gather_idle`), which picks up the reinforcements
+  wherever they appear.
+- `Battle` samples our colour and the Axis colour at the target after
+  a hit and calls it winning, losing or unclear; after a losing hit the
+  next mass has to be half as big again. It also moves the view to the
+  fight a few times and keeps a picture.
+
+Still missing: reading the fight on the main screen itself (which
+units, whose, how hurt). The battle check is made from the minimap.

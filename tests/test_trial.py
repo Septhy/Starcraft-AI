@@ -398,3 +398,48 @@ def test_romania_flight_follows_the_first_romania_hit():
     assert near(g.flights[0][1:], (romania["x"], romania["y"]), 3)
     trial.flights_after(g, m, st, "Romania 300")         # only once
     assert len(g.flights) == 1
+
+
+def supply_screen(name):
+    s = Image.new("RGB", (1920, 1080))
+    s.paste(Image.open(os.path.join(DATA, name)), (1780, 0))
+    return s
+
+
+def test_reads_the_supply_number():
+    from eyes import numbers
+    assert numbers.read_supply(supply_screen("supply_153.png")) == (153, 200)
+    assert numbers.read_supply(supply_screen("supply_200.png")) == (200, 200)
+    assert numbers.read_supply(supply_screen("supply_212.png")) == (212, 200)
+    assert numbers.read_supply(Image.new("RGB", (1920, 1080))) is None
+
+
+def test_does_not_train_at_the_supply_limit():
+    m = trial.load_map()
+    for name, expect_training in [("supply_200.png", False),
+                                  ("supply_212.png", False),
+                                  ("supply_153.png", True)]:
+        g = FakeGame(m)
+        real_shot = g.shot
+
+        def shot(label, keep=True, _name=name, _real=real_shot):
+            s = _real(label, keep)
+            s.paste(Image.open(os.path.join(DATA, _name)), (1780, 0))
+            return s
+        g.shot = shot
+        st = trial.State()
+        found = trial.train_everywhere(g, m, st)
+        assert (g.m_on_barracks > 0) == expect_training, name
+        assert st.capped == (not expect_training)
+        assert (found > 0) == expect_training
+
+
+def test_battle_verdict():
+    b = trial.Battle("Berlin 1000", 0)
+    assert b.verdict()[0] == "unclear"
+    b.samples = [(5, 0, 200), (30, 120, 190), (60, 20, 180)]
+    assert b.verdict()[0] == "losing"         # ours melted, theirs did not
+    b.samples = [(5, 0, 200), (30, 120, 150), (60, 100, 40)]
+    assert b.verdict()[0] == "winning"        # theirs melted, ours did not
+    b.samples = [(5, 0, 200), (30, 120, 190), (60, 100, 150)]
+    assert b.verdict()[0] == "unclear"

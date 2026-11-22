@@ -28,13 +28,14 @@ so they can be tested without Windows or the game.
 
 How it sees: the minimap shows where its own units are (eyes/live.py,
 Watch). It boxes only where units are, watches the mass build up, and
-gives an order only when the screen shows units are selected. It sees
-other players' colours on the minimap too, and so far uses that for
-one thing: choosing where a later hit goes.
+gives an order only when the screen shows units are selected. It reads
+the supply number, and does not train at the limit. It sees other
+players' colours on the minimap too: it uses that to choose where a
+later hit goes, and to judge how the last hit is doing (Battle).
 """
 import json
 
-from eyes import live
+from eyes import live, numbers
 
 SLOT = "5"                     # Russia
 # The first hit goes to Berlin. Later hits go to Berlin again, or south
@@ -89,6 +90,7 @@ class State:
         self.sent_at = []          # the target of each hit so far
         self.flights_done = set()
         self.balkan_start = 0      # Axis pixels in the Balkans at the start
+        self.capped = False        # supply was at its limit at the last look
 
 
 def load_map():
@@ -214,8 +216,26 @@ def select_barracks(io, b):
     return False
 
 
-def train_everywhere(io, mapdata, st):
+def room_for_marines(io):
+    """How many more marines the supply limit allows, read off the
+    screen. None if the number cannot be read."""
+    supply = numbers.read_supply(io.shot("supply", keep=False))
+    if supply is None:
+        return None
+    return max(0, supply[1] - supply[0])
+
+
+def train_everywhere(io, mapdata, st, check_supply=True):
+    """Queue marines at the barracks, but only as many as the supply
+    limit has room for. At the limit, nothing is queued at all."""
     gx, gy = live.minimap_point(*MASS)
+    room = room_for_marines(io) if check_supply else None
+    if room is not None and room < 3:
+        if not st.capped:
+            io.log("supply is at its limit: not training")
+        st.capped = True
+        return 0
+    st.capped = False
 
     def one(b):
         if not select_barracks(io, b):
@@ -229,10 +249,13 @@ def train_everywhere(io, mapdata, st):
 
     todo = [b for b in barracks_of(mapdata)
             if (b["x"] // 32, b["y"] // 32) not in st.flown]
+    if room is not None:                # no more barracks than there is room for
+        todo = todo[:max(1, -(-room // MARINES_PER_BARRACKS))]
     missed = [b for b in todo if not one(b)]
     still = [b for b in missed if not one(b)]             # one more go
     found = len(todo) - len(still)
-    io.log(f"marines started at {found} of {len(todo)} barracks")
+    io.log(f"marines started at {found} of {len(todo)} barracks"
+           + (f" (room for {room})" if room is not None else ""))
     return found
 
 
@@ -517,26 +540,96 @@ def choose_target(io, watch, st):
     return target
 
 
-def build_big_mass(io, watch, mapdata, st, t0):
-    """Keep the barracks busy and wait until the mass is big, or until
-    it has been long enough. Returns the size of the mass."""
+class Battle:
+    """Keeps an eye on a hit after it has been sent: how much of our
+    colour and of the Axis colour is at the target, time after time."""
+
+    def __init__(self, target, sent_at):
+        self.target, self.sent_at = target, sent_at
+        self.samples = []               # (seconds since sent, ours, Axis)
+        self.looked = 0
+
+    def sample(self, io, watch, mapdata, picture):
+        w = place(mapdata, self.target)
+        ours = len(near(watch.units(picture), (w["x"], w["y"]), 14))
+        axis = len(near(watch.others(picture, AXIS), (w["x"], w["y"]), 14))
+        self.samples.append((io.now() - self.sent_at, ours, axis))
+
+    def verdict(self):
+        """"winning", "losing" or "unclear", with the numbers behind it."""
+        arrived = [s for s in self.samples if s[1] >= 10]
+        if not arrived:
+            return "unclear", "the army has not been seen at the target"
+        peak = max(s[1] for s in arrived)
+        _, ours, axis = self.samples[-1]
+        axis_before = self.samples[0][2]
+        facts = (f"ours there {ours} (peak {peak}), Axis there {axis} "
+                 f"(was {axis_before})")
+        if ours < 0.3 * peak and axis > 0.5 * max(axis_before, 1):
+            return "losing", facts
+        if axis < 0.5 * max(axis_before, 1) and ours >= 0.3 * peak:
+            return "winning", facts
+        return "unclear", facts
+
+
+def gather_idle(io, watch, mapdata, st, tried):
+    """Send groups that are standing still at home to the mass: the
+    reinforcements the map gives Russia at Moscow, Finland, Stalingrad
+    and Siberia, and anyone missed earlier."""
+    a = watch.units(io.shot("watch", keep=False))
+    io.sleep(1.0)
+    b_picture = io.shot("watch", keep=False)
+    b = watch.units(b_picture)
+    idle = at_home((a & b) - at_mass(b) - near(b, MIDDLE_EAST, 6), mapdata)
+    orders = 0
+    for group in live.clusters(idle, *GROUP)[:4]:
+        key = min(group)
+        if len(group) >= 9 and key not in tried:
+            tried.add(key)
+            if select_group(io, group, st, watch):
+                attack_move(io, *MASS)
+                orders += 1
+    return orders, b_picture
+
+
+def build_big_mass(io, watch, mapdata, st, t0, battle=None):
+    """Keep the barracks busy (when supply allows), bring in the
+    reinforcements, watch how the last hit is doing, and wait until the
+    mass is big or it has been long enough. Returns the mass's size."""
     began = last_train = io.now()
     train_everywhere(io, mapdata, st)
-    collected = False
+    collected, tried, gathered = False, set(), 0
+    need = BIG_MASS
     while True:
-        massed = len(at_mass(watch.units(io.shot("watch", keep=False))))
+        orders, picture = gather_idle(io, watch, mapdata, st, tried)
+        gathered += orders
+        massed = len(at_mass(watch.units(picture)))
         waited = io.now() - began
-        if massed >= BIG_MASS or waited >= LATER_WAIT_MAX:
+        if battle:
+            battle.sample(io, watch, mapdata, picture)
+            # go and look at the fight itself now and then
+            if waited >= 12 * (battle.looked + 1) and battle.looked < 4:
+                battle.looked += 1
+                w = place(mapdata, battle.target)
+                look_at(io, w["x"], w["y"], wait=0.4)
+                io.shot(f"fight-{battle.target.split()[0]}")
+            if battle.verdict()[0] == "losing":
+                need = int(BIG_MASS * 1.5)      # come back with more
+        if massed >= need or waited >= LATER_WAIT_MAX:
             break
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
         if io.now() - last_train >= RETRAIN_EVERY:
             last_train = io.now()
             train_everywhere(io, mapdata, st)
-        io.sleep(3.0)
+        io.sleep(2.0)
     io.shot("mass")
+    if battle:
+        io.log(f"last hit at {battle.target}: {battle.verdict()[0]} "
+               f"({battle.verdict()[1]})")
     io.log(f"mass at {io.now() - t0:.0f} s: {massed} minimap pixels of "
-           f"units there after {waited:.0f} s of building it")
+           f"units there after {waited:.0f} s; {gathered} idle groups "
+           f"brought in; wanted {need}")
     return massed
 
 
@@ -553,7 +646,7 @@ def run(io, mapdata=None):
     st.balkan_start = axis_in(watch, first, BALKANS)
     since = lambda: f"{io.now() - t0:.0f} s"
     send_scout(io, mapdata, st)
-    trained = train_everywhere(io, mapdata, st)
+    trained = train_everywhere(io, mapdata, st, check_supply=False)
     io.log(f"  ({since()} since start)")
     gathered = first_orders(io, watch, mapdata, st, t0)
     io.log(f"  ({since()} since start)")
@@ -564,8 +657,9 @@ def run(io, mapdata=None):
     io.log(f"  first hit sent by {since()}; {st.boxes} boxes, "
            f"{st.empty} empty")
     flights_after(io, mapdata, st, 1)
+    battle = Battle(TARGETS[0], io.now())
     while io.now() - t0 < TRIAL_SECONDS:
-        massed = build_big_mass(io, watch, mapdata, st, t0)
+        massed = build_big_mass(io, watch, mapdata, st, t0, battle)
         if massed < 30:
             io.log("no new mass to send")
             hits.append(0)
@@ -573,6 +667,7 @@ def run(io, mapdata=None):
         target = choose_target(io, watch, st)
         hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
         st.sent_at.append(target)
+        battle = Battle(target, io.now())
         flights_after(io, mapdata, st, len(hits))
         flights_after(io, mapdata, st, target)
         io.log(f"  ({since()} since start; round timer about "
