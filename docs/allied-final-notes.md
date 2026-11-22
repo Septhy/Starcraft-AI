@@ -213,8 +213,8 @@ falls at 3:00 into the game.
   moves under a tile a second, so Warsaw is about a minute's flight.
 - Russia's liftable buildings: 8 barracks, 4 starports, 2 factories,
   2 command centres, 2 engineering bays, a science facility.
-- Not yet known: whether a building still in the air counts, or
-  whether it has to land.
+- A building floating over the city counts; it does not have to land
+  (the repository owner).
 
 ## Russia players in the 25 replays
 
