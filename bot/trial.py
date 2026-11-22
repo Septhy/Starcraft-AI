@@ -230,6 +230,7 @@ def select_group(io, pixels, st, watch=None, margin=None):
 
 
 COUNT_PATCH = 104              # map pixels: the side of one patch of ground counted
+UNIT_ON_SCREEN = 30            # screen pixels: about the width of a man
 
 
 def count_box(io, box, depth=0):
@@ -242,20 +243,27 @@ def count_box(io, box, depth=0):
     n = live.selected_count(io.shot("count", keep=False))
     l, t, r, b = box
     if n < 12 or depth >= 2 or r - l < 90 or b - t < 90:
-        return n
+        # A box also picks up men who only overlap its edge, and the
+        # next box picks them up again. Scale the figure down by how
+        # much bigger the box is in effect than it is drawn.
+        w, h = r - l + 1, b - t + 1
+        return n * (w * h) / ((w + UNIT_ON_SCREEN) * (h + UNIT_ON_SCREEN))
     mx, my = (l + r) // 2, (t + b) // 2
     return sum(count_box(io, q, depth + 1) for q in
                [(l, t, mx - 1, my - 1), (mx, t, r, my - 1),
                 (l, my, mx - 1, b), (mx, my, r, b)])
 
 
-def count_men(io, pixels):
+def count_men(io, pixels, enough=None):
     """Count the men standing at these minimap pixels by looking at them
     on the game screen.
 
     The ground is cut into fixed square patches, and each patch that
     the minimap shows troops on is boxed once, whichever view it is
-    seen from, so nobody is counted twice."""
+    seen from, so nobody is counted twice. With `enough`, it stops as
+    soon as that many have been counted: a big crowd need not be
+    counted to the last man to know it is big enough. Returns the men
+    and whether every patch was counted."""
     patches = set()
     for p in pixels:
         x, y = live.from_drawn(*p)
@@ -279,8 +287,10 @@ def count_men(io, pixels):
                 continue                # not wholly in view: another look
             men += count_box(io, (x0, y0, x1 - 1, y1 - 1))
             done.add(c)
+            if enough is not None and men >= enough:
+                return int(men), False
         patches -= done or {(i0, j0)}   # never loop on one that will not fit
-    return men
+    return int(round(men)), True
 
 
 def attack_move(io, map_x, map_y):
@@ -1202,12 +1212,12 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
             (RECOUNT_CAPPED if capped else RECOUNT_EVERY)
         if grown or due:
             # count the men themselves, on the game screen
-            men = count_men(io, mass_pixels & still)
+            men, whole = count_men(io, mass_pixels & still, enough=need)
             counted_at, last_count = rough, io.now()
-            if len(mass_pixels) >= 20 and men:
+            if whole and len(mass_pixels) >= 20 and men:
                 st.men_per_pixel = min(6.0, max(0.3, men / len(mass_pixels)))
             counted = men
-            io.log(f"counted {men} men at the massing place "
+            io.log(f"counted {men}{'' if whole else ' or more'} men at the massing place "
                    f"({len(mass_pixels)} minimap pixels)")
         massed = counted if counted is not None else 0
         strength = st.strength = int(massed + st.reserve * st.men_per_pixel)

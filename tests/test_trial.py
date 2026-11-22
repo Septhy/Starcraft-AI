@@ -131,8 +131,9 @@ class FakeGame:
         self.time += 0.33
         assert 0 <= x0 < x1 <= 1920 and 40 <= y0 < y1 <= 760
         inside = [u for u in self.alive()
-                  if x0 <= self._screen(*self.where(u))[0] <= x1
-                  and y0 <= self._screen(*self.where(u))[1] <= y1]
+                  # a box picks up a man who only overlaps its edge
+                  if x0 - 15 <= self._screen(*self.where(u))[0] <= x1 + 15
+                  and y0 - 15 <= self._screen(*self.where(u))[1] <= y1 + 15]
         self.selected = inside[:12] or None
 
     def key(self, name):
@@ -662,5 +663,9 @@ def test_counts_men_on_the_game_screen():
             u["from"] = u["to"] = p
         g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
         pixels = trial.at_mass(watch.units(g.shot("x")))
-        counted = trial.count_men(g, pixels)
-        assert 0.8 * men <= counted <= 1.2 * men, (men, counted)
+        counted, whole = trial.count_men(g, pixels)
+        assert whole and 0.75 * men <= counted <= 1.3 * men, (men, counted)
+        # told how many are enough, it stops counting once it has them
+        before = g.inputs
+        some, whole = trial.count_men(g, pixels, enough=20)
+        assert some >= 20 and (whole or g.inputs - before < 30)

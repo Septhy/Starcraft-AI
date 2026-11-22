@@ -617,3 +617,14 @@ real game.
   once per mass, so later spawns at the same spots were left).
 - Still open: the first hit is sent too slowly and too thin against a
   defended border.
+
+## Trial 14: ran the build from before the recount fix
+
+- No count between 107 s and 517 s, so this was the older exe. Idle
+  from about 220 s to 400 s (only the air group moved), as in trial 13.
+- The count at 477-517 s took 40 s of boxes with no orders (the user
+  saw "selection boxes that do nothing") and said 550 men with supply
+  at 243: a box selects men who only overlap its edge, and small boxes
+  count them several times.
+- Fix: each box's figure is scaled by box area over (box + one man)
+  area; counting stops once it has reached what the hit needs.
