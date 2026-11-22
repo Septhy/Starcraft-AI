@@ -214,6 +214,16 @@ class FakeGame:
             block(x, y, 5, 4)
         for u in self.alive():
             block(*self.where(u), 3, 3)
+        # the bottom panel: one framed picture per selected unit
+        if isinstance(self.selected, list) and len(self.selected) > 1:
+            for k in range(len(self.selected)):
+                x = live.SLOT_ORIGIN[0] + (k % 6) * live.SLOT_STEP[0]
+                y = live.SLOT_ORIGIN[1] + (k // 6) * live.SLOT_STEP[1]
+                size = live.SLOT_SIZE
+                a[y:y + 4, x:x + size] = (0, 60, 200)
+                a[y + size - 4:y + size, x:x + size] = (0, 60, 200)
+                a[y:y + size, x:x + 4] = (0, 60, 200)
+                a[y:y + size, x + size - 4:x + size] = (0, 60, 200)
         s = Image.fromarray(a)
         card = "barracks" if self.selected == "barracks" else \
             "units" if self.selected else None
@@ -611,3 +621,39 @@ def test_no_hit_below_the_minimum_even_if_the_general_asks():
         trial.gather_idle, trial.TRIAL_SECONDS = real, old_limit
     assert strength < trial.MIN_HIT                 # too few
     assert not st.hit_wanted                        # the request was dropped
+
+
+def panel_screen(name):
+    """A screen with a real bottom panel pasted in."""
+    s = Image.new("RGB", (1920, 1080))
+    s.paste(Image.open(os.path.join(DATA, name)), (560, 780))
+    return s
+
+
+def test_reads_how_many_units_are_selected():
+    assert live.selected_count(panel_screen("panel_12.png")) == 12
+    assert live.selected_count(panel_screen("panel_9.png")) == 9
+    assert live.selected_count(panel_screen("panel_3.png")) == 3
+    assert live.selected_count(Image.new("RGB", (1920, 1080))) == 0
+    assert live.selected_count(screen("units")) == 1      # one unit alone
+    assert live.selected_count(screen("barracks")) == 0   # a building
+
+
+def test_counts_men_on_the_game_screen():
+    """The count comes from boxing the troops and reading the game's own
+    selection count, cutting a full box in four."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    for men in (30, 100, 170):
+        g = FakeGame(m)
+        watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+        far = {"x": 7200, "y": 500}
+        stand_at(g.units, far)                      # everyone out of the way
+        there = g.units[:men]
+        for k, u in enumerate(there):               # then `men` at the mass
+            p = (trial.MASS[0] + (k % 14 - 7) * 30, trial.MASS[1] + (k // 14 - 6) * 30)
+            u["from"] = u["to"] = p
+        g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+        pixels = trial.at_mass(watch.units(g.shot("x")))
+        counted = trial.count_men(g, pixels)
+        assert 0.8 * men <= counted <= 1.2 * men, (men, counted)

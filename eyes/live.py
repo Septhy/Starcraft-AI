@@ -201,3 +201,33 @@ def clusters(pixels, max_w, max_h):
         left.difference_update(group)
         out.append(group)
     return sorted(out, key=len, reverse=True)
+
+
+# ------------------------------------------------ how many units are selected
+# With several units selected, the bottom panel shows one small framed
+# picture per unit, up to twelve, in two rows of six.
+SLOT_ORIGIN = (617, 893)        # left, top of the first frame
+SLOT_STEP = (81, 83)            # from one frame to the next: across, down
+SLOT_SIZE = 72
+
+
+def selected_count(screen):
+    """How many units the game shows as selected, read from the framed
+    pictures in the bottom panel: 0 to 12. One unit alone is shown
+    differently (a large picture and its name) and counts as 1."""
+    if not units_selected(screen):
+        return 0
+    a = np.asarray(screen.convert("RGB")).astype(int)
+    count = 0
+    for row in range(2):
+        for col in range(6):
+            x = SLOT_ORIGIN[0] + col * SLOT_STEP[0]
+            y = SLOT_ORIGIN[1] + row * SLOT_STEP[1]
+            # the frame's top and left edges are bright lines
+            # (each line is a few pixels thick with soft edges, so take
+            # the brightest pixel across its thickness)
+            top = a[y - 1:y + 5, x + 8:x + SLOT_SIZE - 8].max(axis=2).max(axis=0)
+            left = a[y + 8:y + SLOT_SIZE - 8, x - 1:x + 7].max(axis=2).max(axis=1)
+            if (top > 120).mean() > 0.7 and (left > 120).mean() > 0.7:
+                count += 1
+    return max(count, 1)

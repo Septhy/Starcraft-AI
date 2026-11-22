@@ -549,3 +549,28 @@ count; it is read but not yet used for this.
 
 The recorder now covers a whole game: every 3 s the minimap and the
 top strip, every 30 s the whole screen, for up to 45 minutes.
+
+## Counting men on the game screen, and the two cities
+
+The repository owner: do not count minimap pixels; look at the units
+on the in-game screen. And the two cities to tax are Warsaw and
+Krakow.
+
+- `live.selected_count` reads how many units the game shows as
+  selected, from the framed pictures in the bottom panel (0 to 12).
+  It is right on all eleven real pictures with a known count.
+- `count_men` cuts the ground into fixed patches, boxes each patch the
+  troops stand on, and adds up the selection counts; a patch that comes
+  back with the full twelve is cut in four and counted again. Fixed
+  patches mean nobody is counted twice from overlapping views.
+- A hit is decided on that count: at least 140 men, normally 180, 240
+  after a lost or stalled hit. The minimap is used only to tell when a
+  count is worth making, and to estimate the reserve standing forward
+  from the men-per-pixel ratio of the last count.
+- In the pretend game the count came to about half the minimap figure
+  (54 men for 127 pixels, 89 for 164), so the earlier pixel thresholds
+  were sending much smaller hits than their numbers suggested.
+- Taking Warsaw or Krakow now sends a building to each of them.
+
+Not yet tried on the real game: counting takes a box per patch, so a
+count of a large mass may take ten seconds or more.

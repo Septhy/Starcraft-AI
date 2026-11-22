@@ -78,9 +78,13 @@ MIDDLE_EAST = (219 * 32, 129 * 32)   # bring a unit here for the spawn
 # hit sent at that target. A building
 # floating over a city counts as holding it.
 FLIGHTS = [(1, "Barracks", (173, 80), "Warsaw 200"),     # Smolensk's
+           # Warsaw and Krakow are taxed together: taking either sends
+           # a building to each.
            ("Warsaw 200", "Barracks", (173, 80), "Warsaw 200"),
-           ("Konigsberg 200", "Engineering Bay", (162, 58), "Konigsberg 200"),
+           ("Warsaw 200", "Factory", (165, 49), "Krakow 200"),
            ("Krakow 200", "Factory", (165, 49), "Krakow 200"),
+           ("Krakow 200", "Barracks", (173, 80), "Warsaw 200"),
+           ("Konigsberg 200", "Engineering Bay", (162, 58), "Konigsberg 200"),
            ("Romania 300", "Starport", (190, 110), "Romania 300")]   # Sevastopol's
 MARINES_PER_BARRACKS = 5       # a building queues at most five
 # Where to try clicking, relative to where the barracks should appear.
@@ -95,13 +99,16 @@ WAVE_EARLIEST = 45             # seconds: do not hit before this (qororo98
                                # and penny[eef] send theirs at 37 to 51)
 WAVE_LATEST = 100              # seconds: hit by now whatever happens
 TRIAL_SECONDS = 480            # stop starting new hits after this long
-# How big a hit has to be. The repository owner: at least 140 men, and
-# normally 160 to 300. Men are estimated from minimap pixels of units
-# standing together; in a packed mass that is roughly one pixel a man,
-# so the figures below are in pixels and err on the large side.
-MIN_HIT = 160                  # never send less than this as a hit
-WANT_HIT = 200                 # what a hit normally waits for
-BIG_HIT = 260                  # after a hit was lost or stalled
+# How big a hit has to be, in men. The repository owner: at least 140,
+# and normally 160 to 300. The men are counted on the game screen
+# itself: the bot boxes the troops patch by patch and reads how many the
+# game says are selected (count_men). The minimap only says when it is
+# worth counting.
+MIN_HIT = 140                  # never send less than this as a hit
+WANT_HIT = 180                 # what a hit normally waits for
+BIG_HIT = 240                  # after a hit was lost or stalled
+COUNT_WHEN = 0.6               # count once the minimap suggests this share of the need
+RECOUNT_GROWTH = 1.15          # and again when the minimap figure has grown this much
 NEW_TROOPS = 40                # a new hit needs at least this many at the mass
 BIG_MASS = WANT_HIT
 RETRAIN_EVERY = 55             # seconds between rounds of the barracks
@@ -130,8 +137,9 @@ class State:
         self.battle = None         # the hit being watched
         self.t0 = 0.0
         self.need = WANT_HIT       # how big a mass is wanted for the next hit
-        self.reserve = 0           # troops standing forward, waiting for the next hit
-        self.strength = 0          # mass plus that reserve
+        self.reserve = 0           # minimap pixels of troops standing forward in reserve
+        self.strength = 0          # men for the next hit: mass plus reserve
+        self.men_per_pixel = 1.0   # from the last count on the game screen
         self.last_consult = -1e9
         self.last_chat = -1e9
         self.hit_wanted = False    # the general has said "hit now"
@@ -212,6 +220,60 @@ def select_group(io, pixels, st, watch=None, margin=None):
     if watch:
         watch.forget(pixels)            # nothing there: not units
     return False
+
+
+COUNT_PATCH = 104              # map pixels: the side of one patch of ground counted
+
+
+def count_box(io, box, depth=0):
+    """How many units stand in a box on the game screen: box them and
+    read how many the game says are selected. The game selects at most
+    twelve, so a box that comes back full is cut in four and each part
+    counted."""
+    io.drag(*box)
+    io.sleep(0.05)
+    n = live.selected_count(io.shot("count", keep=False))
+    l, t, r, b = box
+    if n < 12 or depth >= 2 or r - l < 90 or b - t < 90:
+        return n
+    mx, my = (l + r) // 2, (t + b) // 2
+    return sum(count_box(io, q, depth + 1) for q in
+               [(l, t, mx - 1, my - 1), (mx, t, r, my - 1),
+                (l, my, mx - 1, b), (mx, my, r, b)])
+
+
+def count_men(io, pixels):
+    """Count the men standing at these minimap pixels by looking at them
+    on the game screen.
+
+    The ground is cut into fixed square patches, and each patch that
+    the minimap shows troops on is boxed once, whichever view it is
+    seen from, so nobody is counted twice."""
+    patches = set()
+    for p in pixels:
+        x, y = live.from_drawn(*p)
+        patches.add((int(x // COUNT_PATCH), int(y // COUNT_PATCH)))
+    l, t, r, b = live.GAME_AREA
+    men = 0
+    while patches:
+        # look at the middle of a screenful of the patches still to do
+        i0, j0 = min(patches, key=lambda c: (c[1], c[0]))
+        near_by = [c for c in patches
+                   if 0 <= c[0] - i0 < 7 and 0 <= c[1] - j0 < 3]
+        cx = (sum(c[0] for c in near_by) / len(near_by) + 0.5) * COUNT_PATCH
+        cy = (sum(c[1] for c in near_by) / len(near_by) + 0.5) * COUNT_PATCH
+        cam = look_at(io, *centred(cx, cy))
+        done = set()
+        for c in sorted(near_by):
+            x0, y0 = live.on_screen(c[0] * COUNT_PATCH, c[1] * COUNT_PATCH, cam)
+            x1, y1 = live.on_screen((c[0] + 1) * COUNT_PATCH,
+                                    (c[1] + 1) * COUNT_PATCH, cam)
+            if x0 < l + 2 or y0 < t + 2 or x1 > r - 2 or y1 > b - 2:
+                continue                # not wholly in view: another look
+            men += count_box(io, (x0, y0, x1 - 1, y1 - 1))
+            done.add(c)
+        patches -= done or {(i0, j0)}   # never loop on one that will not fit
+    return men
 
 
 def attack_move(io, map_x, map_y):
@@ -809,7 +871,7 @@ def advance_front(io, watch, mapdata, st, still, picture):
     holding = near(idle, (w["x"], w["y"]), 9) \
         if battle.target not in NEXT else set()
     st.reserve = len(idle - holding)
-    if len(idle) < MIN_HIT:
+    if len(idle) * st.men_per_pixel < MIN_HIT:
         return 0                        # too few to be a hit: they hold, and
                                         # go in with the next one
     st.last_advance = io.now()
@@ -875,10 +937,11 @@ def status_report(io, st, t0, massed, need, battle, axis_balkans, axis_mass,
     now = io.now() - t0
     lines = [f"Time in game: {int(now) // 60}:{int(now) % 60:02d}. "
              f"Round timer about {round_timer(now)}.",
-             f"Our mass waiting at the massing place: about {massed} men "
-             f"(minimap pixels). Troops standing forward in reserve: about "
-             f"{st.reserve}. A hit needs at least {MIN_HIT} in all; the "
-             f"program is waiting for {need}.",
+             f"Men for the next hit, by the program's count: about "
+             f"{st.strength} (the mass waiting at the massing place plus "
+             f"about {int(st.reserve * st.men_per_pixel)} standing forward "
+             f"in reserve). A hit needs at least {MIN_HIT}; the program is "
+             f"waiting for {need}.",
              f"Axis colour at our massing place: {axis_mass} pixels.",
              f"Axis colour in the Balkans: {axis_balkans} pixels "
              f"({st.balkan_start} at the start of the game)."]
@@ -1053,16 +1116,32 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     train_everywhere(io, mapdata, st)
     collected, tried, gathered = False, set(), 0
     need, readings, strength = WANT_HIT, [], 0
+    counted, counted_at = None, 0       # men counted on screen, and the
+                                        # minimap figure when they were
     while io.now() - t0 < TRIAL_SECONDS:
         orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
         advance_front(io, watch, mapdata, st, still, picture)
         battle = st.battle              # it may have moved on to a new objective
-        # the count jumps about as troops arrive; take the middle of the
-        # last few looks
-        readings.append(len(at_mass(watch.units(picture))))
-        massed = sorted(readings[-5:])[len(readings[-5:]) // 2]
-        strength = st.strength = massed + st.reserve
+        # The minimap gives a rough figure cheaply, and says when it is
+        # worth counting properly. It jumps about as troops arrive, so
+        # take the middle of the last few looks.
+        mass_pixels = at_mass(watch.units(picture))
+        readings.append(len(mass_pixels))
+        rough = sorted(readings[-5:])[len(readings[-5:]) // 2]
+        guess = (rough + st.reserve) * st.men_per_pixel
+        if guess >= COUNT_WHEN * need and rough >= NEW_TROOPS and \
+                rough >= counted_at * RECOUNT_GROWTH:
+            # count the men themselves, on the game screen
+            men = count_men(io, mass_pixels & still)
+            counted_at = rough
+            if len(mass_pixels) >= 20 and men:
+                st.men_per_pixel = min(3.0, max(0.3, men / len(mass_pixels)))
+            counted = men
+            io.log(f"counted {men} men at the massing place "
+                   f"({len(mass_pixels)} minimap pixels)")
+        massed = counted if counted is not None else 0
+        strength = st.strength = int(massed + st.reserve * st.men_per_pixel)
         waited = io.now() - began
         # the fast rule: the enemy is at the mass
         axis_mass = len(at_mass(watch.others(picture, AXIS)))
@@ -1111,10 +1190,11 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     if battle:
         io.log(f"last hit at {battle.target}: {battle.verdict(mapdata)[0]} "
                f"({battle.verdict(mapdata)[1]})")
-    io.log(f"mass at {io.now() - t0:.0f} s: about {strength} men for the "
-           f"next hit ({strength - st.reserve} at the massing place, "
-           f"{st.reserve} forward in reserve) after {io.now() - began:.0f} s; "
-           f"{gathered} idle groups brought in; wanted {need}")
+    io.log(f"mass at {io.now() - t0:.0f} s: {strength} men for the next "
+           f"hit ({massed} counted at the massing place, about "
+           f"{strength - massed} forward in reserve) after "
+           f"{io.now() - began:.0f} s; {gathered} idle groups brought in; "
+           f"wanted {need}")
     return strength
 
 
