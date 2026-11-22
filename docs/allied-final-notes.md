@@ -431,3 +431,28 @@ hit, read and write chat, change the opening, and remember.
   Unknowns: whether Shift+Enter opens ally chat in this client; how
   well a model can point at things in a shrunken screenshot; whether
   typing reaches the chat box.
+
+## Playing like qororo98 and penny[eef]
+
+Asked to train the bot to play like them. There are five usable games
+(qororo98 36, 17 and 10 minutes; penny[eef] 9 and 5), far too few to
+train a model on. Their habits were measured and written in instead:
+into the general's instructions, and into the bot's default plan.
+
+Measured (attack waves are bursts of eight or more attack-moves):
+
+- First wave at 37 to 51 s, at Berlin, in all five games.
+- More waves north through the first three minutes, 50 to 90 s apart.
+- A turn south at about 3:35 to 5:25 in all four games of nine minutes
+  or more: the bunkers and Italian army near Romania, then Romania,
+  Serbia, 40 or more attack orders in under a minute.
+- Back north (Warsaw, Krakow, Konigsberg, the approach to Berlin) from
+  about 7:30 to 11:00; south again from about 13:00 in the longest game.
+- Marines queued in bursts of 30 to 70 roughly every three minutes.
+- About four number-key assignments a minute, all game.
+- Buildings lifted from the first seconds (4 to 7 s in qororo98's
+  games) and again through the game.
+
+In the bot: the first hit may leave from 45 s; `PLAN` sends later hits
+south from 3:30 to 7:30 and from 12:00 to 16:00, north otherwise,
+unless the general chooses differently.

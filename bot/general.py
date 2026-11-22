@@ -139,6 +139,31 @@ the east, the army should come back to defend.
 centre of the minimap, more than at the start), going south is usually \
 right. Otherwise Berlin again.
 
+How the best Russia players play
+These habits were measured from replays of two strong Russia players, \
+qororo98 and penny[eef]. Play the way they do unless what you see gives a \
+clear reason not to.
+- The first hit leaves early, 37 to 51 seconds into the game, at Berlin, \
+with everything that has massed by then. They do not wait for a perfect \
+mass.
+- More waves follow at Berlin or the eastern front through the first three \
+minutes or so, about one every 50 to 90 seconds, as marines arrive.
+- About 3:30 to 5:30 into the game, after the first tax, they turn south: \
+a large wave into the Balkans through Romania and on to Serbia and \
+Belgrade, usually 40 or more attack orders in under a minute.
+- Around 7:30 to 11:00 they come back north: Warsaw, Krakow, Konigsberg \
+and the approach to Berlin. Later they swing south again. They keep \
+alternating, hitting where the enemy has just been drawn away from.
+- They train in bursts of 30 to 70 marines roughly every three minutes, \
+not steadily, and each burst becomes the next wave.
+- They put groups on the number keys constantly, about four new \
+assignments a minute, and send a hit with the keys so it leaves together.
+- Battlecruisers stay on their own key and are moved with care, a few \
+orders a minute, with Yamato used on fixed defences. One other group is \
+worked by hand all the time, moved in and held, moved out again.
+- They float buildings to cities from the first seconds onward to take \
+tax, and keep doing it through the game.
+
 What to answer
 - read: what you see that matters, in at most 30 words.
 - fight: how our last attack is doing at the front shown: winning, losing, \

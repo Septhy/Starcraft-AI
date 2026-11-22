@@ -74,7 +74,8 @@ CELLS = (8, 3)                 # the view is cut into this many boxes at the mas
 GROUND_KEYS = list("12345678")
 AIR_KEYS = list("90")
 FIRST_ORDERS_UNTIL = 45        # seconds: stop the first round of orders
-WAVE_EARLIEST = 55             # seconds: do not hit before this
+WAVE_EARLIEST = 45             # seconds: do not hit before this (qororo98
+                               # and penny[eef] send theirs at 37 to 51)
 WAVE_LATEST = 100              # seconds: hit by now whatever happens
 TRIAL_SECONDS = 480            # stop starting new hits after this long
 BIG_MASS = 140                 # minimap pixels at the mass for a later hit
@@ -578,17 +579,37 @@ def axis_in(watch, screen, box):
     return n
 
 
+# qororo98 and penny[eef] alternate fronts by the clock: north at first,
+# south from about 3:30, back north from about 7:30, south again later.
+# (seconds from, seconds to, "north" or "south")
+PLAN = [(0, 210, "north"), (210, 450, "south"), (450, 720, "north"),
+        (720, 960, "south"), (960, 1260, "north")]
+
+
+def planned_front(seconds_in):
+    for start, end, front in PLAN:
+        if start <= seconds_in < end:
+            return front
+    return "north"
+
+
 def choose_target(io, watch, st, mapdata=None, battle=None):
     """Where the next hit should go.
 
-    The general's choice comes first. Otherwise: if the last hit
-    stalled or was lost short of its target, aim at the city nearest to
-    where that happened. Otherwise south if the Axis has grown in the
+    The general's choice comes first. Otherwise the plan by the clock:
+    south when qororo98 and penny[eef] go south. Otherwise: if the last
+    hit stalled or was lost short of its target, aim at the city nearest
+    to where that happened. Otherwise south if the Axis has grown in the
     Balkans since the start (Germany starts with troops there), and
     Berlin if not."""
     if st.advised and io.now() - st.advised[1] <= 40:
         io.log(f"next target {st.advised[0]} (the general's choice)")
         return st.advised[0]
+    south = "Factory 7" if "Romania 300" in st.sent_at else "Romania 300"
+    if planned_front(io.now() - st.t0) == "south":
+        io.log(f"next target {south} (the plan: south at this point in the "
+               f"game, as qororo98 and penny[eef] do)")
+        return south
     if battle and mapdata and battle.front and \
             battle.verdict()[0] in ("stalled", "losing"):
         fx, fy = battle.front
@@ -600,7 +621,7 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
     seen = axis_in(watch, io.shot("choose"), BALKANS)
     more = seen - st.balkan_start
     if more >= BALKAN_AXIS:
-        target = "Factory 7" if "Romania 300" in st.sent_at else "Romania 300"
+        target = south
         why = "go south"
     else:
         target = "Berlin 1000"

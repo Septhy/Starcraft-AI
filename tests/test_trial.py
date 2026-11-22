@@ -322,14 +322,15 @@ def test_opening_masses_fast_and_hits_berlin():
         assert len(sent) >= 0.7 * len(alive), (error, len(sent), len(alive))
         assert sum(1 for u in sent if u.get("spawn")) >= 20, error
         at_berlin = [u for u in sent if near(u["to"], (w["x"], w["y"]), 20)]
-        assert len(at_berlin) >= 150                # the first hit: Berlin
+        assert len(at_berlin) >= 100                # the first hit: Berlin
         assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 6   # a wall
         # the Smolensk barracks was flown to Warsaw after the first hit
         warsaw = trial.place(m, "Warsaw 200")
         kinds = {k: (x, y) for k, x, y in g.flights}
         assert near(kinds["barracks"], (warsaw["x"], warsaw["y"]), 3), error
-        # with no Axis to be seen, every hit went to Berlin
-        assert set(result["targets"]) == {"Berlin 1000"}
+        # the first hits go north; from about 3:30 the plan turns south
+        assert result["targets"][0] == "Berlin 1000"
+        assert "Romania 300" in result["targets"]
         # later hits found the newly trained marines
         assert sum(1 for h in result["hits"][1:] if h) >= 1, (error, result)
         # few boxes come up empty
@@ -358,6 +359,9 @@ class OneShot:
 
     def shot(self, label, keep=True):
         return self.picture
+
+    def now(self):
+        return 100.0                # early in the game: the plan says north
 
     def log(self, text, quiet=False):
         self.lines.append(text)
@@ -500,3 +504,11 @@ def real_start_screen():
     s = Image.new("RGB", (1920, 1080))
     s.paste(Image.open(os.path.join(DATA, "start_minimap.png")), (0, 780))
     return s
+
+
+def test_the_plan_alternates_fronts_like_the_players_studied():
+    assert trial.planned_front(60) == "north"
+    assert trial.planned_front(4 * 60) == "south"
+    assert trial.planned_front(9 * 60) == "north"
+    assert trial.planned_front(13 * 60) == "south"
+    assert trial.planned_front(40 * 60) == "north"
