@@ -228,13 +228,22 @@ def test_group_orders_are_carried_out():
     warsaw = trial.place(m, "Warsaw 200")
     order = lambda **o: {"group": "1", "order": "attack_move",
                          "place": "none", "x": 0, "y": 0, **o}
-    # a named place, for one key
-    assert trial.carry_out(g, m, st, order(place="Warsaw"), None)
+    # ground groups go to the front or the mass, never at a city piecemeal
+    assert not trial.carry_out(g, m, st, order(place="Warsaw"), None)
+    st.battle = trial.Battle("Warsaw 200", 0)
+    st.battle.front = (warsaw["x"], warsaw["y"])
+    assert trial.carry_out(g, m, st, order(place="front"), None)
     assert all(near(u["to"], (warsaw["x"], warsaw["y"]), 12)
                for u in g.units[0:3])
     assert not any(near(u["to"], (warsaw["x"], warsaw["y"]), 12)
                    for u in g.units[3:6])
-    # "air" means the air keys; move goes to the mass without fighting
+    # "air" means the air keys; move goes without fighting; air may be
+    # sent to a city
+    assert trial.carry_out(g, m, st, order(group="air", order="move",
+                                           place="Krakow"), None)
+    krakow = trial.place(m, "Krakow 200")
+    assert all(near(u["to"], (krakow["x"], krakow["y"]), 12)
+               for u in g.units[6:8])
     assert trial.carry_out(g, m, st, order(group="air", order="move",
                                            place="mass"), None)
     assert all(near(u["to"], trial.MASS, 12) for u in g.units[6:8])
@@ -254,7 +263,7 @@ def test_group_orders_are_carried_out():
                                                x=640, y=690), cam)
     assert not trial.carry_out(g, m, st, order(order="attack_point",
                                                x=640, y=300), None)
-    assert not trial.carry_out(g, m, st, order(group="7", place="Warsaw"), None)
+    assert not trial.carry_out(g, m, st, order(group="7", place="front"), None)
 
 
 def test_chat_is_typed_to_allies_but_not_too_often():

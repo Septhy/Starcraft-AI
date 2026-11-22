@@ -504,3 +504,48 @@ The road south (the repository owner): Belgrade, then roughly toward
 the Netherlands. In the bot: Romania, Factory 7 (Belgrade), Hungary,
 Munich, Frankfurt, Amsterdam. The cities in between are the bot's own
 choice of stepping stones and have not been confirmed.
+
+## Twelfth trial: the first run with the general working (Haiku 5.5)
+
+- 66 looks, each answered in about 2 s, about $0.03 in all.
+- Hits went out at about 111, 124, 85, 89 and 58 men: far too small.
+  The general said "hit now" when the mass crossed its threshold and
+  "keep massing" a look later; the bot remembered the first and hit
+  with whatever was there. Before the first hit it also ordered the
+  ground groups at Berlin on its own, several times.
+- After Krakow and Warsaw were reached, the idle troops there were
+  sent on at Berlin a few groups at a time.
+- The barracks sent to Warsaw for the tax never left: it was told to
+  fly 0.3 s after lifting off, before it could take orders, and hung
+  near the massing place for the rest of the game.
+
+The repository owner: the second hit was really bad. Having taken
+Warsaw it should have been taxing the two cities. The idle troops
+should not have been made to attack: that is not a hit. A hit is at
+least 140 men and should vary from 160 to 300; the bot must check its
+mass is large enough, and if not hold the troops in reserve.
+
+What changed:
+
+- `MIN_HIT` 160, `WANT_HIT` 200, `BIG_HIT` 260 after a lost or stalled
+  hit, in minimap pixels of units, taken as men. No hit below the
+  minimum, whoever asks. There is no longer a time after which it hits
+  anyway.
+- A hit's strength is the mass plus the troops standing forward short
+  of their objective, who go in with it. A new hit also needs at least
+  40 fresh men at the massing place.
+- Troops standing forward go on by themselves only as a hit-sized
+  body. Fewer hold where they are, in reserve.
+- The general's orders to ground groups are limited to the front, the
+  mass, hold, or a point. It is told the hit-size rule.
+- A lifted building is given 2.6 s to leave the ground and its order
+  twice. When a hit reaches Warsaw, Konigsberg, Krakow or Romania, a
+  building is flown there for the tax.
+- The southern road continues from the farthest point reached.
+- The mass count is the middle of the last five looks.
+
+Not known: how well pixels stand for men. Supply could give a better
+count; it is read but not yet used for this.
+
+The recorder now covers a whole game: every 3 s the minimap and the
+top strip, every 30 s the whole screen, for up to 45 minutes.

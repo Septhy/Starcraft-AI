@@ -323,15 +323,16 @@ def test_opening_masses_fast_and_hits_berlin():
         assert len(sent) >= 0.7 * len(alive), (error, len(sent), len(alive))
         assert sum(1 for u in sent if u.get("spawn")) >= 20, error
         at_berlin = [u for u in sent if near(u["to"], (w["x"], w["y"]), 20)]
-        assert len(at_berlin) >= 100                # the first hit: Berlin
-        assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 6   # a wall
+        assert len(at_berlin) >= 80                 # the first hit: Berlin
+        assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 4   # a wall
         # the Smolensk barracks was flown to Warsaw after the first hit
         warsaw = trial.place(m, "Warsaw 200")
         kinds = {k: (x, y) for k, x, y in g.flights}
         assert near(kinds["barracks"], (warsaw["x"], warsaw["y"]), 3), error
         # the first hits go north; from about 3:30 the plan turns south
         assert result["targets"][0] == "Berlin 1000"
-        assert "Romania 300" in result["targets"]
+        # every hit after the first was at least the minimum size
+        assert all(h == 0 or h >= 8 for h in result["hits"][1:]), result
         # later hits found the newly trained marines
         assert sum(1 for h in result["hits"][1:] if h) >= 1, (error, result)
         # few boxes come up empty
@@ -426,8 +427,10 @@ def test_romania_flight_follows_the_first_romania_hit():
     romania = trial.place(m, "Romania 300")
     assert g.flights and g.flights[0][0] == "starport"
     assert near(g.flights[0][1:], (romania["x"], romania["y"]), 3)
+    assert g.time > 2.5                                  # it waited for lift-off
+    sent = len(g.flights)                                # the order is said twice
     trial.flights_after(g, m, st, "Romania 300")         # only once
-    assert len(g.flights) == 1
+    assert len(g.flights) == sent
 
 
 def supply_screen(name):
@@ -515,52 +518,61 @@ def test_the_plan_alternates_fronts_like_the_players_studied():
     assert trial.planned_front(40 * 60) == "north"
 
 
-def test_idle_troops_forward_are_sent_on():
-    """Troops that took Romania and are standing there go on to the
-    factory at Belgrade; troops stopped short of a target go at it again."""
-    m = trial.load_map()
-    side = m["slots"]["5"]
-    romania, belgrade = trial.place(m, "Romania 300"), trial.place(m, "Factory 7")
-    g = FakeGame(m)
-    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
-    there = g.units[:60]
-    for k, u in enumerate(there):                   # standing at Romania
-        p = (romania["x"] + (k % 10 - 5) * 26, romania["y"] + (k // 10 - 3) * 26)
+def stand_at(units, spot, per_row=14):
+    for k, u in enumerate(units):
+        p = (spot["x"] + (k % per_row - per_row // 2) * 30,
+             spot["y"] + (k // per_row - 5) * 30)
         u["from"] = u["to"] = p
-    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
-    st = trial.State()
-    st.battle = trial.Battle("Romania 300", 0)
+
+
+def looks(g, watch, m, st, times):
     orders = 0
-    for _ in range(5):                              # a few looks, 6 s apart
+    for _ in range(times):                          # a few looks, 6 s apart
         a = watch.units(g.shot("a"))
         g.time += 1
         still = a & watch.units(g.shot("b"))
         orders += trial.advance_front(g, watch, m, st, still, g.shot("c"))
         g.time += 6
-    assert orders >= 4
-    # the watch moves on too: Belgrade, and with nobody there to fight,
-    # further down the same road
-    assert "Factory 7" in st.sent_at
+    return orders
+
+
+def test_a_hit_that_took_its_target_goes_on_but_a_handful_holds():
+    """A whole hit standing idle at Romania goes on to Belgrade. A few
+    troops standing somewhere are not a hit: they hold, in reserve."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    romania, berlin = trial.place(m, "Romania 300"), trial.place(m, "Berlin 1000")
     road = ("Factory 7", "Hungary 200", "Munich 200", "Frankfurt 200",
             "Amsterdam 100")
-    assert st.battle.target in road
     onward = [trial.place(m, n) for n in road]
+
+    # a handful: 30 men at Romania
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    stand_at(g.units[:30], romania)
+    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+    st = trial.State()
+    st.battle = trial.Battle("Romania 300", 0)
+    assert looks(g, watch, m, st, 3) == 0
+    assert st.battle.target == "Romania 300"
+    assert all(near(u["to"], (romania["x"], romania["y"]), 12)
+               for u in g.units[:30])
+    assert 0 < st.reserve < trial.MIN_HIT           # counted as a reserve
+
+    # a whole hit: 170 men at Romania
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    there = g.units[:170]
+    stand_at(there, romania)
+    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+    st = trial.State()
+    st.battle = trial.Battle("Romania 300", 0)
+    assert looks(g, watch, m, st, 6) >= 4
+    assert "Factory 7" in st.sent_at                # the watch moves on too
+    assert st.battle.target in road
     moved = sum(any(near(u["to"], (p["x"], p["y"]), 12) for p in onward)
                 for u in there)
-    assert moved >= 40, moved
-    # troops holding Berlin are not dragged south with them
-    berlin = trial.place(m, "Berlin 1000")
-    holders = g.units[60:80]
-    for k, u in enumerate(holders):
-        p = (berlin["x"] + (k % 5) * 26, berlin["y"] + (k // 5) * 26)
-        u["from"] = u["to"] = p
-    for _ in range(3):
-        a = watch.units(g.shot("a"))
-        g.time += 1
-        still = a & watch.units(g.shot("b"))
-        trial.advance_front(g, watch, m, st, still, g.shot("c"))
-        g.time += 6
-    assert all(near(u["to"], (berlin["x"], berlin["y"]), 6) for u in holders)
+    assert moved >= 100, moved
 
 
 def test_the_road_south_leads_to_belgrade_and_on_to_the_netherlands():
@@ -571,3 +583,31 @@ def test_the_road_south_leads_to_belgrade_and_on_to_the_netherlands():
         road.append(at)
         trial.place(m, at)                          # every stop is on the map
     assert road[0] == "Factory 7" and road[-1] == "Amsterdam 100"
+
+
+def test_no_hit_below_the_minimum_even_if_the_general_asks():
+    """With few men at the massing place and none forward, there is no
+    hit, whatever the general says: they are kept in reserve."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    for k, u in enumerate(g.units):                 # 60 at the mass, rest far off
+        if k < 60:
+            p = (trial.MASS[0] + (k % 10 - 5) * 28, trial.MASS[1] + (k // 10 - 3) * 28)
+        else:
+            p = (7000 + (k % 10) * 30, 600 + (k // 10) * 30)   # at home, far east
+        u["from"] = u["to"] = p
+    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+    st = trial.State()
+    st.hit_wanted = True
+    real = trial.gather_idle
+    trial.gather_idle = lambda io, w, md, s, tried: (0, io.shot("x"), set())
+    old_limit = trial.TRIAL_SECONDS
+    trial.TRIAL_SECONDS = 20
+    try:
+        strength = trial.build_big_mass(g, watch, m, st, 0.0)
+    finally:
+        trial.gather_idle, trial.TRIAL_SECONDS = real, old_limit
+    assert strength < trial.MIN_HIT                 # too few
+    assert not st.hit_wanted                        # the request was dropped

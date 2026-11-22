@@ -128,8 +128,13 @@ How Russia plays
 the map, and sends it in large hits, mostly at Berlin (centre of the map, \
 in the red area), sometimes south into the Balkans through Romania and on \
 to Belgrade.
-- A hit should be large. Small groups trickled into a defended place are \
-wasted. If a hit is being destroyed or has stalled and the enemy is still \
+- A hit is at least 140 men, and normally 160 to 300. Anything smaller is \
+not a hit and must not be sent at the enemy: those troops are a reserve, \
+held back until there are enough. The status report gives the size of the \
+mass and of the reserve standing forward. The program will not carry out \
+hit_now below the minimum, so say keep_massing until it is reached, and do \
+not change your mind from one look to the next without a reason.
+- Small groups trickled into a defended place are wasted. If a hit is being destroyed or has stalled and the enemy is still \
 strong there, it is better to stop feeding it and build a bigger mass, or \
 to aim the next hit at the eastern-front city where it stalled so as to \
 break the line there first, or to go round it.
@@ -191,6 +196,9 @@ moving: a bunker, a sieged tank, a turret, a building. Only points in the \
 upper 500 rows of the picture are in the game view.
   - yamato_point: battlecruisers fire Yamato at that point. Use it on \
 bunkers, turrets and sieged tanks. Only for an air group.
+  Ground groups may only be ordered to "front" or "mass", to hold, or at \
+a point: sending a few ground groups at a city is not a hit and will be \
+refused. Air groups may be sent to any place.
   For orders with a place, give x and y as 0. Give at most 6 orders, and \
 none at all when the action already says what you want. Your orders are \
 carried out a few seconds after the screenshot, so do not aim at anything \

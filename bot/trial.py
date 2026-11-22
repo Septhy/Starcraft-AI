@@ -78,6 +78,9 @@ MIDDLE_EAST = (219 * 32, 129 * 32)   # bring a unit here for the spawn
 # hit sent at that target. A building
 # floating over a city counts as holding it.
 FLIGHTS = [(1, "Barracks", (173, 80), "Warsaw 200"),     # Smolensk's
+           ("Warsaw 200", "Barracks", (173, 80), "Warsaw 200"),
+           ("Konigsberg 200", "Engineering Bay", (162, 58), "Konigsberg 200"),
+           ("Krakow 200", "Factory", (165, 49), "Krakow 200"),
            ("Romania 300", "Starport", (190, 110), "Romania 300")]   # Sevastopol's
 MARINES_PER_BARRACKS = 5       # a building queues at most five
 # Where to try clicking, relative to where the barracks should appear.
@@ -92,8 +95,15 @@ WAVE_EARLIEST = 45             # seconds: do not hit before this (qororo98
                                # and penny[eef] send theirs at 37 to 51)
 WAVE_LATEST = 100              # seconds: hit by now whatever happens
 TRIAL_SECONDS = 480            # stop starting new hits after this long
-BIG_MASS = 140                 # minimap pixels at the mass for a later hit
-LATER_WAIT_MAX = 200           # seconds: hit with what there is by then
+# How big a hit has to be. The repository owner: at least 140 men, and
+# normally 160 to 300. Men are estimated from minimap pixels of units
+# standing together; in a packed mass that is roughly one pixel a man,
+# so the figures below are in pixels and err on the large side.
+MIN_HIT = 160                  # never send less than this as a hit
+WANT_HIT = 200                 # what a hit normally waits for
+BIG_HIT = 260                  # after a hit was lost or stalled
+NEW_TROOPS = 40                # a new hit needs at least this many at the mass
+BIG_MASS = WANT_HIT
 RETRAIN_EVERY = 55             # seconds between rounds of the barracks
 FIRST_HIT_SWEEPS = 2           # stragglers wait for the next mass
 
@@ -119,7 +129,9 @@ class State:
         self.general = None
         self.battle = None         # the hit being watched
         self.t0 = 0.0
-        self.need = BIG_MASS       # how big a mass is wanted for the next hit
+        self.need = WANT_HIT       # how big a mass is wanted for the next hit
+        self.reserve = 0           # troops standing forward, waiting for the next hit
+        self.strength = 0          # mass plus that reserve
         self.last_consult = -1e9
         self.last_chat = -1e9
         self.hit_wanted = False    # the general has said "hit now"
@@ -407,7 +419,7 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
             why = "the mass stopped growing"
             break
         consult(io, watch, mapdata, st)
-        if st.hit_wanted and now >= 40 and massed >= 60:
+        if st.hit_wanted and now >= 40 and massed >= MIN_HIT:
             why = "the general says hit now"
             break
         if not collected:
@@ -567,10 +579,13 @@ def fly_building(io, mapdata, st, kind, tile, city_name):
         io.log(f"flight: the {kind} was not found")
         return False
     io.key("l")                         # lift off
-    io.sleep(0.3)
+    # a building takes a couple of seconds to leave the ground, and
+    # ignores orders until it has; so wait, then say it twice
+    io.sleep(2.6)
     city = place(mapdata, city_name)
-    io.click(*live.minimap_point(city["x"], city["y"]), button="right")
-    io.sleep(0.1)
+    for _ in range(2):
+        io.click(*live.minimap_point(city["x"], city["y"]), button="right")
+        io.sleep(0.8)
     io.shot("flight-" + city_name.split()[0])
     if kind == "Barracks":
         st.flown.add(tile)
@@ -579,9 +594,10 @@ def fly_building(io, mapdata, st, kind, tile, city_name):
 
 
 def flights_after(io, mapdata, st, when):
+    """Send the buildings whose turn has come. Each building flies once."""
     for w, kind, tile, city in FLIGHTS:
-        if w == when and (w, city) not in st.flights_done:
-            st.flights_done.add((w, city))
+        if w == when and tile not in st.flights_done:
+            st.flights_done.add(tile)
             fly_building(io, mapdata, st, kind, tile, city)
 
 
@@ -622,7 +638,12 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
     if st.advised and io.now() - st.advised[1] <= 40:
         io.log(f"next target {st.advised[0]} (the general's choice)")
         return st.advised[0]
-    south = "Factory 7" if "Romania 300" in st.sent_at else "Romania 300"
+    # going south means carrying on from the farthest point reached on
+    # the southern road, not starting it again
+    south, at = "Romania 300", "Romania 300"
+    while at in NEXT and at in st.sent_at:
+        at = NEXT[at]
+        south = at
     if planned_front(io.now() - st.t0) == "south":
         io.log(f"next target {south} (the plan: south at this point in the "
                f"game, as qororo98 and penny[eef] do)")
@@ -700,6 +721,7 @@ class Battle:
         self.front = None       # (map x, map y) of the latest front
         self.looked = 0
         self.arrived = False
+        self.taxed = False      # a building has been sent for its tax
 
     def sample(self, io, watch, mapdata, picture):
         w = place(mapdata, self.target)
@@ -782,8 +804,14 @@ def advance_front(io, watch, mapdata, st, still, picture):
     if battle.front:
         mine |= near(idle, battle.front, 14)
     idle = mine
-    if len(idle) < IDLE_FORWARD:
-        return 0
+    # Troops standing forward count toward the next hit, unless they are
+    # already holding the end of their road: those have arrived.
+    holding = near(idle, (w["x"], w["y"]), 9) \
+        if battle.target not in NEXT else set()
+    st.reserve = len(idle - holding)
+    if len(idle) < MIN_HIT:
+        return 0                        # too few to be a hit: they hold, and
+                                        # go in with the next one
     st.last_advance = io.now()
     hostile = watch.others(picture, HOSTILE)
 
@@ -847,8 +875,10 @@ def status_report(io, st, t0, massed, need, battle, axis_balkans, axis_mass,
     now = io.now() - t0
     lines = [f"Time in game: {int(now) // 60}:{int(now) % 60:02d}. "
              f"Round timer about {round_timer(now)}.",
-             f"Our mass waiting at the massing place: {massed} minimap "
-             f"pixels of units (the program wants {need} before hitting).",
+             f"Our mass waiting at the massing place: about {massed} men "
+             f"(minimap pixels). Troops standing forward in reserve: about "
+             f"{st.reserve}. A hit needs at least {MIN_HIT} in all; the "
+             f"program is waiting for {need}.",
              f"Axis colour at our massing place: {axis_mass} pixels.",
              f"Axis colour in the Balkans: {axis_balkans} pixels "
              f"({st.balkan_start} at the start of the game)."]
@@ -928,6 +958,10 @@ def carry_out(io, mapdata, st, order, camera):
     point = None if kind == "hold" else order_point(mapdata, st, order["place"])
     if kind != "hold" and point is None:
         return False
+    if kind != "hold" and order["place"] not in ("front", "mass") and \
+            any(k in st.ground_keys for k in keys):
+        return False    # a few groups sent at a city is not a hit: only
+                        # the action "hit_now" sends ground troops there
     for key in keys:
         io.key(key)
         io.sleep(0.05)
@@ -1005,21 +1039,30 @@ def consult(io, watch, mapdata, st):
 
 
 def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
-    """Keep the barracks busy (when supply allows), bring in the
-    reinforcements, watch how the last hit is doing, and wait until the
-    mass is big or it has been long enough. All the while it reacts:
-    the rules to an enemy at the mass, the general to what it is shown.
-    Returns the mass's size."""
+    """Build the next hit, and do not send it until it is big enough.
+
+    Keeps the barracks busy (when supply allows), brings in the
+    reinforcements, and watches the last hit. The strength of the next
+    hit is the mass at the massing place plus the troops standing
+    forward in reserve, who go in with it. It returns that strength
+    when it reaches what is wanted, or when the general says to hit and
+    there is at least the minimum. Until then everyone is held back.
+    All the while it reacts: the rules to an enemy at the mass, the
+    general to what it is shown."""
     began = last_train = io.now()
     train_everywhere(io, mapdata, st)
     collected, tried, gathered = False, set(), 0
-    need = BIG_MASS
-    while True:
+    need, readings, strength = WANT_HIT, [], 0
+    while io.now() - t0 < TRIAL_SECONDS:
         orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
         advance_front(io, watch, mapdata, st, still, picture)
         battle = st.battle              # it may have moved on to a new objective
-        massed = len(at_mass(watch.units(picture)))
+        # the count jumps about as troops arrive; take the middle of the
+        # last few looks
+        readings.append(len(at_mass(watch.units(picture))))
+        massed = sorted(readings[-5:])[len(readings[-5:]) // 2]
+        strength = st.strength = massed + st.reserve
         waited = io.now() - began
         # the fast rule: the enemy is at the mass
         axis_mass = len(at_mass(watch.others(picture, AXIS)))
@@ -1028,9 +1071,11 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         if battle:
             battle.sample(io, watch, mapdata, picture)
             if battle.verdict()[0] in ("losing", "stalled"):
-                need = int(BIG_MASS * 1.5)      # come back with more
-        # look at the fight itself: every time for the general, now and
-        # then for the record otherwise
+                need = BIG_HIT          # come back with more
+            if battle.arrived and not battle.taxed:
+                battle.taxed = True     # the city is ours: fly a building in
+                io.log(f"{battle.target} reached: holding it")
+                flights_after(io, mapdata, st, battle.target)
         if battle and battle.front and st.air_keys and \
                 io.now() - st.air_moved >= AIR_FOLLOW_EVERY:
             st.air_moved = io.now()
@@ -1047,10 +1092,14 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
             fx, fy = battle.front or (w["x"], w["y"])
             look_at(io, *centred(fx, fy), wait=0.35)
             io.shot("front")
-        if st.hit_wanted and massed >= 40:
+        # A new hit needs new troops at the massing place to send. Troops
+        # already forward are moved by advance_front, not by a new hit.
+        fresh = massed >= NEW_TROOPS
+        if st.hit_wanted and fresh and strength >= MIN_HIT:
             io.log("the general says hit now")
             break
-        if massed >= need or waited >= LATER_WAIT_MAX:
+        st.hit_wanted = False           # not enough for a hit: asked again later
+        if fresh and strength >= need:
             break
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
@@ -1062,10 +1111,11 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     if battle:
         io.log(f"last hit at {battle.target}: {battle.verdict(mapdata)[0]} "
                f"({battle.verdict(mapdata)[1]})")
-    io.log(f"mass at {io.now() - t0:.0f} s: {massed} minimap pixels of "
-           f"units there after {waited:.0f} s; {gathered} idle groups "
-           f"brought in; wanted {need}")
-    return massed
+    io.log(f"mass at {io.now() - t0:.0f} s: about {strength} men for the "
+           f"next hit ({strength - st.reserve} at the massing place, "
+           f"{st.reserve} forward in reserve) after {io.now() - began:.0f} s; "
+           f"{gathered} idle groups brought in; wanted {need}")
+    return strength
 
 
 def close_battle(st, mapdata):
@@ -1116,10 +1166,10 @@ def run(io, mapdata=None, general=None, save_lessons=None):
         while io.now() - t0 < TRIAL_SECONDS:
             massed = build_big_mass(io, watch, mapdata, st, t0, st.battle,
                                     general)
-            if massed < 30:
-                io.log("no new mass to send")
-                hits.append(0)
-                continue
+            if massed < MIN_HIT:
+                io.log(f"about {massed} men is too few for a hit "
+                       f"(the least is {MIN_HIT}): kept in reserve")
+                break
             target = choose_target(io, watch, st, mapdata, st.battle)
             close_battle(st, mapdata)
             st.hit_wanted = False

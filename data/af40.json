@@ -117,6 +117,11 @@
      "y": 2656
     },
     {
+     "type": "Engineering Bay",
+     "x": 3136,
+     "y": 2704
+    },
+    {
      "type": "Supply Depot",
      "x": 3536,
      "y": 2688
@@ -325,6 +330,11 @@
      "type": "Supply Depot",
      "x": 4400,
      "y": 3616
+    },
+    {
+     "type": "Engineering Bay",
+     "x": 4512,
+     "y": 3664
     },
     {
      "type": "Barracks",
@@ -1807,6 +1817,11 @@
      "y": 4480
     },
     {
+     "type": "Engineering Bay",
+     "x": 3200,
+     "y": 4496
+    },
+    {
      "type": "Missile Turret",
      "x": 4064,
      "y": 4512
@@ -2564,6 +2579,11 @@
      "type": "Missile Turret",
      "x": 1568,
      "y": 2144
+    },
+    {
+     "type": "Engineering Bay",
+     "x": 1600,
+     "y": 2256
     },
     {
      "type": "Supply Depot",
@@ -3776,6 +3796,11 @@
      "y": 3872
     },
     {
+     "type": "Engineering Bay",
+     "x": 1536,
+     "y": 3920
+    },
+    {
      "type": "Supply Depot",
      "x": 1680,
      "y": 3904
@@ -4857,6 +4882,11 @@
      "y": 1456
     },
     {
+     "type": "Engineering Bay",
+     "x": 3296,
+     "y": 1552
+    },
+    {
      "type": "Missile Turret",
      "x": 3104,
      "y": 1664
@@ -5415,6 +5445,11 @@
      "y": 1760
     },
     {
+     "type": "Engineering Bay",
+     "x": 5184,
+     "y": 1872
+    },
+    {
      "type": "Supply Depot",
      "x": 7952,
      "y": 1888
@@ -5543,6 +5578,11 @@
      "type": "Missile Turret",
      "x": 5632,
      "y": 2560
+    },
+    {
+     "type": "Engineering Bay",
+     "x": 6752,
+     "y": 2608
     },
     {
      "type": "Bunker",
@@ -7852,6 +7892,11 @@
      "type": "Supply Depot",
      "x": 720,
      "y": 4576
+    },
+    {
+     "type": "Engineering Bay",
+     "x": 1152,
+     "y": 4624
     },
     {
      "type": "Bunker",

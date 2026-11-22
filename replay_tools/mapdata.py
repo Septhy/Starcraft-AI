@@ -16,7 +16,8 @@ import chk  # noqa: E402
 
 BUILDINGS = {106: "Command Center", 111: "Barracks", 113: "Factory",
              114: "Starport", 125: "Bunker", 109: "Supply Depot",
-             124: "Missile Turret", 154: "Nexus", 160: "Gateway",
+             124: "Missile Turret", 122: "Engineering Bay",
+             154: "Nexus", 160: "Gateway",
              167: "Stargate"}
 
 AIR = {8: "Wraith", 12: "Battlecruiser", 70: "Scout", 58: "Valkyrie",

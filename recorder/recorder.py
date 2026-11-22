@@ -1,8 +1,9 @@
 """Screen recorder for building the StarCraft screen reader.
 
-Run it, start StarCraft, press F9 to start and F9 again to stop. It
-saves a picture of the screen every few seconds, with the mouse
-position, and packs them into zip files on the Desktop.
+Run it, start StarCraft, press F9 to start and F9 again to stop. Every
+three seconds it keeps the minimap and the top strip of the screen,
+and every thirty seconds the whole screen, with the mouse position,
+for up to 45 minutes. It packs them into zip files on the Desktop.
 
 It only takes pictures. It does not touch the game, the mouse or the
 keyboard.
@@ -13,9 +14,15 @@ import sys
 import time
 import zipfile
 
-INTERVAL = 3.0          # seconds between pictures
-MAX_FRAMES = 120        # stop by itself after this many
-PNG_EVERY = 10          # every n-th picture is also kept exact (PNG)
+INTERVAL = 3.0          # seconds between looks
+MAX_FRAMES = 900        # stop by itself after this many looks (45 minutes)
+FULL_EVERY = 10         # every n-th look keeps the whole screen (JPEG)
+PNG_EVERY = 100         # every n-th look also keeps it exact (PNG)
+# Every look keeps these small parts of the screen exactly: the minimap,
+# and the strip along the top with the timer, money and supply. They are
+# what the bot reads, and they are small enough to keep for a whole game.
+MINIMAP_PART = (0, 780, 330, 1080)
+TOP_PART = (0, 0, 1920, 40)
 JPEG_QUALITY = 88
 PART_BYTES = 18 * 1024 * 1024   # zip parts are kept under this size
 HOTKEY = 0x78           # F9
@@ -25,10 +32,11 @@ class Recorder:
     """Takes the pictures and packs them. Knows nothing about Windows."""
 
     def __init__(self, grab, out_dir, info=lambda: {}, max_frames=MAX_FRAMES,
-                 png_every=PNG_EVERY, clock=time.time):
+                 png_every=PNG_EVERY, clock=time.time, full_every=FULL_EVERY):
         self.grab, self.info, self.clock = grab, info, clock
         self.out_dir, self.max_frames, self.png_every = \
             out_dir, max_frames, png_every
+        self.full_every = full_every
         self.frames = []
         self.t0 = None
         os.makedirs(out_dir, exist_ok=True)
@@ -42,9 +50,16 @@ class Recorder:
             self.t0 = now
         img = self.grab().convert("RGB")
         n = len(self.frames)
-        name = f"frame{n:04d}.jpg"
-        img.save(os.path.join(self.out_dir, name), quality=JPEG_QUALITY)
-        files = [name]
+        files = []
+        if img.size == (1920, 1080):
+            for tag, part in (("map", MINIMAP_PART), ("top", TOP_PART)):
+                name = f"{tag}{n:04d}.png"
+                img.crop(part).save(os.path.join(self.out_dir, name))
+                files.append(name)
+        if n % self.full_every == 0:
+            name = f"frame{n:04d}.jpg"
+            img.save(os.path.join(self.out_dir, name), quality=JPEG_QUALITY)
+            files.append(name)
         if n % self.png_every == 0:
             exact = f"frame{n:04d}.png"
             img.save(os.path.join(self.out_dir, exact))
@@ -157,8 +172,9 @@ def main():
                 while state["on"] and more:
                     started = time.time()
                     more = rec.tick()
-                    status.set(f"Recording: {len(rec.frames)} of "
-                               f"{MAX_FRAMES} pictures.\nPress F9 to stop.")
+                    mins = len(rec.frames) * INTERVAL / 60
+                    status.set(f"Recording: {mins:.0f} minutes so far "
+                               f"(stops by itself at 45).\nPress F9 to stop.")
                     while state["on"] and time.time() - started < INTERVAL:
                         time.sleep(0.05)
                 status.set("Packing the pictures ...")
