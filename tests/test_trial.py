@@ -437,9 +437,41 @@ def test_does_not_train_at_the_supply_limit():
 def test_battle_verdict():
     b = trial.Battle("Berlin 1000", 0)
     assert b.verdict()[0] == "unclear"
-    b.samples = [(5, 0, 200), (30, 120, 190), (60, 20, 180)]
-    assert b.verdict()[0] == "losing"         # ours melted, theirs did not
-    b.samples = [(5, 0, 200), (30, 120, 150), (60, 100, 40)]
-    assert b.verdict()[0] == "winning"        # theirs melted, ours did not
-    b.samples = [(5, 0, 200), (30, 120, 190), (60, 100, 150)]
-    assert b.verdict()[0] == "unclear"
+    # samples: (seconds, our forward pixels, Axis at the front, tiles short)
+    b.samples = [(5, 200, 0, 50), (30, 180, 10, 25), (60, 40, 12, 24)]
+    assert b.verdict()[0] == "losing"         # most of the hit is gone
+    b.samples = [(5, 200, 0, 50), (30, 190, 10, 25), (60, 180, 12, 24)]
+    assert b.verdict()[0] == "stalled"        # alive, but not getting closer
+    b.samples = [(5, 200, 0, 50), (30, 190, 10, 30), (60, 180, 2, 12)]
+    assert b.verdict()[0] == "advancing"
+    b.arrived = True
+    assert b.verdict()[0] == "arrived"
+
+
+def test_finds_the_front_on_a_real_minimap():
+    """In this picture the army has stalled around Warsaw and
+    Konigsberg, a long way short of Berlin."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    s = Image.new("RGB", (1920, 1080))
+    s.paste(Image.open(os.path.join(DATA, "stalled_minimap.png")), (0, 780))
+    watch = live.Watch(real_start_screen(), side["structures"], side["units"])
+    x, y, ours, axis = trial.find_front(watch, s, m, "Berlin 1000")
+    assert 115 < x / 32 < 140 and 65 < y / 32 < 95      # the eastern front
+    assert ours > 100
+    berlin = trial.place(m, "Berlin 1000")
+    assert abs(x - berlin["x"]) / 32 > 15               # not Berlin
+    b = trial.Battle("Berlin 1000", 0)
+    b.front = (x, y)
+    b.samples = [(5, ours, 0, 24), (30, ours, 8, 24), (60, ours, 8, 24)]
+    st = trial.State()
+    g = OneShot(s)
+    g.now = lambda: 100
+    target = trial.choose_target(g, watch, st, m, b)
+    assert target in trial.EAST_FRONT                   # break the line there
+
+
+def real_start_screen():
+    s = Image.new("RGB", (1920, 1080))
+    s.paste(Image.open(os.path.join(DATA, "start_minimap.png")), (0, 780))
+    return s

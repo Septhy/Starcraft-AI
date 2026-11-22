@@ -46,6 +46,9 @@ SLOT = "5"                     # Russia
 # replays Russia turns south early mostly when the Axis is busy in the
 # Balkans, so the bot looks: enough Axis colour there, and it goes south.
 TARGETS = ["Berlin 1000", "Romania 300", "Factory 7"]
+# Cities on the way to Berlin. A hit that stalls is aimed at the one
+# nearest to where it stalled, to break the line there first.
+EAST_FRONT = ["Konigsberg 200", "Warsaw 200", "Krakow 200"]
 AXIS = [0, 1, 7]               # Germany, Italy, Spain: Russia's enemies
 BALKANS = (126, 106, 172, 142) # tiles: left, top, right, bottom
 BALKAN_AXIS = 60               # this many more Axis pixels there than at the start: go south
@@ -96,6 +99,7 @@ class State:
         self.capped = False        # supply was at its limit at the last look
         self.last_recall = -1e9    # when the army was last called back
         self.advised = None        # (target, when) from the general
+        self.air_moved = -1e9      # when the air was last sent to the front
 
 
 def load_map():
@@ -346,7 +350,7 @@ def at_home(pixels, mapdata):
     reach = ((mc - tc) ** 2 + (mr - tr) ** 2) ** 0.5 - MASS_RADIUS
     out = {p for p in pixels
            if ((p[0] - tc) ** 2 + (p[1] - tr) ** 2) ** 0.5 > reach}
-    for name in set(TARGETS) | {f[3] for f in FLIGHTS}:
+    for name in set(TARGETS) | set(EAST_FRONT) | {f[3] for f in FLIGHTS}:
         t = place(mapdata, name)
         out -= near(out, (t["x"], t["y"]), 22)
     return out
@@ -459,13 +463,34 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
         if n == 0 or found < 0.15 * start:
             break
         io.sleep(1.5)
-    if use_keys:
-        for key in st.air_keys:         # air is fastest, so it goes last
-            io.key(key)
-            io.sleep(0.05)
+    if not use_keys:                    # nothing is forward before the first hit
+        orders += push_front(io, watch, mapdata, st, target)
+    for key in st.air_keys:             # air is fastest, so it goes last
+        io.key(key)
+        io.sleep(0.05)
+        attack_move(io, *front_point(mapdata, st, target))
+        orders += 1
+    io.log(f"hit: {orders} groups sent at {target}")
+    return orders
+
+
+def push_front(io, watch, mapdata, st, target, limit=14):
+    """Units from earlier hits that are standing still at the front go
+    in with this hit, so it arrives with everything."""
+    a = watch.units(io.shot("watch", keep=False))
+    io.sleep(1.0)
+    b = watch.units(io.shot("front"))
+    idle = forward_units(a & b, mapdata)
+    w = place(mapdata, target)
+    idle -= near(idle, (w["x"], w["y"]), 6)        # already there
+    orders = 0
+    for group in back_to_front(live.clusters(idle, 3, 3), (w["x"], w["y"]),
+                               lambda g: live.from_drawn(*g[0]))[:limit]:
+        if len(group) >= 4 and select_group(io, group, st, watch):
             attack_move(io, *front_point(mapdata, st, target))
             orders += 1
-    io.log(f"hit: {orders} groups sent at {target}")
+    if orders:
+        io.log(f"  {orders} groups standing at the front sent on as well")
     return orders
 
 
@@ -527,14 +552,25 @@ def axis_in(watch, screen, box):
     return n
 
 
-def choose_target(io, watch, st):
-    """Where the next hit should go, from what the minimap shows.
+def choose_target(io, watch, st, mapdata=None, battle=None):
+    """Where the next hit should go.
 
-    Germany starts the game with troops in the Balkans, so what counts
-    is how much more Axis colour is there now than at the start."""
+    The general's choice comes first. Otherwise: if the last hit
+    stalled or was lost short of its target, aim at the city nearest to
+    where that happened. Otherwise south if the Axis has grown in the
+    Balkans since the start (Germany starts with troops there), and
+    Berlin if not."""
     if st.advised and io.now() - st.advised[1] <= 40:
         io.log(f"next target {st.advised[0]} (the general's choice)")
         return st.advised[0]
+    if battle and mapdata and battle.front and \
+            battle.verdict()[0] in ("stalled", "losing"):
+        fx, fy = battle.front
+        cities = [place(mapdata, n) for n in EAST_FRONT]
+        city = min(cities, key=lambda c: (c["x"] - fx) ** 2 + (c["y"] - fy) ** 2)
+        io.log(f"next target {city['name']} (the last hit "
+               f"{battle.verdict()[0]} near {place_name(mapdata, fx, fy)})")
+        return city["name"]
     seen = axis_in(watch, io.shot("choose"), BALKANS)
     more = seen - st.balkan_start
     if more >= BALKAN_AXIS:
@@ -548,35 +584,98 @@ def choose_target(io, watch, st):
     return target
 
 
+def forward_units(pixels, mapdata):
+    """Our units that have gone forward of the massing place: the
+    opposite of at_home, leaving out the mass and the Middle East."""
+    return pixels - at_home(pixels, mapdata) - at_mass(pixels) \
+        - near(pixels, MIDDLE_EAST, 8)
+
+
+def place_name(mapdata, map_x, map_y):
+    """The named place nearest a point."""
+    small = [p for p in mapdata["places"]
+             if p["w"] * p["h"] < (40 * 32) ** 2 and p["name"][0] != "Z"]
+    return min(small, key=lambda p: (p["x"] - map_x) ** 2
+               + (p["y"] - map_y) ** 2)["name"]
+
+
+def find_front(watch, picture, mapdata, target):
+    """Where the fighting is: the place where our forward units are
+    closest to the most Axis colour, or failing that the forward unit
+    nearest the target. Returns (map x, map y, our forward pixels, Axis
+    pixels at the front), or None if nothing of ours is forward."""
+    forward = forward_units(watch.units(picture), mapdata)
+    if len(forward) < 4:
+        return None
+    axis = watch.others(picture, AXIS)
+    w = place(mapdata, target)
+    tc, tr = live.to_drawn(w["x"], w["y"])
+
+    def enemy_near(p, reach=5):
+        return sum((p[0] + i, p[1] + j) in axis
+                   for i in range(-reach, reach + 1)
+                   for j in range(-reach, reach + 1))
+    lead = sorted(forward, key=lambda p: (p[0] - tc) ** 2 + (p[1] - tr) ** 2)
+    # the fight is among the units nearest the target: look at those
+    best = max(lead[:40], key=enemy_near)
+    contact = enemy_near(best)
+    if contact < 3:
+        best = lead[0]
+    x, y = live.from_drawn(*best)
+    return x, y, len(forward), contact
+
+
 class Battle:
-    """Keeps an eye on a hit after it has been sent: how much of our
-    colour and of the Axis colour is at the target, time after time."""
+    """Keeps an eye on a hit after it has been sent. It follows the
+    front, wherever that is: a hit often stalls well short of its
+    target, and the target itself then shows nothing."""
 
     def __init__(self, target, sent_at):
         self.target, self.sent_at = target, sent_at
-        self.samples = []               # (seconds since sent, ours, Axis)
+        self.samples = []       # (seconds, forward px, Axis at front, gap)
+        self.front = None       # (map x, map y) of the latest front
         self.looked = 0
+        self.arrived = False
 
     def sample(self, io, watch, mapdata, picture):
         w = place(mapdata, self.target)
-        ours = len(near(watch.units(picture), (w["x"], w["y"]), 14))
-        axis = len(near(watch.others(picture, AXIS), (w["x"], w["y"]), 14))
-        self.samples.append((io.now() - self.sent_at, ours, axis))
+        found = find_front(watch, picture, mapdata, self.target)
+        if near(watch.units(picture), (w["x"], w["y"]), 12).__len__() >= 10:
+            self.arrived = True
+        if found is None:
+            self.samples.append((io.now() - self.sent_at, 0, 0, None))
+            return
+        x, y, ours, axis = found
+        self.front = (x, y)
+        gap = ((x - w["x"]) ** 2 + (y - w["y"]) ** 2) ** 0.5 / 32
+        self.samples.append((io.now() - self.sent_at, ours, axis, gap))
 
-    def verdict(self):
-        """"winning", "losing" or "unclear", with the numbers behind it."""
-        arrived = [s for s in self.samples if s[1] >= 10]
-        if not arrived:
-            return "unclear", "the army has not been seen at the target"
-        peak = max(s[1] for s in arrived)
-        _, ours, axis = self.samples[-1]
-        axis_before = self.samples[0][2]
-        facts = (f"ours there {ours} (peak {peak}), Axis there {axis} "
-                 f"(was {axis_before})")
-        if ours < 0.3 * peak and axis > 0.5 * max(axis_before, 1):
+    def verdict(self, mapdata=None):
+        """One of "arrived", "losing", "stalled", "advancing", "unclear",
+        with the facts behind it."""
+        seen = [s for s in self.samples if s[1] > 0]
+        if not seen:
+            return "unclear", "none of our units are forward of the mass"
+        peak = max(s[1] for s in seen)
+        t, ours, axis, gap = self.samples[-1]
+        where = ""
+        if self.front and mapdata:
+            where = f" near {place_name(mapdata, *self.front)}"
+        facts = (f"front{where}, {gap:.0f} tiles short of {self.target}; "
+                 f"our forward units {ours} pixels (peak {peak}); Axis "
+                 f"colour at the front {axis}"
+                 if gap is not None else
+                 f"no units of ours forward now (peak was {peak})")
+        if self.arrived:
+            return "arrived", facts
+        if peak >= 30 and ours < 0.3 * peak:
             return "losing", facts
-        if axis < 0.5 * max(axis_before, 1) and ours >= 0.3 * peak:
-            return "winning", facts
+        earlier = [s for s in seen if s[0] <= t - 20 and s[3] is not None]
+        if gap is not None and gap > 8 and earlier and t >= 40 \
+                and gap > earlier[-1][3] - 3:
+            return "stalled", facts
+        if gap is not None and earlier and gap < earlier[-1][3] - 3:
+            return "advancing", facts
         return "unclear", facts
 
 
@@ -601,8 +700,10 @@ def gather_idle(io, watch, mapdata, st, tried):
 
 
 TARGET_NAMES = {"Berlin": "Berlin 1000", "Romania": "Romania 300",
-                "Belgrade": "Factory 7"}
+                "Belgrade": "Factory 7", "Warsaw": "Warsaw 200",
+                "Konigsberg": "Konigsberg 200", "Krakow": "Krakow 200"}
 ENEMY_AT_MASS = 12             # Axis pixels at the mass that mean "defend"
+AIR_FOLLOW_EVERY = 8           # seconds between moving the air to the front
 RECALL_COOLDOWN = 20           # seconds between recalls of the army
 
 
@@ -620,7 +721,7 @@ def recall(io, st, why):
 
 
 def status_report(io, st, t0, massed, need, battle, axis_balkans, axis_mass,
-                  supply):
+                  supply, mapdata=None):
     """The few lines the general is given with each screenshot."""
     now = io.now() - t0
     lines = [f"Time in game: {int(now) // 60}:{int(now) % 60:02d}. "
@@ -633,10 +734,11 @@ def status_report(io, st, t0, massed, need, battle, axis_balkans, axis_mass,
     if supply:
         lines.append(f"Supply: {supply[0]} of {supply[1]}.")
     if battle:
-        lines.append(f"Our last hit went to {battle.target} "
-                     f"{io.now() - battle.sent_at:.0f} s ago; the main view "
-                     f"is looking there. From the minimap: "
-                     f"{battle.verdict()[1]}.")
+        kind, facts = battle.verdict(mapdata)
+        lines.append(f"Our last hit was sent at {battle.target} "
+                     f"{io.now() - battle.sent_at:.0f} s ago. The main view "
+                     f"is looking at its front. The program's own reading "
+                     f"from the minimap: {kind}: {facts}.")
     lines.append(f"Hits sent so far: {', '.join(st.sent_at) or 'none'}.")
     return "\n".join(lines)
 
@@ -662,23 +764,30 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
             recall(io, st, f"{axis_mass} pixels of Axis colour there")
         if battle:
             battle.sample(io, watch, mapdata, picture)
-            if battle.verdict()[0] == "losing":
+            if battle.verdict()[0] in ("losing", "stalled"):
                 need = int(BIG_MASS * 1.5)      # come back with more
         # look at the fight itself: every time for the general, now and
         # then for the record otherwise
+        if battle and battle.front and st.air_keys and \
+                io.now() - st.air_moved >= AIR_FOLLOW_EVERY:
+            st.air_moved = io.now()
+            for key in st.air_keys:     # the air stays over the front
+                io.key(key)
+                io.sleep(0.05)
+                attack_move(io, *battle.front)
         look = battle and (general or (waited >= 12 * (battle.looked + 1)
                                        and battle.looked < 4))
         if look:
             battle.looked += 1
             w = place(mapdata, battle.target)
-            look_at(io, w["x"], w["y"], wait=0.35)
-            fight = io.shot(f"fight-{battle.target.split()[0]}",
-                            keep=battle.looked <= 4)
+            fx, fy = battle.front or (w["x"], w["y"])
+            look_at(io, *centred(fx, fy), wait=0.35)
+            fight = io.shot("front", keep=battle.looked <= 4)
             if general:
                 general.submit(fight, status_report(
                     io, st, t0, massed, need, battle,
                     axis_in(watch, picture, BALKANS), axis_mass,
-                    numbers.read_supply(fight)))
+                    numbers.read_supply(fight), mapdata))
         advice = general.take() if general else None
         if advice:
             io.log(f"general: {advice}")
@@ -697,8 +806,8 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         io.sleep(1.0 if general else 2.0)
     io.shot("mass")
     if battle:
-        io.log(f"last hit at {battle.target}: {battle.verdict()[0]} "
-               f"({battle.verdict()[1]})")
+        io.log(f"last hit at {battle.target}: {battle.verdict(mapdata)[0]} "
+               f"({battle.verdict(mapdata)[1]})")
     io.log(f"mass at {io.now() - t0:.0f} s: {massed} minimap pixels of "
            f"units there after {waited:.0f} s; {gathered} idle groups "
            f"brought in; wanted {need}")
@@ -736,7 +845,7 @@ def run(io, mapdata=None, general=None):
             io.log("no new mass to send")
             hits.append(0)
             continue
-        target = choose_target(io, watch, st)
+        target = choose_target(io, watch, st, mapdata, battle)
         hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
         st.sent_at.append(target)
         battle = Battle(target, io.now())

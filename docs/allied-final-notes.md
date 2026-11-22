@@ -355,3 +355,45 @@ screen, using Claude, and asked that it be responsive.
   protection and kept in the user's AppData folder. It is not in the
   log or the zips.
 - Not yet tried against the real API or a real game.
+
+## Tenth trial: first run with the general, among idle computer players
+
+- The general worked: 37 looks, each answered in 2 to 5 seconds, about
+  $0.29 in all on `claude-opus-5-5` at low effort.
+- Every look was at Berlin, and every answer was "no fight, keep
+  massing, Berlin": the army never got there. All five hits stalled 22
+  to 28 tiles short, around Konigsberg, Warsaw and the "Germany-Invasion
+  on Russia" location, and Germany's kill count went to 392 against
+  ours of 10. Several hundred minimap pixels of our units stood at that
+  front the whole time, holding supply at its limit.
+- The repository owner: it must look at where the hits are on the
+  eastern front, not at Berlin, and adjust. And Russia has to micro its
+  air units and control them better.
+
+What changed:
+
+- `find_front` finds where our forward units meet the Axis colour, and
+  `Battle` follows that front. The bot looks there, the general is
+  shown that view, and the status report names the place.
+- The battle's verdict is now arrived, losing, stalled, advancing or
+  unclear. After a stalled or lost hit the next one needs a bigger mass
+  and is aimed at the eastern-front city nearest to where it stalled
+  (Konigsberg, Warsaw or Krakow), unless the general says otherwise.
+  The general can now name those cities too.
+- Each later hit also sends on the units standing still at the front.
+- The air groups are sent to the front every 8 seconds while a mass
+  builds, so they stay over the fight. This is not yet micro.
+
+## How qororo98 handles the air (3 games)
+
+- Battlecruisers sit on one key (0 in these games): 3 to 7 orders a
+  minute, mostly plain moves, a few attack-moves, a Yamato now and then.
+- One other key (5) gets 24 to 40 orders a minute, almost all plain
+  moves and Hold Position: a group worked by hand constantly. What is
+  on that key is not known from the replay.
+
+## Russia players in 55 replays (52 different games)
+
+qororo98 7 games, penny[eef] 2, as before. New names: kor-boy (2 games,
+10 and 13 minutes, over 200 commands a minute), 1939-RavExel, and more
+from STC-Goliath and danger[eef] (one of 46 minutes).

@@ -137,7 +137,7 @@ def test_the_bot_follows_the_generals_advice():
     result = trial.run(g, m, general=scripted)
     assert scripted.asked > 3
     assert "Romania 300" in result["targets"][1:]
-    assert "Our last hit went to Berlin 1000" in scripted.reports[0]
+    assert "Our last hit was sent at Berlin 1000" in scripted.reports[0]
     # "pull_back": the number-key groups are ordered back to the mass
     g = FakeGame(m)
     scripted = Scripted("pull_back", "Berlin")
