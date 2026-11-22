@@ -28,7 +28,9 @@ class FakeGame:
         self.slept = 0.0
 
     def click(self, x, y, button="left"):
-        self.actions.append(("click", x, y))
+        self.actions.append(("click", x, y, button))
+        if button == "right":
+            return
         m = live.MINIMAP
         if m["left"] <= x < m["left"] + m["width"] and y >= m["top"]:
             self.camera = live.camera_after_click(x, y)
@@ -94,12 +96,15 @@ def test_trial_trains_only_on_barracks_and_sends_groups():
         assert result["trained"] >= 6, error       # most barracks found
         assert g.keys_elsewhere == 0               # never M on something else
         assert g.keys_on_barracks == 5 * result["trained"]
-        assert result["sent"] == result["trained"]
+        assert result["sent"] == trial.WAVE_ROUNDS
+        gx, gy = live.minimap_point(*trial.GATHER)
+        rallies = [a for a in g.actions if a == ("click", gx, gy, "right")]
+        assert len(rallies) == result["trained"]   # every barracks rallied
         tx, ty = live.minimap_point(*[trial.place(m, trial.TARGET)[k]
                                       for k in ("x", "y")])
         i = [k for k, a in enumerate(g.actions) if a == ("key", "a")]
         assert len(i) == result["sent"]
-        assert all(g.actions[k + 1] == ("click", tx, ty) for k in i)
+        assert all(g.actions[k + 1] == ("click", tx, ty, "left") for k in i)
 
 
 def test_trial_does_nothing_without_the_game_screen():

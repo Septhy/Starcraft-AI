@@ -54,13 +54,29 @@ games not be used as examples of good play. That leaves 2 full games
 for Italy, 11 for Spain, 11 for France and 12 for each other country.
 The replays do not record which side won.
 
-## Russia, round by round (12 games)
+## Russia (12 games)
 
-Russia makes almost nothing but marines, 70 to 120 per 5 minute round,
-and attack-moves them west. Places are the map's own location names;
-the number in a city's name is its tax.
+Russia makes almost nothing but marines, 70 to 120 per 5 minute round.
+It does not send them to the front as they appear. It gathers them west
+of Smolensk (around tiles 152 to 176, 64 to 80; the rally points in the
+replays are there) and sends them west together, in waves: the attack
+orders come in bursts a few minutes apart. `waves.py` shows this.
 
-- 0 to 5 min: toward the German invasion area, Konigsberg and Warsaw.
+Where the waves go, by the map's place names (a city's number is its
+tax):
+
+- 0 to 5 min: the German invasion area, Konigsberg and Warsaw.
 - 5 to 15 min: Warsaw, Krakow, Romania.
 - 15 to 25 min: Krakow, Warsaw, Romania, Serbia, then Prague.
 - after 25 min: Prague, Krakow, Warsaw, on toward Cologne.
+
+## First trial on the real game (solo game, 1920 x 1080)
+
+- Simulated mouse and keys reach the game.
+- Barracks are found from the map data: all 8 selected, 5 on the first
+  click, 3 after one or two more tries nearby.
+- M queues marines; a box plus A plus a minimap click attack-moves.
+- Problems seen: the box drag picked up only 3 of about 10 marines
+  (the drag started too fast); a few screen captures came back black.
+- A solo game ends the map's triggers, and gives only the starting
+  1,000 minerals: 20 marines.

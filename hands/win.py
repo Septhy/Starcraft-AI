@@ -95,10 +95,12 @@ class WinIO:
     def drag(self, x0, y0, x1, y1):
         self._check()
         self._move(x0, y0)
+        time.sleep(0.1)
         self._mouse(LEFT_DOWN)
-        time.sleep(0.08)
-        for k in range(1, 9):
-            self._move(x0 + (x1 - x0) * k / 8, y0 + (y1 - y0) * k / 8)
+        time.sleep(0.2)                 # the game must see the press first
+        for k in range(1, 13):
+            self._move(x0 + (x1 - x0) * k / 12, y0 + (y1 - y0) * k / 12)
+        time.sleep(0.15)
         self._mouse(LEFT_UP)
         self.log(f"drag {int(x0)},{int(y0)} to {int(x1)},{int(y1)}", quiet=True)
 
@@ -111,9 +113,14 @@ class WinIO:
 
     # --- seeing and reporting
     def shot(self, label):
-        from PIL import Image
-        s = self.sct.grab(self.sct.monitors[1])
-        img = Image.frombytes("RGB", s.size, s.bgra, "raw", "BGRX")
+        from PIL import Image, ImageStat
+        for _ in range(4):
+            s = self.sct.grab(self.sct.monitors[1])
+            img = Image.frombytes("RGB", s.size, s.bgra, "raw", "BGRX")
+            # the capture sometimes returns a black game; take it again
+            if max(ImageStat.Stat(img.crop((400, 800, 1500, 1080))).mean) > 6:
+                break
+            time.sleep(0.12)
         name = f"{self.n:03d}-{label}.jpg"
         img.save(os.path.join(self.out_dir, name), quality=85)
         self.names.append(name)

@@ -1,4 +1,8 @@
-"""First trial: as Russia, train marines and send them to Warsaw.
+"""Trial: as Russia, gather marines, then send them to Warsaw as a wave.
+
+Russia players do not send marines to the front one by one. They gather
+them west of Smolensk and send them together; the replays show their
+rally points there and their orders coming in bursts.
 
 The steps only use an `io` object (see hands/win.py for the real one),
 so they can be tested without Windows or the game.
@@ -17,7 +21,9 @@ TARGET = "Warsaw 200"
 MARINES_PER_BARRACKS = 5   # a building queues at most five
 # Where to try clicking, relative to where the barracks should appear.
 TRIES = [(0, 0), (40, 80), (-60, 0), (60, 0), (0, -70), (0, 150), (-90, 90)]
-WAIT_FOR_MARINES = 30      # seconds
+GATHER = (160 * 32, 74 * 32)   # map pixels: where the army gathers
+WAIT_FOR_MARINES = 90      # seconds: five marines built and walked over
+WAVE_ROUNDS = 3            # a box holds 12 units, so order in rounds
 
 
 class Stopped(Exception):
@@ -76,37 +82,41 @@ def run(io, mapdata=None):
     for n, b in enumerate(barracks_of(mapdata)):
         hit = select_barracks(io, b, n)
         if hit:
+            io.click(*live.minimap_point(*GATHER), button="right")   # rally
+            io.sleep(0.2)
             for _ in range(MARINES_PER_BARRACKS):
                 io.key("m")
                 io.sleep(0.1)
             io.sleep(0.3)
             io.shot(f"b{n}-queued")
             found.append((b, hit))
-    io.log(f"trained at {len(found)} barracks; waiting for marines")
+    io.log(f"trained at {len(found)} barracks; waiting for marines to gather")
     if not found:
         return {"trained": 0, "sent": 0}
     io.sleep(WAIT_FOR_MARINES)
     w = place(mapdata, TARGET)
     tx, ty = live.minimap_point(w["x"], w["y"])
     l, t, r, btm = live.GAME_AREA
+    look_at(io, *GATHER)
+    io.shot("gathered")
     sent = 0
-    for n, (b, (hx, hy)) in enumerate(found):
-        look_at(io, b["x"], b["y"])
-        # a box around the barracks picks up the marines standing near it
-        io.drag(max(l + 5, hx - 420), max(t + 5, hy - 300),
-                min(r - 5, hx + 420), min(btm - 5, hy + 300))
+    for n in range(WAVE_ROUNDS):
+        # a box over the whole view picks up to 12 of the marines there
+        io.drag(l + 20, t + 20, r - 20, btm - 20)
         io.sleep(0.3)
-        io.shot(f"m{n}-selected")
+        io.shot(f"wave{n}-selected")
         io.key("a")
         io.sleep(0.15)
         io.click(tx, ty)
         io.sleep(0.4)
-        io.shot(f"m{n}-ordered")
+        look_at(io, *GATHER)             # in case the order did not take
+        io.shot(f"wave{n}-ordered")
         sent += 1
+        io.sleep(4)                      # let that group walk off
+    io.sleep(10)
+    io.shot("gather-point-after")
     look_at(io, w["x"], w["y"])
-    io.sleep(8)
-    io.shot("target-8s")
-    io.sleep(20)
-    io.shot("target-28s")
-    io.log(f"sent {sent} groups to {TARGET}")
+    io.sleep(1)
+    io.shot("target")
+    io.log(f"sent {sent} rounds toward {TARGET}")
     return {"trained": len(found), "sent": sent}
