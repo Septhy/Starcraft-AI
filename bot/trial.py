@@ -100,6 +100,18 @@ class State:
         self.last_recall = -1e9    # when the army was last called back
         self.advised = None        # (target, when) from the general
         self.air_moved = -1e9      # when the air was last sent to the front
+        # for the general
+        self.general = None
+        self.battle = None         # the hit being watched
+        self.t0 = 0.0
+        self.need = BIG_MASS       # how big a mass is wanted for the next hit
+        self.last_consult = -1e9
+        self.last_chat = -1e9
+        self.hit_wanted = False    # the general has said "hit now"
+        self.opening_target = None
+        self.rekey = 8             # ground keys already re-used this hit
+        self.outcomes = []         # how each hit went, for the lessons
+        self.looks_kept = 0
 
 
 def load_map():
@@ -311,6 +323,8 @@ def first_orders(io, watch, mapdata, st, t0):
             break
         if len(group) < 3:
             continue                    # a stray dot: not worth a trip
+        if orders % 6 == 5:
+            consult(io, watch, mapdata, st)
         if not select_group(io, group, st, watch):
             continue
         attack_move(io, *MASS)
@@ -374,6 +388,10 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
         if now >= earliest and old and massed <= old[-1] * 1.04:
             why = "the mass stopped growing"
             break
+        consult(io, watch, mapdata, st)
+        if st.hit_wanted and now >= 40 and massed >= 60:
+            why = "the general says hit now"
+            break
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
         idle = at_home((a & b) - at_mass(b) - near(b, MIDDLE_EAST, 6), mapdata)
@@ -419,6 +437,7 @@ def sweep_mass(io, watch, mapdata, st, target):
     views = back_to_front(live.clusters(there, 20, 8), (w["x"], w["y"]),
                           lambda g: live.from_drawn(*g[0]))
     for view in views:
+        consult(io, watch, mapdata, st)     # the general is asked mid-hit too
         cols = [p[0] for p in view]
         rows = [p[1] for p in view]
         cx, cy = live.from_drawn((min(cols) + max(cols)) / 2,
@@ -440,6 +459,12 @@ def sweep_mass(io, watch, mapdata, st, target):
             if box_and_check(io, box, st):
                 attack_move(io, *front_point(mapdata, st, target))
                 orders += 1
+                if st.rekey < len(GROUND_KEYS):
+                    # the newest groups take over the number keys, so
+                    # they can be recalled and given orders
+                    io.combo("ctrl", GROUND_KEYS[st.rekey])
+                    io.sleep(0.04)
+                    st.rekey += 1
             else:
                 watch.forget(cells[(i, j)])
     return orders, len(there)
@@ -455,6 +480,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
             attack_move(io, *front_point(mapdata, st, target))
             orders += 1
         io.sleep(1.5)                   # let them step off
+    st.rekey = len(GROUND_KEYS) if use_keys else 0
     start = None
     for sweep in range(sweeps):
         n, found = sweep_mass(io, watch, mapdata, st, target)
@@ -739,8 +765,144 @@ def status_report(io, st, t0, massed, need, battle, axis_balkans, axis_mass,
                      f"{io.now() - battle.sent_at:.0f} s ago. The main view "
                      f"is looking at its front. The program's own reading "
                      f"from the minimap: {kind}: {facts}.")
+    else:
+        lines.append("No hit has been sent yet; the main view is looking "
+                     "at our massing place. Your target now chooses the "
+                     "first hit's target.")
     lines.append(f"Hits sent so far: {', '.join(st.sent_at) or 'none'}.")
+    lines.append(f"Number keys holding groups: ground "
+                 f"{' '.join(st.ground_keys) or 'none'}; air "
+                 f"{' '.join(st.air_keys) or 'none'}.")
     return "\n".join(lines)
+
+
+CONSULT_EVERY = 3.5            # seconds between screenshots for the general
+CHAT_EVERY = 45                # seconds between chat lines at most
+ORDER_PLACES = {"Odessa": "Odessa 200", "Smolensk": "Smolensk 200",
+                "Moscow": "Moscow 1000"}
+
+
+def order_point(mapdata, st, name):
+    """Map pixels of a place the general can name."""
+    if name == "mass":
+        return MASS
+    if name == "front":
+        return st.battle.front if st.battle and st.battle.front else MASS
+    full = TARGET_NAMES.get(name) or ORDER_PLACES.get(name)
+    if not full:
+        return None
+    w = place(mapdata, full)
+    return w["x"], w["y"]
+
+
+def keys_for(st, group):
+    if group == "ground":
+        return list(st.ground_keys)
+    if group == "air":
+        return list(st.air_keys)
+    if group == "all":
+        return st.ground_keys + st.air_keys
+    return [group] if group in st.ground_keys + st.air_keys else []
+
+
+def carry_out(io, mapdata, st, order, camera):
+    """Give one of the general's group orders. Returns True if given."""
+    keys = keys_for(st, order["group"])
+    kind = order["order"]
+    if not keys:
+        return False
+    if kind in ("attack_point", "yamato_point"):
+        # a point in the 1280 x 720 picture the general was shown
+        sx = order["x"] * live.SCREEN[0] / 1280
+        sy = order["y"] * live.SCREEN[1] / 720
+        l, t, r, b = live.GAME_AREA
+        if camera is None or not (l + 5 < sx < r - 5 and t + 5 < sy < b - 5):
+            return False
+        look_at(io, *camera, wait=0.25)     # the same view as the picture
+        for key in keys:
+            io.key(key)
+            io.sleep(0.05)
+            if kind == "yamato_point":
+                io.key("y")
+                io.sleep(0.06)
+                io.click(sx, sy)
+            else:
+                io.click(sx, sy, button="right")
+            io.sleep(0.06)
+        return True
+    point = None if kind == "hold" else order_point(mapdata, st, order["place"])
+    if kind != "hold" and point is None:
+        return False
+    for key in keys:
+        io.key(key)
+        io.sleep(0.05)
+        if kind == "hold":
+            io.key("h")
+        elif kind == "move":
+            io.click(*live.minimap_point(*point), button="right")
+        else:
+            attack_move(io, *point)
+        io.sleep(0.05)
+    return True
+
+
+def say(io, st, text):
+    """Type a line to the allies, not too often."""
+    text = "".join(c for c in text if " " <= c <= "~")[:60].strip()
+    if not text or io.now() - st.last_chat < CHAT_EVERY:
+        return False
+    st.last_chat = io.now()
+    io.combo("shift", "enter")          # opens chat to allies
+    io.sleep(0.15)
+    io.type_text(text)
+    io.sleep(0.1)
+    io.key("enter")
+    io.sleep(0.1)
+    io.log(f"chat to allies: {text}")
+    return True
+
+
+def consult(io, watch, mapdata, st):
+    """Show the general the front if it is time to, and carry out any
+    answer that has come back. Safe to call often: it does nothing
+    without a general, and looks no more than every CONSULT_EVERY
+    seconds. It moves the view, so callers look again afterwards."""
+    g = st.general
+    if g is None:
+        return None
+    if io.now() - st.last_consult >= CONSULT_EVERY:
+        st.last_consult = io.now()
+        battle = st.battle
+        fx, fy = battle.front if battle and battle.front else MASS
+        cam = look_at(io, *centred(fx, fy), wait=0.3)
+        st.looks_kept += 1
+        view = io.shot("front", keep=st.looks_kept % 8 == 1)
+        if battle:
+            battle.sample(io, watch, mapdata, view)
+        g.submit(view, status_report(
+            io, st, st.t0, len(at_mass(watch.units(view))), st.need, battle,
+            axis_in(watch, view, BALKANS),
+            len(at_mass(watch.others(view, AXIS))),
+            numbers.read_supply(view), mapdata), camera=cam)
+    advice = g.take()
+    if advice is None:
+        return None
+    io.log(f"general: {advice}")
+    name = TARGET_NAMES[advice.target]
+    st.advised = (name, io.now())
+    if not st.sent_at:
+        st.opening_target = name
+    if advice.action == "pull_back":
+        recall(io, st, "the general says so")
+    elif advice.action == "hit_now":
+        st.hit_wanted = True
+    given = sum(carry_out(io, mapdata, st, o, advice.camera)
+                for o in advice.group_orders)
+    if advice.group_orders:
+        io.log(f"  {given} of {len(advice.group_orders)} group orders given")
+    if advice.chat:
+        say(io, st, advice.chat)
+    return advice
 
 
 def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
@@ -775,27 +937,18 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
                 io.key(key)
                 io.sleep(0.05)
                 attack_move(io, *battle.front)
-        look = battle and (general or (waited >= 12 * (battle.looked + 1)
-                                       and battle.looked < 4))
-        if look:
-            battle.looked += 1
+        st.need = need
+        if general:
+            consult(io, watch, mapdata, st)
+        elif battle and waited >= 12 * (battle.looked + 1) and battle.looked < 4:
+            battle.looked += 1          # a picture of the front for the record
             w = place(mapdata, battle.target)
             fx, fy = battle.front or (w["x"], w["y"])
             look_at(io, *centred(fx, fy), wait=0.35)
-            fight = io.shot("front", keep=battle.looked <= 4)
-            if general:
-                general.submit(fight, status_report(
-                    io, st, t0, massed, need, battle,
-                    axis_in(watch, picture, BALKANS), axis_mass,
-                    numbers.read_supply(fight), mapdata))
-        advice = general.take() if general else None
-        if advice:
-            io.log(f"general: {advice}")
-            st.advised = (TARGET_NAMES[advice.target], io.now())
-            if advice.action == "pull_back":
-                recall(io, st, "the general says so")
-            elif advice.action == "hit_now" and massed >= 40:
-                break
+            io.shot("front")
+        if st.hit_wanted and massed >= 40:
+            io.log("the general says hit now")
+            break
         if massed >= need or waited >= LATER_WAIT_MAX:
             break
         if not collected:
@@ -814,8 +967,17 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     return massed
 
 
-def run(io, mapdata=None, general=None):
-    """Returns a short result for the log."""
+def close_battle(st, mapdata):
+    """Note how the watched hit ended, for the log and the lessons."""
+    b = st.battle
+    if b:
+        kind, facts = b.verdict(mapdata)
+        st.outcomes.append(f"hit at {b.target}: {kind} ({facts})")
+
+
+def run(io, mapdata=None, general=None, save_lessons=None):
+    """Returns a short result for the log. `save_lessons` is called with
+    the general's lessons for the next game, if it wrote any."""
     mapdata = mapdata or load_map()
     side = mapdata["slots"][SLOT]
     first = io.shot("start")
@@ -824,42 +986,65 @@ def run(io, mapdata=None, general=None):
         io.log("The live game's minimap is not on screen. Nothing done.")
         return {"trained": 0, "gathered": 0, "hits": []}
     t0, st = io.now(), State()
+    st.general, st.t0 = general, t0
     st.balkan_start = axis_in(watch, first, BALKANS)
     since = lambda: f"{io.now() - t0:.0f} s"
-    send_scout(io, mapdata, st)
-    trained = train_everywhere(io, mapdata, st, check_supply=False)
-    io.log(f"  ({since()} since start)")
-    gathered = first_orders(io, watch, mapdata, st, t0)
-    io.log(f"  ({since()} since start)")
-    wait_for_mass(io, watch, mapdata, st, t0, WAVE_EARLIEST, WAVE_LATEST)
-    hit_at = round(io.now() - t0)
-    hits = [hit(io, watch, mapdata, st, TARGETS[0], sweeps=FIRST_HIT_SWEEPS)]
-    st.sent_at.append(TARGETS[0])
-    io.log(f"  first hit sent by {since()}; {st.boxes} boxes, "
-           f"{st.empty} empty")
-    flights_after(io, mapdata, st, 1)
-    battle = Battle(TARGETS[0], io.now())
-    while io.now() - t0 < TRIAL_SECONDS:
-        massed = build_big_mass(io, watch, mapdata, st, t0, battle, general)
-        if massed < 30:
-            io.log("no new mass to send")
-            hits.append(0)
-            continue
-        target = choose_target(io, watch, st, mapdata, battle)
-        hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
+    result = {"trained": 0, "gathered": 0, "hits": []}
+    try:
+        consult(io, watch, mapdata, st)     # the general's say on the opening
+        send_scout(io, mapdata, st)
+        result["trained"] = train_everywhere(io, mapdata, st,
+                                             check_supply=False)
+        io.log(f"  ({since()} since start)")
+        result["gathered"] = first_orders(io, watch, mapdata, st, t0)
+        io.log(f"  ({since()} since start)")
+        wait_for_mass(io, watch, mapdata, st, t0, WAVE_EARLIEST, WAVE_LATEST)
+        result["hit_at"] = round(io.now() - t0)
+        target = st.opening_target or TARGETS[0]
+        if st.opening_target:
+            io.log(f"first target {target} (the general's choice)")
+        hits = result["hits"]
+        st.hit_wanted = False
+        hits.append(hit(io, watch, mapdata, st, target,
+                        sweeps=FIRST_HIT_SWEEPS))
         st.sent_at.append(target)
-        battle = Battle(target, io.now())
-        flights_after(io, mapdata, st, len(hits))
-        flights_after(io, mapdata, st, target)
-        io.log(f"  ({since()} since start; round timer about "
-               f"{round_timer(io.now() - t0)})")
-    if general:
-        io.log(general.summary())
-    for name in ("Berlin 1000", "Warsaw 200", "Romania 300", "Factory 7"):
-        w = place(mapdata, name)
-        look_at(io, w["x"], w["y"], wait=0.5)
-        io.shot("at-" + name.split()[0])
-    return {"trained": trained, "gathered": gathered, "hit_at": hit_at,
-            "hits": hits, "targets": st.sent_at,
-            "keys": "".join(st.ground_keys + st.air_keys),
-            "boxes": st.boxes, "empty": st.empty}
+        io.log(f"  first hit sent by {since()}; {st.boxes} boxes, "
+               f"{st.empty} empty")
+        flights_after(io, mapdata, st, 1)
+        st.battle = Battle(target, io.now())
+        while io.now() - t0 < TRIAL_SECONDS:
+            massed = build_big_mass(io, watch, mapdata, st, t0, st.battle,
+                                    general)
+            if massed < 30:
+                io.log("no new mass to send")
+                hits.append(0)
+                continue
+            target = choose_target(io, watch, st, mapdata, st.battle)
+            close_battle(st, mapdata)
+            st.hit_wanted = False
+            hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
+            st.sent_at.append(target)
+            st.battle = Battle(target, io.now())
+            flights_after(io, mapdata, st, len(hits))
+            flights_after(io, mapdata, st, target)
+            io.log(f"  ({since()} since start; round timer about "
+                   f"{round_timer(io.now() - t0)})")
+        for name in ("Berlin 1000", "Warsaw 200", "Romania 300", "Factory 7"):
+            w = place(mapdata, name)
+            look_at(io, w["x"], w["y"], wait=0.5)
+            io.shot("at-" + name.split()[0])
+    finally:
+        # whether it finished or was stopped: the general's lessons
+        if general:
+            close_battle(st, mapdata)
+            lessons = general.write_lessons(
+                f"Played {io.now() - t0:.0f} s. "
+                + (" ".join(st.outcomes) or "No hit was sent."))
+            if lessons and save_lessons:
+                save_lessons(lessons)
+                io.log("general's lessons for next game saved")
+            io.log(general.summary())
+    result.update({"targets": st.sent_at,
+                   "keys": "".join(st.ground_keys + st.air_keys),
+                   "boxes": st.boxes, "empty": st.empty})
+    return result

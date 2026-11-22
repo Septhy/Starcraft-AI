@@ -19,7 +19,7 @@ def main():
     from tkinter import simpledialog
 
     from bot import general as general_module
-    from bot import trial
+    from bot import memory, trial
     from hands import secret
     from hands.win import STOP_KEY, WinIO
 
@@ -64,8 +64,17 @@ def main():
         show_key_state()
 
     tk.Label(root, textvariable=key_label, width=52).pack()
-    tk.Button(root, text="Set Claude API key", command=set_key).pack(pady=(0, 8))
+    tk.Button(root, text="Set Claude API key", command=set_key).pack(pady=(0, 6))
     show_key_state()
+    labels = {text: model for model, text in general_module.CHOICES}
+    by_model = {model: text for model, text in general_module.CHOICES}
+    chosen = tk.StringVar(value=by_model.get(
+        memory.load_model(general_module.MODEL),
+        by_model[general_module.MODEL]))
+    tk.Label(root, text="Which Claude model commands:").pack()
+    tk.OptionMenu(root, chosen, *labels,
+                  command=lambda text: memory.save_model(labels[text])
+                  ).pack(pady=(0, 8))
 
     def work():
         out = os.path.join(desktop,
@@ -79,8 +88,11 @@ def main():
                 io = WinIO(out, sct, status=lambda s: status.set(s[:200]))
                 time.sleep(0.6)          # let go of F9 first
                 try:
-                    advisor = general_module.make(secret.load())
-                    result = trial.run(io, general=advisor)
+                    advisor = general_module.make(
+                        secret.load(), lessons=memory.load(),
+                        model=memory.load_model(general_module.MODEL))
+                    result = trial.run(io, general=advisor,
+                                       save_lessons=memory.save)
                     io.log(f"finished: {result}")
                 except trial.Stopped as e:
                     io.log(f"stopped: {e}")

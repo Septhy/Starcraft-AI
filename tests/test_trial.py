@@ -96,6 +96,9 @@ class FakeGame:
                 self.rallies += 1
             elif isinstance(self.selected, list) and on_map:
                 self.send(self.selected, mx, my)         # a plain move
+            elif isinstance(self.selected, list):
+                self.point_orders = getattr(self, "point_orders", []) + [
+                    ("attack", round(x), round(y))]
             return
         if on_map:
             if self.attack and isinstance(self.selected, list):
@@ -105,6 +108,13 @@ class FakeGame:
             else:
                 self.camera = live.camera_after_click(x, y)
             self.attack = False
+            return
+        if isinstance(self.selected, list) and (
+                button == "right" or getattr(self, "yamato", False)):
+            self.point_orders = getattr(self, "point_orders", []) + [
+                ("yamato" if getattr(self, "yamato", False) else "attack",
+                 round(x), round(y))]
+            self.yamato = False
             return
         self.selected, self.lifted = None, False
         for b in self.barracks:
@@ -146,6 +156,14 @@ class FakeGame:
         if name == "a":
             assert isinstance(self.selected, list)   # never A on nothing
             self.attack = True
+        if name == "enter":
+            self.chat_open = False
+        if name == "h" and isinstance(self.selected, list):
+            for u in self.selected:
+                u["from"] = u["to"] = self.where(u)
+                u["held"] = True
+        if name == "y":
+            self.yamato = True
         if name.isdigit() and name in self.groups:
             self.selected = [u for u in self.groups[name]]
         if name != "a":
@@ -154,8 +172,15 @@ class FakeGame:
     def combo(self, held, name):
         self.inputs += 1
         self.time += 0.15
+        if held == "shift" and name == "enter":
+            self.chat_open = True
+            return
         assert held == "ctrl" and isinstance(self.selected, list)
         self.groups[name] = list(self.selected)
+
+    def type_text(self, text):
+        assert getattr(self, "chat_open", False)     # only into the chat box
+        self.typed = getattr(self, "typed", []) + [text]
 
     def sleep(self, s):
         self.time += s

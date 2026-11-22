@@ -15,7 +15,8 @@ GAME_WINDOW = "Brood War"
 STOP_KEY = 0x78            # F9
 SCAN = {"m": 0x32, "a": 0x1E, "esc": 0x01, "shift": 0x2A, "ctrl": 0x1D,
         "1": 0x02, "2": 0x03, "3": 0x04, "4": 0x05, "5": 0x06, "6": 0x07,
-        "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B, "l": 0x26}
+        "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B, "l": 0x26,
+        "h": 0x23, "y": 0x15, "enter": 0x1C}
 
 ULONG_PTR = ctypes.c_size_t
 
@@ -125,6 +126,17 @@ class WinIO:
         time.sleep(0.03)
         self._key(held, up=True)
         self.log(f"key {held}+{name}", quiet=True)
+
+    def type_text(self, text):
+        """Type characters, for chat."""
+        self._check()
+        for ch in text:
+            for flags in (0x0004, 0x0004 | KEY_UP):     # unicode character
+                i = INPUT(type=1)
+                i.u.ki = KEYBDINPUT(0, ord(ch), flags, 0, 0)
+                self._send(i)
+            time.sleep(0.015)
+        self.log("typed a chat line", quiet=True)
 
     # --- seeing and reporting
     def now(self):
