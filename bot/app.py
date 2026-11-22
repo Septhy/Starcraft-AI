@@ -57,11 +57,18 @@ def main():
             "Leave empty to remove it.", show="*", parent=root)
         if key is None:
             return
-        if key.strip():
-            secret.save(key)
-        else:
+        if not key.strip():
             secret.forget()
-        show_key_state()
+            show_key_state()
+            return
+        secret.save(key)
+        key_label.set("Claude key: checking it ...")
+
+        def check():
+            ok, message = general_module.check_key(
+                secret.load(), memory.load_model(general_module.MODEL))
+            key_label.set("Claude key: " + message)
+        threading.Thread(target=check, daemon=True).start()
 
     tk.Label(root, textvariable=key_label, width=52).pack()
     tk.Button(root, text="Set Claude API key", command=set_key).pack(pady=(0, 6))

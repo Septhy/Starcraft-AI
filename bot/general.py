@@ -291,6 +291,11 @@ class General:
             return None
         return advice
 
+    def dead(self):
+        """True when it cannot answer any more: the key was refused, it
+        keeps failing, or the spending cap is reached."""
+        return self.spent >= self.spend_cap or self.failures >= 5
+
     def summary(self):
         text = (f"general: {self.calls} looks, about ${self.spent:.2f} spent "
                 f"(cap ${self.spend_cap:.2f}), model {self.model}")
@@ -324,6 +329,10 @@ class General:
             except Exception as e:      # never let a bad call stop the bot
                 self.failures += 1
                 self.last_error = type(e).__name__
+                if self.last_error in ("AuthenticationError",
+                                       "PermissionDeniedError"):
+                    self.failures = 99  # the key is not accepted: stop asking
+                    self.last_error += " (the API key was not accepted)"
 
     def _memory_text(self):
         parts = []
@@ -422,6 +431,26 @@ class General:
 CHOICES = [("claude-opus-5-5", "Opus 5.5: best judgement, slowest, dearest"),
            ("claude-sonnet-5-5", "Sonnet 5.5: in between"),
            ("claude-haiku-5-5", "Haiku 5.5: fastest and cheapest, weakest")]
+
+
+def check_key(api_key, model=MODEL):
+    """Ask the API something that costs nothing, to see whether the key
+    is accepted. Returns (ok, a short message)."""
+    import anthropic
+    try:
+        anthropic.Anthropic(api_key=api_key, timeout=15.0,
+                            max_retries=0).models.retrieve(model)
+        return True, "The key works."
+    except anthropic.AuthenticationError:
+        return False, "The key was not accepted. Check it and paste it again."
+    except anthropic.PermissionDeniedError:
+        return False, "The key is valid but may not use this model."
+    except anthropic.NotFoundError:
+        return False, "The key works, but this model was not found."
+    except anthropic.APIConnectionError:
+        return False, "Could not reach Anthropic. Check the internet."
+    except anthropic.APIStatusError as e:
+        return False, f"Anthropic answered with an error ({e.status_code})."
 
 
 def make(api_key, lessons="", model=None):

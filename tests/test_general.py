@@ -168,6 +168,9 @@ class Scripted:
         advice, self.waiting = self.waiting, None
         return advice
 
+    def dead(self):
+        return False
+
     def write_lessons(self, outcome):
         self.lessons_asked = outcome
         return "lesson"
@@ -185,12 +188,11 @@ def test_the_general_chooses_targets_and_is_asked_all_through():
     # the opening too: the first hit goes where it said
     assert result["targets"][0] == "Romania 300"
     assert "No hit has been sent yet" in scripted.reports[0]
-    assert any("Our last hit was sent at Romania 300" in r
-               for r in scripted.reports)
+    assert any("Our last hit was sent at" in r for r in scripted.reports)
     assert scripted.asked > 20                      # all through, hits included
     assert "Number keys holding groups" in scripted.reports[-1]
     # and at the end it was asked for lessons, which were saved
-    assert "hit at Romania 300" in scripted.lessons_asked
+    assert "hit at " in scripted.lessons_asked
     assert saved == ["lesson"]
 
 
@@ -288,3 +290,16 @@ def test_the_bot_defends_when_the_axis_reaches_the_mass():
     assert trial.recall(g, st, "test")
     assert all(near(u["to"], trial.MASS, 12) for u in g.units[:8])
     assert not trial.recall(g, st, "again")       # not twice in a row
+
+
+def test_a_refused_key_stops_the_general_at_once():
+    seen = []
+    error = {"type": "error", "error": {"type": "authentication_error",
+                                        "message": "invalid x-api-key"}}
+    g = general.General(client_answering([(401, error)], seen),
+                        background=False)
+    g.submit(picture(), "x")
+    assert g.take() is None and g.dead()
+    assert "not accepted" in g.summary()
+    assert not g.submit(picture(), "x")           # it does not keep asking
+    assert len(seen) == 1

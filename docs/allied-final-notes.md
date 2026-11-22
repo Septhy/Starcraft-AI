@@ -471,3 +471,31 @@ about 290 ms to 190, shorter waits after each order). The game reads
 input once a frame, 24 times a second, so much shorter pauses risk
 dropped inputs; if the next run shows more empty boxes or missed
 orders, lengthen them again.
+
+## Eleventh trial, among idle computer players
+
+- The general did not run: the API refused the key (AuthenticationError)
+  on the first look, with Haiku 5.5 chosen. Nothing was spent. The run
+  was the rules alone.
+- Commands a minute, counted as before: 153, 139, 141, 121, 107, 139,
+  121, 130. No clear gain yet from the shorter pauses.
+- Hits: Berlin, Berlin, Romania (by the plan, at 5:00), Berlin. The
+  Romania hit arrived, and then 160 to 240 minimap pixels of troops
+  stood there idle for the rest of the run.
+- The repository owner: generally better, but the second hit was bad.
+  The troops idled in Romania. Russia has to check the front for idle
+  units.
+
+What changed:
+
+- `advance_front`: every five seconds while a mass builds, troops of
+  the current hit that are forward, standing still and not in contact
+  with the enemy are sent on: to the next objective if the target is
+  taken (Romania, then the factory at Belgrade, then Serbia, then
+  Athens; an eastern-front city, then Berlin), or at the same target
+  again if they stopped short. Troops holding somewhere else are left.
+- The computer player (white), which holds the Balkans, now counts as
+  an enemy when judging contact at the front.
+- A refused key stops the general at once and is said plainly in the
+  log; the app checks a key when it is entered and says whether it
+  works.

@@ -316,7 +316,8 @@ def test_opening_masses_fast_and_hits_berlin():
         # in the end most of everything, Middle East marines included,
         # has been sent at a target, spread along its front
         alive = g.alive()
-        spots = [trial.place(m, n) for n in set(trial.TARGETS)]
+        spots = [trial.place(m, n)
+                 for n in set(trial.TARGETS) | set(trial.NEXT.values())]
         sent = [u for u in alive
                 if any(near(u["to"], (p["x"], p["y"]), 20) for p in spots)]
         assert len(sent) >= 0.7 * len(alive), (error, len(sent), len(alive))
@@ -512,3 +513,49 @@ def test_the_plan_alternates_fronts_like_the_players_studied():
     assert trial.planned_front(9 * 60) == "north"
     assert trial.planned_front(13 * 60) == "south"
     assert trial.planned_front(40 * 60) == "north"
+
+
+def test_idle_troops_forward_are_sent_on():
+    """Troops that took Romania and are standing there go on to the
+    factory at Belgrade; troops stopped short of a target go at it again."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    romania, belgrade = trial.place(m, "Romania 300"), trial.place(m, "Factory 7")
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    there = g.units[:60]
+    for k, u in enumerate(there):                   # standing at Romania
+        p = (romania["x"] + (k % 10 - 5) * 26, romania["y"] + (k // 10 - 3) * 26)
+        u["from"] = u["to"] = p
+    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+    st = trial.State()
+    st.battle = trial.Battle("Romania 300", 0)
+    orders = 0
+    for _ in range(5):                              # a few looks, 6 s apart
+        a = watch.units(g.shot("a"))
+        g.time += 1
+        still = a & watch.units(g.shot("b"))
+        orders += trial.advance_front(g, watch, m, st, still, g.shot("c"))
+        g.time += 6
+    assert orders >= 4
+    # the watch moves on too: Belgrade, and with nobody there to fight,
+    # further down the same road
+    assert "Factory 7" in st.sent_at
+    assert st.battle.target in ("Factory 7", "Serbia 100", "Athens 400")
+    onward = [trial.place(m, n) for n in ("Factory 7", "Serbia 100", "Athens 400")]
+    moved = sum(any(near(u["to"], (p["x"], p["y"]), 12) for p in onward)
+                for u in there)
+    assert moved >= 40, moved
+    # troops holding Berlin are not dragged south with them
+    berlin = trial.place(m, "Berlin 1000")
+    holders = g.units[60:80]
+    for k, u in enumerate(holders):
+        p = (berlin["x"] + (k % 5) * 26, berlin["y"] + (k // 5) * 26)
+        u["from"] = u["to"] = p
+    for _ in range(3):
+        a = watch.units(g.shot("a"))
+        g.time += 1
+        still = a & watch.units(g.shot("b"))
+        trial.advance_front(g, watch, m, st, still, g.shot("c"))
+        g.time += 6
+    assert all(near(u["to"], (berlin["x"], berlin["y"]), 6) for u in holders)

@@ -50,6 +50,16 @@ TARGETS = ["Berlin 1000", "Romania 300", "Factory 7"]
 # nearest to where it stalled, to break the line there first.
 EAST_FRONT = ["Konigsberg 200", "Warsaw 200", "Krakow 200"]
 AXIS = [0, 1, 7]               # Germany, Italy, Spain: Russia's enemies
+# Who Russia's troops actually fight: the Axis, and the computer player
+# (white) that holds the Balkans, Turkey and the east.
+HOSTILE = AXIS + [6]
+# Where a hit goes on to once it has taken its target, so the troops do
+# not stand idle there.
+NEXT = {"Romania 300": "Factory 7", "Factory 7": "Serbia 100",
+        "Serbia 100": "Athens 400", "Konigsberg 200": "Berlin 1000",
+        "Warsaw 200": "Berlin 1000", "Krakow 200": "Berlin 1000"}
+ADVANCE_EVERY = 5              # seconds between checks for idle troops forward
+IDLE_FORWARD = 20              # minimap pixels of idle forward units worth an order
 BALKANS = (126, 106, 172, 142) # tiles: left, top, right, bottom
 BALKAN_AXIS = 60               # this many more Axis pixels there than at the start: go south
 # Points across a target's front, in tiles from its centre. Each group
@@ -112,6 +122,7 @@ class State:
         self.opening_target = None
         self.rekey = 8             # ground keys already re-used this hit
         self.outcomes = []         # how each hit went, for the lessons
+        self.last_advance = -1e9   # when idle forward troops were last sent on
         self.looks_kept = 0
 
 
@@ -165,8 +176,9 @@ def box_and_check(io, box, st):
     return False
 
 
-def select_group(io, pixels, st, watch=None):
+def select_group(io, pixels, st, watch=None, margin=None):
     """Look at the units drawn at these minimap pixels and box them."""
+    margin = MARGIN if margin is None else margin
     cols = [p[0] for p in pixels]
     rows = [p[1] for p in pixels]
     x0, y0 = live.from_drawn(min(cols) - 0.5, min(rows) - 0.5)
@@ -175,8 +187,8 @@ def select_group(io, pixels, st, watch=None):
     cam = look_at(io, *centred((x0 + x1) / 2, (y0 + y1) / 2))
     sx0, sy0 = live.on_screen(x0, y0, cam)
     sx1, sy1 = live.on_screen(x1, y1, cam)
-    box = (max(l + 4, sx0 - MARGIN), max(t + 4, sy0 - MARGIN),
-           min(r - 4, sx1 + MARGIN), min(b - 4, sy1 + MARGIN))
+    box = (max(l + 4, sx0 - margin), max(t + 4, sy0 - margin),
+           min(r - 4, sx1 + margin), min(b - 4, sy1 + margin))
     if box[2] - box[0] < 40 or box[3] - box[1] < 40:
         return False
     if box_and_check(io, box, st):
@@ -365,7 +377,8 @@ def at_home(pixels, mapdata):
     reach = ((mc - tc) ** 2 + (mr - tr) ** 2) ** 0.5 - MASS_RADIUS
     out = {p for p in pixels
            if ((p[0] - tc) ** 2 + (p[1] - tr) ** 2) ** 0.5 > reach}
-    for name in set(TARGETS) | set(EAST_FRONT) | {f[3] for f in FLIGHTS}:
+    for name in set(TARGETS) | set(EAST_FRONT) | set(NEXT.values()) \
+            | {f[3] for f in FLIGHTS}:
         t = place(mapdata, name)
         out -= near(out, (t["x"], t["y"]), 22)
     return out
@@ -654,7 +667,7 @@ def find_front(watch, picture, mapdata, target):
     forward = forward_units(watch.units(picture), mapdata)
     if len(forward) < 4:
         return None
-    axis = watch.others(picture, AXIS)
+    axis = watch.others(picture, HOSTILE)
     w = place(mapdata, target)
     tc, tr = live.to_drawn(w["x"], w["y"])
 
@@ -743,7 +756,64 @@ def gather_idle(io, watch, mapdata, st, tried):
             if select_group(io, group, st, watch):
                 attack_move(io, *MASS)
                 orders += 1
-    return orders, b_picture
+    return orders, b_picture, a & b
+
+
+def advance_front(io, watch, mapdata, st, still, picture):
+    """Keep the troops forward from standing idle.
+
+    `still` is the set of our unit pixels that have not moved between
+    two looks a second apart. Those forward of the mass that are not in
+    contact with the enemy are idle. If the hit has taken its target
+    they are sent on to the next objective; if they have stopped short
+    of it they are sent at it again. Returns the orders given."""
+    battle = st.battle
+    if battle is None or io.now() - st.last_advance < ADVANCE_EVERY:
+        return 0
+    w = place(mapdata, battle.target)
+    # only the troops of this hit: those around its target or its front.
+    # Troops holding somewhere else, such as Berlin, are left alone.
+    idle = forward_units(still, mapdata)
+    mine = near(idle, (w["x"], w["y"]), 26)
+    if battle.front:
+        mine |= near(idle, battle.front, 14)
+    idle = mine
+    if len(idle) < IDLE_FORWARD:
+        return 0
+    st.last_advance = io.now()
+    hostile = watch.others(picture, HOSTILE)
+
+    def fighting(group, reach=4):
+        return sum((c + i, r + j) in hostile for c, r in group
+                   for i in range(-reach, reach + 1)
+                   for j in range(-reach, reach + 1)) >= 6
+    at_target = near(idle, (w["x"], w["y"]), 9)
+    objective = battle.target
+    if battle.arrived or len(at_target) >= IDLE_FORWARD:
+        objective = NEXT.get(battle.target)
+        if objective is None:
+            return 0                    # the last objective: hold it
+        st.outcomes.append(f"hit at {battle.target}: arrived, sent on to "
+                           f"{objective}")
+        io.log(f"{battle.target} reached: sending the troops there on to "
+               f"{objective}")
+        st.battle = battle = Battle(objective, io.now())
+        st.sent_at.append(objective)
+    o = place(mapdata, objective)
+    idle -= near(idle, (o["x"], o["y"]), 6)        # already at the objective
+    orders = 0
+    groups = back_to_front(live.clusters(idle, 3, 3), (o["x"], o["y"]),
+                           lambda g: live.from_drawn(*g[0]))
+    for group in groups[:14]:
+        if len(group) < 4 or fighting(group):
+            continue
+        # a tight box: wide ones overlap and pick the same troops again
+        if select_group(io, group, st, watch, margin=45):
+            attack_move(io, *front_point(mapdata, st, objective))
+            orders += 1
+    if orders:
+        io.log(f"  {orders} idle groups forward sent at {objective}")
+    return orders
 
 
 TARGET_NAMES = {"Berlin": "Berlin 1000", "Romania": "Romania 300",
@@ -891,6 +961,10 @@ def consult(io, watch, mapdata, st):
     g = st.general
     if g is None:
         return None
+    if g.dead():
+        io.log(f"the general is out: {g.summary()}")
+        st.general = None
+        return None
     if io.now() - st.last_consult >= CONSULT_EVERY:
         st.last_consult = io.now()
         battle = st.battle
@@ -937,8 +1011,10 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     collected, tried, gathered = False, set(), 0
     need = BIG_MASS
     while True:
-        orders, picture = gather_idle(io, watch, mapdata, st, tried)
+        orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
+        advance_front(io, watch, mapdata, st, still, picture)
+        battle = st.battle              # it may have moved on to a new objective
         massed = len(at_mass(watch.units(picture)))
         waited = io.now() - began
         # the fast rule: the enemy is at the mass
