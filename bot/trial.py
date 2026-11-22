@@ -186,9 +186,20 @@ def wait_for_mass(io, watch, mx, my, counts, t0):
     return massed
 
 
+def back_to_front(groups, target_x):
+    """Order the groups so the ones farthest from the target go first.
+
+    Sent front first, the army strings out into a thin line on the way
+    (a "conga line"). Sent back first, the rear catches up with the
+    front as the front sets off, and it arrives as a wall."""
+    west = target_x < MASS[0]
+    middle = lambda g: sum(p[0] for p in g) / len(g)
+    return sorted(groups, key=middle, reverse=west)
+
+
 def launch_wave(io, watch, mapdata, counts, t0):
-    """Send the mass at the target, group by group from the side
-    nearest the target, until the massing place is nearly empty."""
+    """Send the mass at the target, group by group from the back to the
+    front, until the massing place is nearly empty."""
     w = place(mapdata, TARGET)
     tx, ty = live.minimap_point(w["x"], w["y"])
     start = None
@@ -203,8 +214,7 @@ def launch_wave(io, watch, mapdata, counts, t0):
         if len(there) < 0.15 * start or io.now() - t0 > WAVE_STOP:
             break
         groups = live.clusters(there, 3, 3)
-        toward = 1 if w["x"] > MASS[0] else -1
-        groups.sort(key=lambda g: -toward * min(p[0] for p in g))
+        groups = back_to_front(groups, w["x"])
         for group in groups:
             orders += order_group(io, group, tx, ty, counts, watch)
     io.log(f"wave: {orders} groups sent toward {TARGET}")

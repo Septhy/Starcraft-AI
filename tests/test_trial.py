@@ -223,3 +223,11 @@ def test_opening_does_nothing_without_the_game_screen():
     g = FakeGame(m, showing=False)
     assert trial.run(g, m) == {"trained": 0, "gathered": 0, "sent": 0}
     assert g.inputs == 0
+
+
+def test_wave_goes_back_to_front():
+    berlin_x = trial.place(trial.load_map(), trial.TARGET)["x"]
+    assert berlin_x < trial.MASS[0]                 # Berlin is to the west
+    groups = [[(150, 70)], [(170, 70), (172, 71)], [(160, 72)]]
+    ordered = trial.back_to_front(groups, berlin_x)
+    assert [g[0][0] for g in ordered] == [170, 160, 150]   # east goes first

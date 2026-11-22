@@ -118,3 +118,14 @@ tax):
 - On the third trial's pictures the count of unit pixels at the
   massing place goes 6, 38, 101, ... 190 as the army arrives, then
   down to 4 as the wave leaves.
+
+## Fourth trial
+
+- On the real game: marines started at all 8 barracks by 11 s, 32
+  groups ordered to the massing place by 60 s, the mass judged
+  complete at 90 s, the wave of 30 groups sent by 147 s, and the army
+  arrived at Berlin. 28 of 100 boxes were empty.
+- The wave went front first and strung out into a line on the minimap.
+  The repository owner: Russia selects from the back to the front, so
+  the army arrives as a wall and not a "conga line". The wave now goes
+  back to front.
