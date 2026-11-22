@@ -175,9 +175,9 @@ def wait_for_mass(io, watch, mx, my, counts, t0):
             why = "the mass stopped growing"
             break
         idle = (a & b) - at_mass(b)                 # same place both looks
-        for group in live.clusters(idle, *GROUP)[:3]:
+        for group in live.clusters(idle, *GROUP)[:2]:
             key = min(group)
-            if len(group) >= 4 and key not in tried:
+            if len(group) >= 6 and key not in tried and len(tried) < 12:
                 tried.add(key)
                 order_group(io, group, mx, my, counts, watch)
     io.shot("mass")

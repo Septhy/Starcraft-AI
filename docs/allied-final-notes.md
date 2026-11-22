@@ -96,3 +96,25 @@ tax):
 - It has to be fast: players give their first orders within seconds,
   20 to 70 orders into the gathering area in the first two minutes,
   and most send their first attack west inside the first minute.
+
+## Third trial, and corrections from the repository owner
+
+- The whole opening ran on the real game, but slowly: orders to the
+  starting army took 191 s and the wave 210 s, and about 60% of its
+  boxes were empty.
+- The mass should be complete about 1:30 to 2:00 into the game, with
+  most of the units, not all.
+- The mass goes to Berlin (place "Berlin 1000", tile 100, 89), not
+  Warsaw.
+
+## How the bot sees (eyes/live.py)
+
+- The live minimap is drawn two pixels lower than its frame: fitted to
+  Russia's known starting positions, 99% of them land on our colour
+  with left 14, top 819, width 288, height 217.
+- A unit is drawn as a block about three pixels across. Buildings are
+  bigger blocks. `Watch` learns the buildings from the first picture
+  of the game and reports our colour anywhere else as units.
+- On the third trial's pictures the count of unit pixels at the
+  massing place goes 6, 38, 101, ... 190 as the army arrives, then
+  down to 4 as the wave leaves.
