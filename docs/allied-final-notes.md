@@ -1,6 +1,6 @@
 # WWII Euro - AF 4.0 ("Allied Final"): notes from replays
 
-Worked out from ten replays of the same map version. A replay stores
+Worked out from fifteen replays of the same map version. A replay stores
 the whole map, so the map's rules can be read without the map file.
 
 ## Reading replays
@@ -16,6 +16,8 @@ Then the scripts in `replay_tools/`:
 - `chk.py m.chk summary|strings`: the map's teams and all its text
 - `slots.py m.chk <name to leave out> r.json ...`: how each slot played
 - `player.py <name> r.json ...`: what one player did
+- `playbook.py m.chk <slot> <name to leave out> r.json ...`: a slot's
+  habits round by round, with army targets as named places
 
 Replays are not kept in this repository: they hold other people's
 names and chat.
@@ -46,7 +48,19 @@ Countries are matched to slots by start position and the team names.
 
 ## Examples so far
 
-Seven full games (ten replays; three ended in the first minutes), so
-seven examples per slot. The repository owner asked
-that their own games not be used as examples of good play; that leaves
-one example for Italy and six for Spain.
+Fifteen replays; twelve are full games (17 to 66 minutes) and three
+ended in the first minutes. The repository owner asked that their own
+games not be used as examples of good play. That leaves 2 full games
+for Italy, 11 for Spain, 11 for France and 12 for each other country.
+The replays do not record which side won.
+
+## Russia, round by round (12 games)
+
+Russia makes almost nothing but marines, 70 to 120 per 5 minute round,
+and attack-moves them west. Places are the map's own location names;
+the number in a city's name is its tax.
+
+- 0 to 5 min: toward the German invasion area, Konigsberg and Warsaw.
+- 5 to 15 min: Warsaw, Krakow, Romania.
+- 15 to 25 min: Krakow, Warsaw, Romania, Serbia, then Prague.
+- after 25 min: Prague, Krakow, Warsaw, on toward Cologne.
