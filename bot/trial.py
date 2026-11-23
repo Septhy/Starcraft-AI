@@ -64,7 +64,10 @@ NEXT = {"Romania 300": "Factory 7", "Factory 7": "Hungary 200",
         "Frankfurt 200": "Amsterdam 100", "Konigsberg 200": "Berlin 1000",
         "Warsaw 200": "Berlin 1000", "Krakow 200": "Berlin 1000"}
 ADVANCE_EVERY = 5              # seconds between checks for idle troops forward
-IDLE_FORWARD = 20              # minimap pixels of idle forward units worth an order
+IDLE_FORWARD = 20              # minimap pixels at a target that mean it is taken
+MIN_FORWARD = 6                # idle troops of the hit this big are sent on
+SCOUT_WAIT = 150               # seconds: the Middle East spawn point is left to the
+                               # scout and its spawn until then, and fetched after
 BALKANS = (126, 106, 172, 142) # tiles: left, top, right, bottom
 BALKAN_AXIS = 60               # this many more Axis pixels there than at the start: go south
 # Points across a target's front, in tiles from its centre. Each group
@@ -153,6 +156,8 @@ class State:
         self.start_px = set()      # our pixels in the first picture of the game
         self.flights_cities = set() # cities a FLIGHTS building has gone to
         self.f7_told = None
+        self.idle_orders = {}      # idle body spot -> times it was ordered
+        self.hits_sent = 0
         self.depots = {}           # tax city -> the SCV-and-depot job for it
         self.depot_tries = {}
         self.tax_tries = {}        # tax city -> buildings sent there so far
@@ -682,6 +687,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=2):
         attack_move(io, *front_point(mapdata, st, target))
         orders += 1
     st.hit_sent = io.now()
+    st.hits_sent += 1
     st.go_pending = False
     st.air_home = False
     per_box = st.selected / max(st.selections, 1)
@@ -701,7 +707,7 @@ def push_front(io, watch, mapdata, st, target, limit=20, side="all"):
     io.sleep(1.0)
     b = watch.units(io.shot("front"))
     w = place(mapdata, target)
-    rest = b - at_mass(b) - near(b, MIDDLE_EAST, 6)
+    rest = b - at_mass(b) - scout_spot(io, st, b)
     rest -= near(rest, (w["x"], w["y"]), 6)        # already there
     rest -= guarding(st, mapdata, rest, io.now())
     rear = at_home(rest, mapdata)
@@ -798,14 +804,15 @@ def fly_building(io, mapdata, st, kind, tile, city_name):
 # shows 1:00 and must arrive before the next round's countdown reaches
 # 3:00.
 TAX_CITIES = ["Krakow 200", "Romania 300", "Factory 7"]
-TAX_EVERY = 15                 # seconds between looks at the tax cities
+TAX_EVERY = 45                 # seconds between looks at the tax cities
+TAX_AFTER_HITS = 2             # no tax efforts before the second hit has gone
 TAX_ENEMY = 6                  # minimap pixels from a city: enemies "nearby"
 TAX_ENEMY_LEAST = 4            # enemy pixels there that count as enemies
-TAX_HEAVY = 40                 # more than this: too strong for a detachment
+TAX_HEAVY = 20                 # more than this: too strong for a detachment
 TAX_HERE = 3                   # our pixels this close to the city: a building is there
 GUARD_SIZE = 12                # a detachment: one full selection
-GUARD_EVERY = 120              # seconds between detachments to one city
-GUARD_KEEP = 150               # seconds a detachment is left to guard its city
+GUARD_EVERY = 300              # seconds between detachments to one city
+GUARD_KEEP = 90                # seconds a detachment is left to guard its city
 FLOAT_SPEED = 0.75             # tiles a real second, a lifted building (guess)
 FLOAT_SLACK = 20               # seconds after arrival before a missing building is replaced
 F7_SET_OFF = 60                # countdown seconds: set off for Factory 7 at 1:00
@@ -814,7 +821,7 @@ F7_ARRIVE = 180                # and arrive before the countdown reaches 3:00
 # a command centre.
 TAX_KINDS = ["Engineering Bay", "Factory", "Starport"]
 KEEP_BUILDINGS = {(163, 99)}   # the barracks on Odessa: it taxes Odessa
-TAX_TRIES = 2                  # buildings sent to one city in a game at most
+TAX_TRIES = 3                  # buildings sent to one city in a game at most
 
 
 def countdown_left(clock_seconds):
@@ -850,7 +857,9 @@ def guarding(st, mapdata, pixels, now):
     they stay to guard it, and are not called back to the mass."""
     out = set()
     for name, when in st.guards.items():
-        if now - when < GUARD_KEEP:
+        flight = st.tax_sent.get(name)
+        waiting = flight and now < flight[2] + FLOAT_SLACK
+        if now - when < GUARD_KEEP or waiting:
             c = place(mapdata, name)
             out |= near(pixels, (c["x"], c["y"]), TAX_ENEMY + 4)
     return out
@@ -976,18 +985,86 @@ def depot_at(io, watch, mapdata, st, name, ours):
     return 0
 
 
+def float_to(io, watch, mapdata, st, name, ours, to_arrive=None):
+    """Float the best spare building to a tax city; with none left, an
+    SCV builds a depot there. Returns 1 if it gave an order."""
+    city = place(mapdata, name)
+    clock = st.clock.time() if st.clock else io.now()
+    choices = spare_buildings(mapdata, st)
+    if to_arrive is not None:
+        choices = [b for b in choices if float_time(b, city) <= to_arrive]
+    elif "Factory 7" not in st.tax_sent:
+        # keep the buildings that can reach Factory 7 in its window
+        # for Factory 7, while there are others
+        f7 = place(mapdata, "Factory 7")
+        window = (300 - F7_ARRIVE + F7_SET_OFF) / COUNTDOWN_RATE
+        others = [b for b in choices if float_time(b, f7) > window]
+        if others:
+            choices = others
+    if not choices:
+        if not spare_buildings(mapdata, st):
+            # nothing left to float: an SCV builds a depot there
+            return depot_at(io, watch, mapdata, st, name, ours)
+        if to_arrive is not None:
+            rnd = int(clock * COUNTDOWN_RATE // 300)
+            if st.f7_told != rnd:       # once a round is enough
+                st.f7_told = rnd
+                io.log(f"tax: no building can reach {name} before 3:00")
+        return 0
+    choices.sort(key=lambda b: (TAX_KINDS.index(b["type"]),
+                                float_time(b, city)))
+    b = choices[0]
+    tile = (b["x"] // 32, b["y"] // 32)
+    st.flights_done.add(tile)
+    if not fly_building(io, mapdata, st, b["type"], tile, name):
+        return 0
+    st.tax_sent[name] = (io.now(), tile, io.now() + float_time(b, city))
+    st.tax_tries[name] = st.tax_tries.get(name, 0) + 1
+    io.log(f"tax: {b['type']} floated to {name}, there in about "
+           f"{float_time(b, city):.0f} s")
+    return 1
+
+
+def tax_with_hit(io, watch, mapdata, st, target, picture):
+    """A hit clears the way: from the second hit on, a building follows
+    a hit east to Krakow, or a hit to the Balkans to Romania, unless one
+    is there or on its way already."""
+    if st.hits_sent < TAX_AFTER_HITS:
+        return 0
+    name = "Romania 300" if team_rules.front_of(target) == "balks" \
+        else "Krakow 200"
+    city = place(mapdata, name)
+    ours = watch.units(picture) if picture is not None else set()
+    flight = st.tax_sent.get(name)
+    if flight and io.now() < flight[2] + FLOAT_SLACK:
+        return 0                        # one is on its way
+    if flight and near(ours, (city["x"], city["y"]), TAX_HERE):
+        return 0                        # and it is there
+    if st.tax_tries.get(name, 0) >= TAX_TRIES:
+        return 0
+    io.log(f"tax: a building follows the hit to {name}")
+    return float_to(io, watch, mapdata, st, name, ours)
+
+
 def tax_rounds(io, watch, mapdata, st, picture):
     """Look after the tax cities: float a building over each that has
     none, if no enemies are near; send a detachment first if there are
     a few; leave it to the hits if there are many."""
-    if st.clock is None or io.now() - st.last_tax < TAX_EVERY:
+    if st.clock is None or st.hits_sent < TAX_AFTER_HITS:
         return 0
-    st.last_tax = io.now()
+    # Krakow and Romania now and then; Factory 7 on every pass, because
+    # its moment (1:00 to 0:00 on the countdown) lasts only about 40
+    # real seconds and must not be missed
+    due = io.now() - st.last_tax >= TAX_EVERY
+    if due:
+        st.last_tax = io.now()
     clock = st.clock.time()
     ours = watch.units(picture)
     hostile = watch.others(picture, HOSTILE)
     sent = 0
     for name in TAX_CITIES:
+        if name != "Factory 7" and not due:
+            continue
         city = place(mapdata, name)
         cx, cy = city["x"], city["y"]
         if st.depots.get(name, {}).get("stage") in ("walking", "building"):
@@ -1019,40 +1096,7 @@ def tax_rounds(io, watch, mapdata, st, picture):
             if io.now() - st.guards.get(name, -1e9) >= GUARD_EVERY:
                 send_guard(io, watch, mapdata, st, name, picture)
             continue
-        choices = spare_buildings(mapdata, st)
-        if to_arrive is not None:
-            choices = [b for b in choices
-                       if float_time(b, city) <= to_arrive]
-        elif "Factory 7" not in st.tax_sent:
-            # keep the buildings that can reach Factory 7 in its window
-            # for Factory 7, while there are others
-            f7 = place(mapdata, "Factory 7")
-            window = (300 - F7_ARRIVE + F7_SET_OFF) / COUNTDOWN_RATE
-            others = [b for b in choices if float_time(b, f7) > window]
-            if others:
-                choices = others
-        if not choices:
-            if not spare_buildings(mapdata, st):
-                # nothing left to float: an SCV builds a depot there
-                sent += depot_at(io, watch, mapdata, st, name, ours)
-            elif to_arrive is not None:
-                rnd = int(clock * COUNTDOWN_RATE // 300)
-                if st.f7_told != rnd:   # once a round is enough
-                    st.f7_told = rnd
-                    io.log(f"tax: no building can reach {name} before 3:00")
-            continue
-        choices.sort(key=lambda b: (TAX_KINDS.index(b["type"]),
-                                    float_time(b, city)))
-        b = choices[0]
-        tile = (b["x"] // 32, b["y"] // 32)
-        st.flights_done.add(tile)
-        if fly_building(io, mapdata, st, b["type"], tile, name):
-            st.tax_sent[name] = (io.now(), tile,
-                                 io.now() + float_time(b, city))
-            st.tax_tries[name] = st.tax_tries.get(name, 0) + 1
-            sent += 1
-            io.log(f"tax: {b['type']} floated to {name}, there in about "
-                   f"{float_time(b, city):.0f} s")
+        sent += float_to(io, watch, mapdata, st, name, ours, to_arrive)
     return sent
 
 
@@ -1068,7 +1112,11 @@ def flights_after(io, mapdata, st, when):
         if not choices:
             io.log(f"flight: no spare building left for {city_name}")
             continue
-        b = min(choices, key=lambda b: float_time(b, city))
+        # keep the few that can reach Factory 7 in its window for it
+        f7 = place(mapdata, "Factory 7")
+        window = (300 - F7_ARRIVE + F7_SET_OFF) / COUNTDOWN_RATE
+        others = [b for b in choices if float_time(b, f7) > window]
+        b = min(others or choices, key=lambda b: float_time(b, city))
         tile = (b["x"] // 32, b["y"] // 32)
         st.flights_done.add(tile)
         fly_building(io, mapdata, st, b["type"], tile, city_name)
@@ -1102,13 +1150,13 @@ def planned_front(seconds_in):
 
 
 def south_next(st):
-    """Going south means carrying on from the farthest point reached on
-    the southern road, not starting it again."""
-    south, at = "Romania 300", "Romania 300"
-    while at in NEXT and (at in st.sent_at or at in st.reached):
-        at = NEXT[at]
-        south = at
-    return south
+    """Where a new hit to the Balkans is sent: always Romania, the way
+    in. From Smolensk a straight march to Belgrade, Hungary or beyond
+    goes through German Poland, which is the eastern front, not the
+    Balkans (trial 21: "gone balks" at Frankfurt marched east). Once
+    the hit reaches Romania it is carried on down the road
+    (advance_front): Factory 7, Hungary, Munich, Frankfurt, Amsterdam."""
+    return "Romania 300"
 
 
 def choose_target(io, watch, st, mapdata=None, battle=None):
@@ -1122,8 +1170,11 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
     Berlin if not."""
     if st.advised and io.now() - st.advised[1] <= 40:
         name = st.advised[0]
-        while name in st.reached and name in NEXT:
-            name = NEXT[name]           # already ours: on down the road
+        if team_rules.front_of(name) == "balks":
+            name = south_next(st)       # the Balkans: in through Romania
+        while name in st.reached and name in NEXT and \
+                team_rules.front_of(name) == "east":
+            name = NEXT[name]           # already ours: on to Berlin
         io.log(f"next target {name} (the general's choice"
                + ("" if name == st.advised[0] else
                   f" was {st.advised[0]}, which is already taken") + ")")
@@ -1253,19 +1304,30 @@ class Battle:
 
 GATHER_LEAST = 3               # minimap pixels: a body this big is worth fetching
 GATHER_PER_PASS = 8            # bodies ordered to the mass in one pass at most
+STUCK_AFTER = 3                # orders to one body that never moves, then leave it
 
 
 def in_battle(st, mapdata, pixels):
     """Our pixels that belong to the hit being fought: around its target
     or its front. advance_front moves those, not the gathering."""
     battle = st.battle
-    if battle is None or battle.retreated:
-        return set()
+    if battle is None or battle.retreated or \
+            battle.verdict()[0] in ("losing", "stalled"):
+        return set()                    # its survivors go back to the mass
     w = place(mapdata, battle.target)
     out = near(pixels, (w["x"], w["y"]), 26)
     if battle.front:
         out |= near(pixels, battle.front, 14)
     return out
+
+
+def scout_spot(io, st, pixels):
+    """Our pixels at the Middle East spawn point, while the scout and the
+    spawn are still being dealt with there (collect_middle_east). After
+    that, anyone left there is fetched like everyone else."""
+    if io.now() - st.t0 < SCOUT_WAIT:
+        return near(pixels, MIDDLE_EAST, 6)
+    return set()
 
 
 def gather_idle(io, watch, mapdata, st, tried):
@@ -1281,7 +1343,7 @@ def gather_idle(io, watch, mapdata, st, tried):
     b_picture = io.shot("watch", keep=False)
     b = watch.units(b_picture)
     still = a & b
-    idle = still - at_mass(b) - near(b, MIDDLE_EAST, 6)
+    idle = still - at_mass(b) - scout_spot(io, st, b)
     idle -= in_battle(st, mapdata, idle)
     idle -= guarding(st, mapdata, idle, io.now())
     hostile = watch.others(b_picture, HOSTILE)
@@ -1306,9 +1368,20 @@ def gather_idle(io, watch, mapdata, st, tried):
         if io.now() - tried.get(key, -1e9) < RETRY_IDLE:
             continue
         tried[key] = io.now()
+        st.idle_orders[key] = st.idle_orders.get(key, 0) + 1
+        if st.idle_orders[key] > STUCK_AFTER:
+            continue                    # ordered three times and never moved
         if select_group(io, group, st, watch, margin=60):
             attack_move(io, *MASS)
             orders += 1
+            if st.idle_orders[key] == STUCK_AFTER:
+                # it has not moved for two orders: keep a picture of it
+                # (to learn what it is) and leave it be from now on
+                x, y = live.from_drawn(cx, cy)
+                io.shot("stuck")
+                io.log(f"  a body near {place_name(mapdata, x, y)} has not "
+                       f"moved after {STUCK_AFTER} orders: left alone "
+                       f"(picture 'stuck')")
     if orders:
         io.log(f"  {orders} idle bodies sent to the massing place")
     return orders, b_picture, still
@@ -1344,7 +1417,7 @@ def advance_front(io, watch, mapdata, st, still, picture):
     holding = near(idle, (w["x"], w["y"]), 9) \
         if battle.target not in NEXT else set()
     st.reserve = len(idle - holding)
-    if len(idle) < IDLE_FORWARD:
+    if len(idle) < MIN_FORWARD:
         return 0
     st.last_advance = io.now()
     hostile = watch.others(picture, HOSTILE)
@@ -1930,6 +2003,8 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
             st.battle = Battle(target, io.now())
             flights_after(io, mapdata, st, len(hits))
             flights_after(io, mapdata, st, target)
+            tax_with_hit(io, watch, mapdata, st, target,
+                         io.shot("watch", keep=False))
             game = st.clock.time() if st.clock else io.now() - t0
             io.log(f"  ({since()} since start; round countdown about "
                    f"{round_timer(game)}, tax in about "

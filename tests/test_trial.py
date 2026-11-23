@@ -436,7 +436,9 @@ def test_target_follows_the_axis_in_the_balkans():
     st.balkan_start = seen - 80                          # 80 more than at the start
     assert trial.choose_target(OneShot(s), watch, st) == "Romania 300"
     st.sent_at.append("Romania 300")
-    assert trial.choose_target(OneShot(s), watch, st) == "Factory 7"
+    # a new Balkans hit always goes in through Romania, even after one
+    # went there (trial 21); it is carried on down the road from there
+    assert trial.choose_target(OneShot(s), watch, st) == "Romania 300"
     st.balkan_start = seen                               # no more than at the start
     assert trial.choose_target(OneShot(s), watch, st) == "Berlin 1000"
     g = FakeGame(m)                                      # nobody else in sight

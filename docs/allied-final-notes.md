@@ -794,3 +794,34 @@ The repository owner's rules:
   (Krakow about 2 minutes away), SCV 2 tiles/s, that a floated
   building shows on the minimap as our colour at the city (presence
   check), that the CC trains SCVs on this map, and S/B/S hotkeys.
+
+## Trial 21: clumps left behind, no tax, "gone balks" that went east
+
+- Clumps (user: visible on the minimap after a few hits, should have
+  joined the hit). Causes found in the log:
+  - Tax detachments to Krakow every 2 minutes (11 in the game); troops
+    near a city with a recent detachment were "guarding" and never
+    fetched, and with a new detachment every 2 minutes Krakow was
+    always guarded. Now: guards are kept 90 s (or while their building
+    is still flying in), detachments at most every 5 minutes, only
+    against light enemy (4-20 px), and only after the second hit.
+  - Survivors of a lost or stalled hit counted as "the battle" and were
+    only moved once 20+ pixels of them stood idle. Now a lost or stalled
+    hit's troops are fetched back to the mass; a live hit's idle troops
+    are sent on from 6 pixels.
+  - Everything near the Middle East spawn point was ignored all game.
+    Now only for the first 150 s.
+  - A body ordered three times that never moves is left alone, with a
+    picture "stuck" taken of it, to learn what it is.
+- Tax: nothing happened before 6:40, then Krakow had enemies and got
+  detachments. Now (user): efforts start after the second hit, now and
+  then (every 45 s look); a building follows each later hit, east to
+  Krakow, balks to Romania. Factory 7 is checked on every pass: its
+  moment (countdown 1:00 to 0:00) lasts only about 40 real seconds and
+  a 45 s look could miss it. The few buildings that can reach Factory 7
+  in time are kept for it, by the Warsaw/Konigsberg flights too.
+- "gone balks" at Frankfurt went east: the general chose Factory 7,
+  which was marked reached, so the road walked on to Frankfurt; a
+  fresh hit from Smolensk to Frankfurt marches through Poland. Now a
+  new Balkans hit always goes to Romania, and is carried on down the
+  road from there.

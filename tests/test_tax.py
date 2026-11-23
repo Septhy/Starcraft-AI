@@ -7,6 +7,7 @@ from tests.test_trial import StubIO, StubWatch, blob
 def setup(monkeypatch, clock_seconds=0.0, ours=(), axis=()):
     m = trial.load_map()
     st, io = trial.State(), StubIO()
+    st.hits_sent = trial.TAX_AFTER_HITS             # tax efforts have begun
     st.clock = team.GameClock(io.now)
     st.clock.value = clock_seconds
     flown = []
@@ -161,3 +162,52 @@ def test_with_nothing_left_to_float_an_scv_builds_a_depot(monkeypatch):
     trial.tax_rounds(io, watch, m, st, None)
     assert io.keys[:2] == ["b", "s"] and io.keys[-1] == "esc"
     assert st.depots["Krakow 200"]["stage"] == "building"
+
+
+def test_no_tax_effort_before_the_second_hit(monkeypatch):
+    m, st, io, watch, flown, guards = setup(monkeypatch, countdown_at(150))
+    st.hits_sent = 1
+    assert trial.tax_rounds(io, watch, m, st, None) == 0 and flown == []
+    assert trial.tax_with_hit(io, watch, m, st, "Berlin 1000", None) == 0
+
+
+def test_a_building_follows_a_hit_to_krakow_or_romania(monkeypatch):
+    m, st, io, watch, flown, guards = setup(monkeypatch, countdown_at(150))
+    trial.tax_with_hit(io, watch, m, st, "Berlin 1000", None)
+    trial.tax_with_hit(io, watch, m, st, "Romania 300", None)
+    assert [c for _, _, c in flown] == ["Krakow 200", "Romania 300"]
+    trial.tax_with_hit(io, watch, m, st, "Berlin 1000", None)   # on its way
+    assert len(flown) == 2
+
+
+def test_a_balkans_hit_always_goes_in_through_romania():
+    st = trial.State()
+    st.reached |= {"Romania 300", "Factory 7", "Hungary 200"}
+    st.sent_at += ["Romania 300", "Factory 7", "Munich 200"]
+    assert trial.south_next(st) == "Romania 300"
+    st.advised = ("Factory 7", 0.0)
+    io = StubIO()
+    io.t = 1.0
+    assert trial.choose_target(io, None, st) == "Romania 300"
+
+
+def test_detachments_go_home_once_their_time_is_up():
+    m = trial.load_map()
+    st = trial.State()
+    krakow = at(m, "Krakow 200", 3)
+    st.guards["Krakow 200"] = 0.0
+    assert trial.guarding(st, m, krakow, 30.0) == krakow
+    assert trial.guarding(st, m, krakow, trial.GUARD_KEEP + 1) == set()
+
+
+def test_survivors_of_a_lost_hit_are_fetched_back():
+    m = trial.load_map()
+    st = trial.State()
+    st.battle = trial.Battle("Berlin 1000", 0)
+    w = trial.place(m, "Berlin 1000")
+    near_front = blob((w["x"] + 10 * 32, w["y"]), 2)
+    st.battle.front = (w["x"] + 10 * 32, w["y"])
+    st.battle.samples = [(10, 100, 5, 30), (60, 90, 5, 18)]   # advancing
+    assert trial.in_battle(st, m, near_front)          # still being fought
+    st.battle.samples.append((90, 10, 5, 18))          # lost
+    assert trial.in_battle(st, m, near_front) == set()
