@@ -748,3 +748,19 @@ The repository owner's rules:
   seconds into each round. round_timer() and until_tax() take the
   bottom clock; Claude's status now gives both clocks and the seconds
   to the next tax.
+
+## Trial 19: no hit after the first
+
+- First hit lost; build_big_mass then set need = 240 on every pass
+  ("last hit losing"), after the supply-full rule had set it to 140.
+  Supply was full at 235 with 166-191 men at the mass: never ready,
+  never hit again for six minutes. The supply-full rule now comes last.
+  Test: test_at_full_supply_a_lost_hit_does_not_stop_the_next (fails on
+  the old code).
+- Chat worked: announcements typed and seen in brown; the reader logged
+  map messages. Ally orders not tested (no human ally).
+- "Axis inside Russia" fired near Moscow (Capital City 13, 164 px) at
+  133 s and Smolensk (136 px) at 365 s against idle computers. Cause
+  unknown: map triggers do spawn Axis units (the Norway invasion
+  message), or the minimap pings (dark green boxes) confuse the colour
+  reading. Not fixed.

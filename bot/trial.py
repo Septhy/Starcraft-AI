@@ -152,6 +152,7 @@ class State:
         self.outcomes = []         # how each hit went, for the lessons
         self.last_advance = -1e9   # when idle forward troops were last sent on
         self.last_heard = -1e9
+        self.told_capped = False
         self.go_pending = False    # the team plan said go: the hit leaves now
         self.team = None           # the plan agreed with the allies (bot/team.py)
         self.ears = None           # reads the allies' chat, with an API key
@@ -1369,8 +1370,6 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         elif st.supply_seen and io.now() - st.supply_seen[1] <= 30:
             supply = st.supply_seen[0]  # unreadable this look: the last one
         capped = bool(supply) and supply[0] >= supply[1] - SUPPLY_SLACK
-        if capped:
-            need = min(need, MIN_HIT)
         # How many are there is judged at a glance, with no boxes drawn.
         ours = watch.units(picture)
         massed = men_at_mass(supply, rough, len(ours - mass_pixels))
@@ -1412,6 +1411,19 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
             io.shot("front")
         # A new hit needs new troops at the massing place to send. Troops
         # already forward are moved by advance_front, not by a new hit.
+        # At the supply limit the army cannot grow any more: whatever is
+        # there is the hit, so the least is enough. (This comes after the
+        # "last hit was lost: want more" rule, which must not undo it:
+        # in trial 19 it did, and the bot never hit again.)
+        if capped and need > MIN_HIT:
+            if not st.told_capped:
+                io.log(f"supply is full ({supply[0]}/{supply[1]}): the army "
+                       f"cannot grow, so {MIN_HIT} men are enough")
+            st.told_capped = True
+            need = MIN_HIT
+        elif not capped:
+            st.told_capped = False
+        st.need = need
         fresh = massed >= NEW_TROOPS
         ready = fresh and strength >= need
         if st.hit_wanted and fresh and strength >= MIN_HIT:

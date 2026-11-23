@@ -746,3 +746,29 @@ def test_troops_at_the_mass_meet_an_enemy_inside_russia(monkeypatch):
     assert any("inside Russia" in line for line in io.lines)
     # not again straight away
     assert trial.defend_home(io, watch, m, st, None, mass) == 0
+
+
+def test_at_full_supply_a_lost_hit_does_not_stop_the_next(monkeypatch):
+    """Trial 19: the first hit was lost, so the bot wanted 240 for the
+    next; supply was full at 235 with about 170 at the mass, and it
+    never hit again. At full supply the least hit must be enough."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    st = trial.State()
+    battle = trial.Battle("Berlin 1000", 0)
+    battle.samples = [(10, 200, 5, 30), (60, 20, 5, 30)]    # losing
+    st.battle = battle
+    monkeypatch.setattr(trial.Battle, "sample", lambda *a, **k: None)
+    monkeypatch.setattr(trial, "gather_idle",
+                        lambda io, w, md, s, tried: (0, io.shot("x"), set()))
+    monkeypatch.setattr(trial.numbers, "read_supply", lambda p: (235, 200))
+    monkeypatch.setattr(trial, "men_at_mass", lambda *a: 170)
+    monkeypatch.setattr(trial, "advance_front", lambda *a, **k: 0)
+    monkeypatch.setattr(trial, "fight", lambda *a, **k: 0)
+    monkeypatch.setattr(trial, "defend_home", lambda *a, **k: 0)
+    monkeypatch.setattr(trial, "choose_target", lambda *a, **k: "Berlin 1000")
+    assert battle.verdict()[0] == "losing"
+    strength, went = trial.build_big_mass(g, watch, m, st, 0.0, battle)
+    assert went and strength >= trial.MIN_HIT and st.need == trial.MIN_HIT
