@@ -81,7 +81,8 @@ BALKAN_AXIS = 60               # this many more Axis pixels there than at the st
 # is sent to its own, so the army arrives as a wall, not a line.
 FRONT = [(4, -5), (4, -1), (4, 3), (6, -3), (6, 1), (6, 5), (2, -3),
          (2, 1), (0, 5), (2, -7)]
-MASS = (160 * 32, 76 * 32)     # map pixels: where the army masses
+HOME_MASS = (160 * 32, 76 * 32)  # map pixels: where the army masses, west of Smolensk
+MASS = HOME_MASS               # where it masses now: the allies may move it
 MASS_RADIUS = 13               # minimap pixels around it that count as there
 MIDDLE_EAST = (219 * 32, 129 * 32)   # bring a unit here for the spawn
 # Buildings to fly to a city: (when, kind of building, its tile, the
@@ -1959,6 +1960,32 @@ def close_battle(st, mapdata):
         st.outcomes.append(f"hit at {b.target}: {kind} ({facts})")
 
 
+def move_mass(io, mapdata, st, order):
+    """An ally said "@R mass at <place>": move the massing place there,
+    if Russia's troops can walk there; otherwise say so."""
+    global MASS
+    from bot import places
+    asked = order.place.strip()
+    if asked.lower() in ("home", "smolensk", "smolensk 200", "back"):
+        MASS = HOME_MASS
+        say(io, st, "massing at Smolensk", force=True)
+        io.log(f"{order.colour} said {order.said!r}: massing at Smolensk again")
+        return
+    name = places.resolve(mapdata, asked)
+    if name is None:
+        say(io, st, "I can't find that place", force=True)
+        io.log(f"{order.colour} said {order.said!r}: no place called {asked!r}")
+        return
+    city = place(mapdata, name)
+    if not places.walkable(city["x"], city["y"]):
+        say(io, st, "I can't mass there", force=True)
+        io.log(f"{order.colour} said {order.said!r}: {name} cannot be walked to")
+        return
+    MASS = (city["x"], city["y"])
+    say(io, st, f"massing at {places.plain(name)}", force=True)
+    io.log(f"{order.colour} said {order.said!r}: massing at {name} from now on")
+
+
 class Listening:
     """The game's io, but every screenshot is also used to read the game
     clock and to listen to the allies' chat."""
@@ -2021,7 +2048,13 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
         say(raw, st, text, force=True)
         if st.ears:
             st.ears.context = text
-    st.team = team_rules.Team(announce, raw.log)
+    global MASS
+    MASS = HOME_MASS                    # every game starts at Smolensk
+    st.team = team_rules.Team(announce, raw.log,
+                              on_mass=lambda o: move_mass(raw, mapdata, st, o))
+    if ears is not None:
+        from bot import places
+        ears.places = places.names_for_chat(mapdata)
     io = Listening(raw, st)
     if ears is None:
         io.log("no API key: hits are announced, but the allies' answers "

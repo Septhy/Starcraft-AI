@@ -167,6 +167,8 @@ def selftest(path):
     trial.load_map()
     numbers._load()
     clock.templates()
+    from bot import places
+    places.reachable()
     open(path, "w").write("ok " + anthropic.__version__)
 
 

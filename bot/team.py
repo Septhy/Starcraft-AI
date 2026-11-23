@@ -14,7 +14,10 @@ The rules, from the repository owner:
 - The allies' orders override Russia's own plans. Once the hit is sent,
   Russia goes back to preparing its next hit as usual.
 - An ally talks to Russia by starting the message with "@R", "@Russ" or
-  "@Russia". Nothing else is taken as an order. "@R hit east" means hit
+  "@Russia". Nothing else is taken as an order.
+- "@R mass at Warsaw" moves Russia's massing place there, anywhere its
+  troops can walk to; where they cannot, Russia answers "I can't mass
+  there". "@R mass home" (or "at Smolensk") goes back. "@R hit east" means hit
   east right now; "@R hit east in 2" means in two minutes.
 
 Times are on the game clock at the bottom of the screen (eyes/clock),
@@ -110,8 +113,9 @@ class Team:
     answers "mass" (not yet), or "go" once the hit has been announced
     and its 30 seconds are up, typing the announcements on the way."""
 
-    def __init__(self, say, log):
+    def __init__(self, say, log, on_mass=None):
         self.say, self.log = say, log   # say(text) types to the allies
+        self.on_mass = on_mass          # on_mass(order): move the mass
         self.hold_until = None          # no hit before this clock time
         self.ally_go = None             # (front, clock time) the allies asked for
         self.announced = None           # (front, clock time it goes)
@@ -120,6 +124,10 @@ class Team:
     # --- what the allies said
     def heard(self, order, now):
         """Act on one order from an ally (an Order)."""
+        if order.kind == "mass":
+            if self.on_mass:
+                self.on_mass(order)
+            return
         if order.kind == "stop":
             until = parse_clock(order.until_clock)
             if until is None or until <= now:
@@ -214,6 +222,7 @@ class Order:
         self.front = data.get("front")
         self.wait_seconds = int(data.get("wait_seconds", -1))
         self.until_clock = str(data.get("until_clock", ""))[:8]
+        self.place = " ".join(str(data.get("place", "")).split())[:40]
         self.said = " ".join(str(data.get("said", "")).split())[:80]
 
     def key(self):
@@ -239,14 +248,15 @@ ORDER_SCHEMA = {
                            "players only.",
             "items": {"type": "object", "properties": {
                 "colour": {"type": "string", "enum": ALLY_COLOURS},
-                "kind": {"type": "string", "enum": ["stop", "go"]},
+                "kind": {"type": "string", "enum": ["stop", "go", "mass"]},
                 "front": {"type": "string",
                           "enum": ["east", "balks", "none"]},
                 "wait_seconds": {"type": "integer"},
                 "until_clock": {"type": "string"},
+                "place": {"type": "string"},
                 "said": {"type": "string"}},
                 "required": ["colour", "kind", "front", "wait_seconds",
-                             "until_clock", "said"],
+                             "until_clock", "place", "said"],
                 "additionalProperties": False}},
     },
     "required": ["lines", "orders"],
@@ -280,6 +290,10 @@ like.
 - go: the ally tells Russia to hit: "go east", "go balks", "go now", \
 "hit east", "attack balks", "push east", "go" and the like. With no time \
 given it means now.
+- mass: the ally tells Russia where to gather its army: "@R mass at \
+Warsaw", "@R mass in Odessa", "@R gather at Kiev". Put the place in \
+"place", as one of the place names listed below if it is one of them, \
+otherwise as written. "@R mass home" or "@R mass at Smolensk": "home".
 The front: "east" means the eastern front toward Germany (Berlin, \
 Warsaw, Konigsberg, Poland, "ger", "berlin", "north"). "balks" means the \
 Balkans (Romania, Belgrade, Hungary, "rom", "balkans", "south"). Use \
@@ -293,6 +307,7 @@ give no time. A bare number from 1 to 9 means minutes ("go east in 2" is \
 - until_clock: if they name a time on the game clock ("go at 12:00", \
 "wait till 10:30"), that time as m:ss; otherwise "". The current game \
 clock is given to you.
+- place: for a mass order, the place; otherwise "".
 - said: the ally's words, as written.
 
 If the same order appears on several lines, report it once. If there are \
@@ -334,6 +349,7 @@ class ChatEars:
         self._lock = threading.Lock()
         self._busy = False
         self.context = ""               # Russia's latest announcement
+        self.places = []                # the map's place names, for mass orders
 
     def dead(self):
         return self.spent >= self.spend_cap or self.failures >= 5
@@ -414,7 +430,7 @@ class ChatEars:
                              for line in data.get("lines", [])[:12]]
                     got = [Order(o) for o in data.get("orders", [])[:4]
                            if o.get("colour") in ALLY_COLOURS
-                           and o.get("kind") in ("stop", "go")
+                           and o.get("kind") in ("stop", "go", "mass")
                            and addressed(o.get("said", ""))]
                     with self._lock:
                         self._found += [(game_clock, o) for o in got]
@@ -436,7 +452,9 @@ class ChatEars:
             text += f" Russia's latest announcement: {self.context!r}."
         response = self.client.messages.create(
             model=self.model, max_tokens=800,
-            system=[{"type": "text", "text": CHAT_SYSTEM,
+            system=[{"type": "text", "text": CHAT_SYSTEM + (
+                "\n\nPlace names on this map: " + ", ".join(self.places)
+                if self.places else ""),
                      "cache_control": {"type": "ephemeral"}}],
             output_config={"format": {"type": "json_schema",
                                       "schema": ORDER_SCHEMA}},

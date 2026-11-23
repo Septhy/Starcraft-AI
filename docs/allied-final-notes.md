@@ -872,3 +872,22 @@ The repository owner's rules:
   Netherlands: Romania, Factory 7, Hungary, Munich, Frankfurt,
   Amsterdam, Paris, Madrid. New Balkan hits still start at Romania, so
   Paris is only reached from Berlin or from Amsterdam.
+
+## "@R mass at <place>"
+
+- User: allies may move Russia's massing place anywhere its troops can
+  walk; anywhere else Russia types "I can't mass there".
+- bot/places.py: plain city names from the map (the map's 222
+  locations less trigger areas: ~100 cities), other names (Belgrade ->
+  Serbia 100, Kiev -> Ukraine 200, Gibraltar -> Gilbritar 100, ...).
+  data/land.png: land/sea per drawn-minimap pixel, made from a start
+  picture (averaged over 7x7, sea bluer than red); flood fill from
+  Smolensk. Not walkable: Britain, Ireland, Shetland, Faeroe,
+  America/Halifax/Newfoundland, Corsica, Sardinia, Sicily, Crete.
+  Mountains and cliffs are not known: walkable means joined by land.
+- trial.MASS is now set by move_mass; replies "massing at Warsaw",
+  "I can't mass there", "I can't find that place"; "@R mass home" goes
+  back to Smolensk. Every game starts at Smolensk.
+- Not handled: what counts as "at home" and "forward" is measured
+  toward Berlin from the massing place, so a massing place west of
+  Berlin would confuse gathering and the front.
