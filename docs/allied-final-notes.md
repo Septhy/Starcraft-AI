@@ -917,3 +917,24 @@ The repository owner's rules:
   sweep, up to 4 passes, boxes learnt) instead of by the idle pickup,
   which left some behind (its "stuck" rule). Fake test: 170 packed at
   Smolensk, all ordered to Warsaw, none left.
+
+## The air fleet (user's rules)
+
+- Map names: Scout = "Light Fighter" (unit 70, Russia has 6), BC =
+  "Battle ship" (12, Russia has 3), "Heavy Defensive Artillery" = unit
+  25 (Edmund Duke, siege mode), Russia's 4 at map pixels (5684,2489)
+  Smolensk, (5231,1701), (6796,1665) Moscow, (7458,2443).
+- Fleet key: one Heavy Artillery + up to 11 Scouts; full -> next key
+  (keys 9, then 0), each with its own Heavy Artillery. Built at the
+  very start, before anything moves: click the artillery, Ctrl+key;
+  click each Scout, Shift+key (the user's way of adding). Clicks try a
+  few spots until the command card shows the unit picked.
+- Battlecruisers go with the ground army (ordered to the mass at the
+  start, swept into hits).
+- The fleet is ordered only as whole keys. First order at 40 s (the two
+  Middle East scouts are in it and must arrive first), to fleet_spot():
+  16 tiles east, 4 north of the mass, out of the mass sweeps and the
+  idle pickup. Recall and retreat send it there; hits and fight() as
+  before.
+- Not done: Scouts that arrive later are not added yet (needs the
+  selection panel's unit pictures from the user's screenshots).

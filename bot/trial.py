@@ -101,7 +101,20 @@ MARGIN = 100                   # screen pixels added round a group for the box
 GROUP = (8, 4)                 # a group is at most this many minimap pixels wide, tall
 CELLS = (8, 3)                 # the view is cut into this many boxes at the mass
 GROUND_KEYS = list("12345678")
-AIR_KEYS = list("90")
+AIR_KEYS = list("90")           # the fleet keys
+# The repository owner: Russia's air is kept apart from the spawns, on
+# its own number keys, as one fleet: up to eleven Scouts ("Light
+# Fighter" in the game) and one Heavy Artillery ("Heavy Defensive
+# Artillery", sieged in place) on a key; when a key is full, the next
+# key. New Scouts are added to the key (select them, then Shift + the
+# key). Never the Battlecruisers ("Battle ship"): they go with the
+# ground army.
+FLEET_SIZE = 11                # Scouts on one fleet key
+HEAVY_ARTILLERY = [(5684, 2489), (5231, 1701), (6796, 1665), (7458, 2443)]
+FLEET_PARK = (16 * 32, -4 * 32)  # map pixels from the mass: where the fleet waits,
+                                 # clear of the sweeps of the massing place
+FLEET_MOVE_AFTER = 40          # seconds: the fleet's first order (the Middle East
+                               # scouts in it must reach the Middle East first)
 FIRST_ORDERS_UNTIL = 45        # seconds: stop the first round of orders
 WAVE_EARLIEST = 45             # seconds: do not hit before this (qororo98
                                # and penny[eef] send theirs at 37 to 51)
@@ -167,6 +180,8 @@ class State:
         self.f7_told = None
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.hits_sent = 0
+        self.fleet = []            # the fleet keys: key, Scouts on it, its artillery
+        self.fleet_moved = False
         self.old_mass = None       # the massing place just left: its army moves
         self.strength_log = []     # (game clock, men for the next hit)
         self.box_px = None         # minimap pixels that make a box of twelve
@@ -399,20 +414,100 @@ def air_groups(mapdata):
     return groups
 
 
+def fleet_spot():
+    """Where the fleet waits: near the mass, but outside it, so the
+    boxes of the massing place do not pick the Scouts up."""
+    return (MASS[0] + FLEET_PARK[0], MASS[1] + FLEET_PARK[1])
+
+
+def click_unit(io, x, y, movable=True):
+    """Click the unit standing at a map point, trying a few spots round
+    it until the game shows it picked: the Move button for a unit that
+    can move, or any command buttons for the sieged Heavy Artillery.
+    False if nothing was picked."""
+    l, t, r, b = live.GAME_AREA
+    cam = look_at(io, x, y, wait=0.15)
+    px, py = live.on_screen(x, y, cam)
+    for dx, dy in TRIES:
+        sx, sy = px + dx, py + dy
+        if not (l + 5 < sx < r - 5 and t + 5 < sy < b - 5):
+            continue
+        io.click(sx, sy)
+        io.sleep(0.08)
+        card = io.card()
+        if live.units_selected(card) if movable else \
+                not live._first_button_is(card, "blank_card.png"):
+            return True
+    return False
+
+
+def add_to_fleet(io, st, x, y, kind="Scout"):
+    """Select the Scout at a map point and add it to the fleet key with
+    room (Shift + key); a full key starts the next, with its own Heavy
+    Artillery. False if every fleet key is full."""
+    if not st.fleet or st.fleet[-1]["scouts"] >= FLEET_SIZE:
+        if len(st.fleet) >= len(AIR_KEYS) or \
+                len(st.fleet) >= len(HEAVY_ARTILLERY):
+            return False
+        key = AIR_KEYS[len(st.fleet)]
+        ha = sorted(HEAVY_ARTILLERY, key=lambda p: (p[0] - MASS[0]) ** 2
+                    + (p[1] - MASS[1]) ** 2)[len(st.fleet)]
+        if not click_unit(io, *ha, movable=False):
+            io.log(f"fleet: the Heavy Artillery at {ha} was not found")
+            return False
+        io.combo("ctrl", key)            # the Heavy Artillery starts the key
+        io.sleep(0.04)
+        st.fleet.append({"key": key, "scouts": 0, "ha": ha})
+        st.air_keys.append(key)
+    entry = st.fleet[-1]
+    if not click_unit(io, x, y):
+        return False
+    io.combo("shift", entry["key"])      # added to the key
+    io.sleep(0.04)
+    entry["scouts"] += 1
+    return True
+
+
+def build_fleet(io, mapdata, st):
+    """At the start: every Scout on the fleet keys, with a Heavy
+    Artillery on each key. The Battlecruisers are not in it."""
+    scouts = [a for a in mapdata["slots"][SLOT]["air"] if a["type"] == "Scout"]
+    scouts.sort(key=lambda a: (a["x"] - MASS[0]) ** 2 + (a["y"] - MASS[1]) ** 2)
+    added = sum(add_to_fleet(io, st, a["x"], a["y"]) for a in scouts)
+    io.log(f"fleet: {added} Scouts and {len(st.fleet)} Heavy Artillery on "
+           f"key {' '.join(st.air_keys) or 'none'}")
+    return added
+
+
+def battleship_groups(mapdata):
+    """The Battlecruisers, in groups of those standing together. They go
+    with the ground army, not with the fleet."""
+    ships = [a for a in mapdata["slots"][SLOT]["air"]
+             if a["type"] == "Battlecruiser"]
+    groups = []
+    for a in ships:
+        for g in groups:
+            if abs(g[0]["x"] - a["x"]) < 12 * 32 and \
+                    abs(g[0]["y"] - a["y"]) < 8 * 32:
+                g.append(a)
+                break
+        else:
+            groups.append([a])
+    return groups
+
+
 def first_orders(io, watch, mapdata, st, t0):
-    """Order the starting army to the massing place: the air first, on
-    keys 9 and 0, then the ground groups, biggest first, on 1 to 8."""
+    """Order the starting army to the massing place: the Battlecruisers
+    with it, the ground groups biggest first, on 1 to 8. (The fleet was
+    put on its keys before; it is ordered once the Middle East scouts
+    have arrived.)"""
     orders = 0
-    air_px = set()
-    for group in air_groups(mapdata)[:len(AIR_KEYS)]:
+    air_px = set(live.to_drawn(a["x"], a["y"])
+                 for a in mapdata["slots"][SLOT]["air"])
+    for group in battleship_groups(mapdata):
         pixels = [live.to_drawn(a["x"], a["y"]) for a in group]
-        air_px.update(pixels)
         if select_group(io, pixels, st):
-            attack_move(io, *MASS)
-            key = AIR_KEYS[len(st.air_keys)]
-            io.combo("ctrl", key)
-            io.sleep(0.04)
-            st.air_keys.append(key)
+            attack_move(io, *MASS)       # with the ground army
             orders += 1
     pixels = watch.units(io.shot("before-orders"))
     pixels -= at_mass(pixels)
@@ -510,6 +605,12 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
         relocate_mass(io, watch, mapdata, st)
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
+        if not st.fleet_moved and now >= FLEET_MOVE_AFTER:
+            st.fleet_moved = True       # the Middle East scouts are there
+            for key in st.air_keys:
+                io.key(key)
+                io.sleep(0.04)
+                attack_move(io, *fleet_spot())
         if io.now() - last_train >= RETRAIN_EVERY:
             last_train = io.now()       # waiting on the allies: keep building
             train_everywhere(io, mapdata, st)
@@ -1417,6 +1518,7 @@ def gather_idle(io, watch, mapdata, st, tried):
     idle = still - at_mass(b) - scout_spot(io, st, b)
     idle -= in_battle(st, mapdata, idle)
     idle -= guarding(st, mapdata, idle, io.now())
+    idle -= near(idle, fleet_spot(), 6)  # the fleet waits there: not a body
     hostile = watch.others(b_picture, HOSTILE)
     mc, mr = live.to_drawn(*MASS)
     # A small body standing exactly where something of ours stood at the
@@ -1619,10 +1721,10 @@ def fight(io, watch, mapdata, st, picture):
                 io.click(*home, button="right")     # walk, do not fight back
                 io.sleep(0.04)
                 orders += 1
-        for key in st.air_keys:
+        for key in st.air_keys:         # the fleet, as one, to its spot
             io.key(key)
             io.sleep(0.05)
-            io.click(*home, button="right")
+            io.click(*live.minimap_point(*fleet_spot()), button="right")
             io.sleep(0.04)
         st.air_home = True
         io.log(f"hit at {battle.target} is being lost: {orders} groups of "
@@ -1655,10 +1757,14 @@ def recall(io, st, why):
     if io.now() - st.last_recall < RECALL_COOLDOWN:
         return False
     st.last_recall = io.now()
-    for key in st.ground_keys + st.air_keys:
+    for key in st.ground_keys:
         io.key(key)
         io.sleep(0.05)
         attack_move(io, *MASS)
+    for key in st.air_keys:             # the fleet, as one, to its spot
+        io.key(key)
+        io.sleep(0.05)
+        attack_move(io, *fleet_spot())
     io.log(f"army recalled to the massing place: {why}")
     return True
 
@@ -2211,6 +2317,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     result = {"trained": 0, "gathered": 0, "hits": []}
     try:
         consult(io, watch, mapdata, st)     # the general's say on the opening
+        build_fleet(io, mapdata, st)        # before anything moves
         send_scout(io, mapdata, st)
         result["trained"] = train_everywhere(io, mapdata, st,
                                              check_supply=False)

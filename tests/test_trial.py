@@ -119,6 +119,11 @@ class FakeGame:
             self.yamato = False
             return
         self.selected, self.lifted = None, False
+        hit = [u for u in self.alive()
+               if abs(self._screen(*self.where(u))[0] - x) < 20
+               and abs(self._screen(*self.where(u))[1] - y) < 20]
+        if hit:                                     # a unit clicked on
+            self.selected = hit[:1]
         for b in self.barracks:
             px, py = self._screen(b["x"], b["y"])
             if abs(x - px) < 130 and abs(y - py) < 95:
@@ -177,6 +182,11 @@ class FakeGame:
         self.time += 0.15
         if held == "ctrl" and name == "enter":
             self.chat_open = True
+            return
+        if held == "shift" and name.isdigit():      # add to a key
+            assert isinstance(self.selected, list)
+            self.groups[name] = self.groups.get(name, []) + [
+                u for u in self.selected if u not in self.groups.get(name, [])]
             return
         assert held == "ctrl" and isinstance(self.selected, list)
         self.groups[name] = list(self.selected)
@@ -737,7 +747,11 @@ def test_a_losing_hit_is_broken_off_and_the_air_goes_for_the_enemy(monkeypatch):
     io = StubIO()
     assert trial.fight(io, watch, m, st, None) >= 1
     assert st.battle.retreated and st.air_home
-    assert io.clicks and all(c == (*home, "right") for c in io.clicks)
+    # the ground walks to the mass, the fleet to its own spot by it
+    park = live.minimap_point(*trial.fleet_spot())
+    assert io.clicks and all(c in ((*home, "right"), (*park, "right"))
+                             for c in io.clicks)
+    assert (*park, "right") in io.clicks
     assert "a" not in io.keys                   # a walk, not an attack
     io = StubIO()
     assert trial.fight(io, watch, m, st, None) == 0 and not io.clicks
@@ -880,3 +894,28 @@ def test_a_balkans_hit_reaches_paris_only_through_the_netherlands():
     # Paris comes from Berlin or from Amsterdam, nowhere else
     assert sorted(k for k, v in trial.NEXT.items() if v == "Paris 500") \
         == ["Amsterdam 100", "Berlin 1000"]
+
+
+def test_the_fleet_is_scouts_and_one_heavy_artillery_on_its_own_key():
+    """Scouts and a Heavy Artillery, added with Shift + key; never the
+    Battlecruisers. A full key goes on to the next."""
+    m = trial.load_map()
+    g = FakeGame(m)
+    st = trial.State()
+    added = trial.build_fleet(g, m, st)
+    scouts = [a for a in m["slots"]["5"]["air"] if a["type"] == "Scout"]
+    assert added == len(scouts) == 6
+    assert st.air_keys == ["9"] and st.fleet[0]["scouts"] == 6
+    ha = st.fleet[0]["ha"]
+    assert ha in trial.HEAVY_ARTILLERY
+    group = g.groups["9"]
+    assert len(group) == 7                          # 6 Scouts + the artillery
+    ships = [(a["x"], a["y"]) for a in m["slots"]["5"]["air"]
+             if a["type"] == "Battlecruiser"]
+    assert not any(u["from"] in ships for u in group)
+    # a full key: the next Scouts go on the next key, with its artillery
+    st.fleet[0]["scouts"] = trial.FLEET_SIZE
+    s = scouts[0]
+    assert trial.add_to_fleet(g, st, s["x"], s["y"])
+    assert st.air_keys == ["9", "0"] and st.fleet[1]["scouts"] == 1
+    assert st.fleet[1]["ha"] != ha
