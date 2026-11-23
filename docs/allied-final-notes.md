@@ -657,3 +657,17 @@ real game.
   18 men/57 px, 23/81, 41/143 when spread out), capped at 4 men per
   mass pixel. At full supply with troops at the mass it is taken as a
   hit. No supply figure readable: mass pixels as before.
+
+## Battle behaviour added (user: "it must be capable of doing these")
+
+- fight(): a hit judged "losing" (under 30% of its peak forward) is
+  broken off once: survivors near the front and the air walk back to
+  the mass (right-click, not attack). Otherwise the air attack-moves to
+  the middle of the enemy colour within 10 minimap pixels of our front.
+- defend_home(): 10 more Axis pixels inside Russia (tiles x>=154,
+  y<=105) than at the start, in one body of 6+, sends the troops
+  standing at the mass and the air to meet it, at most every 20 s.
+- Ally requests and focus fire on a named target stay with the general
+  (Claude reads the chat and can give attack_point orders).
+- Not done: retreating single hurt units, rule-based focus fire. All of
+  this is untested against opponents that move.

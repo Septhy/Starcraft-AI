@@ -148,6 +148,9 @@ class State:
         self.rekey = 8             # ground keys already re-used this hit
         self.outcomes = []         # how each hit went, for the lessons
         self.last_advance = -1e9   # when idle forward troops were last sent on
+        self.home_axis0 = 0        # Axis pixels inside Russia at the start
+        self.last_defence = -1e9   # when troops were last sent at intruders
+        self.air_home = False      # the air has been pulled back to the mass
         self.looks_kept = 0
 
 
@@ -599,6 +602,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=2):
         attack_move(io, *front_point(mapdata, st, target))
         orders += 1
     st.hit_sent = io.now()
+    st.air_home = False
     per_box = st.selected / max(st.selections, 1)
     io.log(f"hit: {orders} groups sent at {target}; its boxes have held "
            f"{per_box:.1f} units each on average so far")
@@ -797,6 +801,7 @@ class Battle:
         self.looked = 0
         self.arrived = False
         self.taxed = False      # a building has been sent for its tax
+        self.retreated = False  # its survivors have been pulled back
 
     def sample(self, io, watch, mapdata, picture):
         w = place(mapdata, self.target)
@@ -922,6 +927,99 @@ def advance_front(io, watch, mapdata, st, still, picture):
             orders += 1
     if orders:
         io.log(f"  {orders} idle groups forward sent at {objective}")
+    return orders
+
+
+HOME = (154, 0, 256, 105)      # tiles: Russia itself, behind the massing place
+INTRUDERS = 10                 # more Axis pixels there than at the start: defend
+DEFEND_EVERY = 20              # seconds between sending troops at intruders
+AIR_REACH = 10                 # minimap pixels from the front the air looks for prey
+
+
+def axis_at_home(watch, picture):
+    """Axis units inside Russia, away from the border fighting."""
+    l, t, r, b = HOME
+    out = set()
+    for c, row in watch.others(picture, AXIS):
+        x, y = live.from_drawn(c, row)
+        if l <= x / 32 < r and t <= y / 32 < b:
+            out.add((c, row))
+    return out - at_mass(out)           # at the mass itself: the recall rule
+
+
+def middle(pixels):
+    """The map point at the middle of some minimap pixels."""
+    return live.from_drawn(sum(p[0] for p in pixels) / len(pixels),
+                           sum(p[1] for p in pixels) / len(pixels))
+
+
+def defend_home(io, watch, mapdata, st, picture, still):
+    """Respond to the enemy coming into Russia: the troops standing at
+    the massing place and the air go to meet him. Returns orders given."""
+    inside = axis_at_home(watch, picture)
+    if len(inside) - st.home_axis0 < INTRUDERS or \
+            io.now() - st.last_defence < DEFEND_EVERY:
+        return 0
+    body = live.clusters(inside, 8, 8)[0]
+    if len(body) < 6:
+        return 0                        # scattered dots, not an attack
+    st.last_defence = io.now()
+    x, y = middle(body)
+    orders = 0
+    for group in live.clusters(at_mass(still), *GROUP)[:6]:
+        if len(group) >= 4 and select_group(io, group, st, watch):
+            attack_move(io, x, y)
+            orders += 1
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.05)
+        attack_move(io, x, y)
+        orders += 1
+    io.log(f"Axis inside Russia near {place_name(mapdata, x, y)} "
+           f"({len(inside)} pixels): {orders} groups sent to meet it")
+    return orders
+
+
+def fight(io, watch, mapdata, st, picture):
+    """Look after a hit once it is in contact.
+
+    A hit that is being lost is broken off: what is left of it near the
+    front walks back to the massing place, and the air with it, to go
+    in again with the next hit. Otherwise the air is kept on the enemy
+    nearest our front, not on a fixed spot."""
+    battle = st.battle
+    if battle is None or not battle.front:
+        return 0
+    orders = 0
+    if battle.verdict()[0] == "losing" and not battle.retreated:
+        battle.retreated = True
+        left = near(forward_units(watch.units(picture), mapdata),
+                    battle.front, 16)
+        home = live.minimap_point(*MASS)
+        for group in live.clusters(left, 3, 3)[:8]:
+            if len(group) >= 3 and select_group(io, group, st, watch,
+                                                margin=45):
+                io.click(*home, button="right")     # walk, do not fight back
+                io.sleep(0.04)
+                orders += 1
+        for key in st.air_keys:
+            io.key(key)
+            io.sleep(0.05)
+            io.click(*home, button="right")
+            io.sleep(0.04)
+        st.air_home = True
+        io.log(f"hit at {battle.target} is being lost: {orders} groups of "
+               f"survivors and the air pulled back to the massing place")
+        return orders
+    if st.air_keys and not st.air_home and \
+            io.now() - st.air_moved >= AIR_FOLLOW_EVERY:
+        st.air_moved = io.now()
+        prey = near(watch.others(picture, HOSTILE), battle.front, AIR_REACH)
+        spot = middle(prey) if len(prey) >= 6 else battle.front
+        for key in st.air_keys:         # the air goes for the enemy at the front
+            io.key(key)
+            io.sleep(0.05)
+            attack_move(io, *spot)
     return orders
 
 
@@ -1178,13 +1276,8 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
                 battle.taxed = True     # the city is ours: fly a building in
                 io.log(f"{battle.target} reached: holding it")
                 flights_after(io, mapdata, st, battle.target)
-        if battle and battle.front and st.air_keys and \
-                io.now() - st.air_moved >= AIR_FOLLOW_EVERY:
-            st.air_moved = io.now()
-            for key in st.air_keys:     # the air stays over the front
-                io.key(key)
-                io.sleep(0.05)
-                attack_move(io, *battle.front)
+        fight(io, watch, mapdata, st, picture)
+        defend_home(io, watch, mapdata, st, picture, still)
         st.need = need
         if general:
             consult(io, watch, mapdata, st)
@@ -1242,6 +1335,7 @@ def run(io, mapdata=None, general=None, save_lessons=None):
     t0, st = io.now(), State()
     st.general, st.t0 = general, t0
     st.balkan_start = axis_in(watch, first, BALKANS)
+    st.home_axis0 = len(axis_at_home(watch, first))
     since = lambda: f"{io.now() - t0:.0f} s"
     result = {"trained": 0, "gathered": 0, "hits": []}
     try:

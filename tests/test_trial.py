@@ -657,3 +657,81 @@ def test_men_at_the_mass_are_judged_at_a_glance():
     # no supply figure to read: the pixels are all there is
     assert trial.men_at_mass(None, 90, 10) == 90
 
+
+
+class StubIO:
+    """Records what the bot presses; time stands still unless moved."""
+    def __init__(self):
+        self.t, self.keys, self.clicks, self.lines = 100.0, [], [], []
+    def now(self): return self.t
+    def sleep(self, s): pass
+    def key(self, name): self.keys.append(name)
+    def click(self, x, y, button="left"): self.clicks.append((x, y, button))
+    def log(self, text): self.lines.append(text)
+
+
+class StubWatch:
+    def __init__(self, ours, axis):
+        self.ours, self.axis = set(ours), set(axis)
+    def units(self, picture): return set(self.ours)
+    def others(self, picture, slots): return set(self.axis)
+    def forget(self, pixels): pass
+
+
+def blob(map_xy, n=5):
+    c, r = live.to_drawn(*map_xy)
+    c, r = int(c), int(r)
+    return {(c + i, r + j) for i in range(n) for j in range(n)}
+
+
+def test_a_losing_hit_is_broken_off_and_the_air_goes_for_the_enemy(monkeypatch):
+    m = trial.load_map()
+    w = trial.place(m, "Warsaw 200")
+    front = (w["x"], w["y"])
+    monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
+    home = live.minimap_point(*trial.MASS)
+
+    # winning or even: the air is sent at the enemy standing by the front
+    st, io = trial.State(), StubIO()
+    st.air_keys = ["9", "0"]
+    st.battle = trial.Battle("Berlin 1000", 0)
+    st.battle.front = front
+    st.battle.samples = [(10, 100, 8, 20), (40, 90, 8, 14)]
+    enemy = (front[0] - 5 * 32, front[1])
+    watch = StubWatch(blob(front), blob(enemy))
+    assert trial.fight(io, watch, m, st, None) == 0
+    assert io.keys == ["9", "a", "0", "a"]
+    ex, ey = live.minimap_point(*trial.middle(blob(enemy)))
+    assert all(abs(x - ex) <= 1 and abs(y - ey) <= 1 and b == "left"
+               for x, y, b in io.clicks), io.clicks
+    assert not st.battle.retreated
+
+    # losing (under a third of its peak left): everyone walks home, once
+    st.battle.samples.append((70, 20, 30, 14))
+    io = StubIO()
+    assert trial.fight(io, watch, m, st, None) >= 1
+    assert st.battle.retreated and st.air_home
+    assert io.clicks and all(c == (*home, "right") for c in io.clicks)
+    assert "a" not in io.keys                   # a walk, not an attack
+    io = StubIO()
+    assert trial.fight(io, watch, m, st, None) == 0 and not io.clicks
+
+
+def test_troops_at_the_mass_meet_an_enemy_inside_russia(monkeypatch):
+    m = trial.load_map()
+    monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
+    st, io = trial.State(), StubIO()
+    st.air_keys = ["9"]
+    mass = blob(trial.MASS, 6)
+    inside = (200 * 32, 60 * 32)                # deep in Russia
+    # a few dots, or the enemy in his own country: nothing
+    for axis in (blob(inside, 2), blob((100 * 32, 80 * 32), 6)):
+        assert trial.defend_home(io, StubWatch(mass, axis), m, st, None,
+                                 mass) == 0
+    watch = StubWatch(mass, blob(inside, 5))
+    assert trial.defend_home(io, watch, m, st, None, mass) >= 2
+    ix, iy = live.minimap_point(*trial.middle(blob(inside, 5)))
+    assert all(abs(x - ix) <= 1 and abs(y - iy) <= 1 for x, y, b in io.clicks)
+    assert any("inside Russia" in line for line in io.lines)
+    # not again straight away
+    assert trial.defend_home(io, watch, m, st, None, mass) == 0
