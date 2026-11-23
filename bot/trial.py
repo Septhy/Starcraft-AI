@@ -62,7 +62,12 @@ HOSTILE = AXIS + [6]
 NEXT = {"Romania 300": "Factory 7", "Factory 7": "Hungary 200",
         "Hungary 200": "Munich 200", "Munich 200": "Frankfurt 200",
         "Frankfurt 200": "Amsterdam 100", "Konigsberg 200": "Berlin 1000",
-        "Warsaw 200": "Berlin 1000", "Krakow 200": "Berlin 1000"}
+        "Warsaw 200": "Berlin 1000", "Krakow 200": "Berlin 1000",
+        # the repository owner: once Berlin is cleared, on to Paris and
+        # then Madrid
+        "Berlin 1000": "Paris 500", "Paris 500": "Madrid 1000"}
+CLEARED = 8                    # fewer enemy minimap pixels than this at a
+                               # target: it is cleared, and the troops go on
 ADVANCE_EVERY = 5              # seconds between checks for idle troops forward
 IDLE_FORWARD = 20              # minimap pixels at a target that mean it is taken
 MIN_FORWARD = 6                # idle troops of the hit this big are sent on
@@ -526,7 +531,7 @@ def target_for_front(st, mapdata, front, battle=None):
         cities = [place(mapdata, n) for n in EAST_FRONT]
         return min(cities, key=lambda c: (c["x"] - fx) ** 2
                    + (c["y"] - fy) ** 2)["name"]
-    return "Berlin 1000"
+    return east_next(st)
 
 
 def team_gate(io, watch, mapdata, st, ready, target):
@@ -1168,6 +1173,15 @@ def planned_front(seconds_in):
     return "south" if turn % 2 == 0 else "north"
 
 
+def east_next(st):
+    """Where a new hit to the east goes: Berlin, and once Berlin has been
+    taken, on to Paris, then Madrid."""
+    name = "Berlin 1000"
+    while name in st.reached and name in NEXT:
+        name = NEXT[name]
+    return name
+
+
 def south_next(st):
     """Where a new hit to the Balkans is sent: always Romania, the way
     in. From Smolensk a straight march to Belgrade, Hungary or beyond
@@ -1217,8 +1231,9 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
         target = south
         why = "go south"
     else:
-        target = "Berlin 1000"
-        why = "Berlin again"
+        target = east_next(st)
+        why = "Berlin again" if target == "Berlin 1000" else \
+            "Berlin is taken: on to the west"
     io.log(f"next target {target} (Axis in the Balkans: {seen} pixels, "
            f"{st.balkan_start} at the start: {why})")
     return target
@@ -1278,6 +1293,7 @@ class Battle:
         self.arrived = False
         self.taxed = False      # a building has been sent for its tax
         self.retreated = False  # its survivors have been pulled back
+        self.clearing = False   # reached, but enemies are still there
 
     def sample(self, io, watch, mapdata, picture):
         w = place(mapdata, self.target)
@@ -1326,6 +1342,20 @@ GATHER_PER_PASS = 8            # bodies ordered to the mass in one pass at most
 STUCK_AFTER = 3                # orders to one body that never moves, then leave it
 
 
+def taken_on_the_way(st, target):
+    """Cities already taken on the road that leads to `target`: troops
+    left standing there follow the push on, rather than walk home."""
+    out = []
+    for name in st.reached:
+        at, steps = name, 0
+        while at in NEXT and steps < 10:
+            at, steps = NEXT[at], steps + 1
+            if at == target:
+                out.append(name)
+                break
+    return out
+
+
 def in_battle(st, mapdata, pixels):
     """Our pixels that belong to the hit being fought: around its target
     or its front. advance_front moves those, not the gathering."""
@@ -1337,6 +1367,9 @@ def in_battle(st, mapdata, pixels):
     out = near(pixels, (w["x"], w["y"]), 26)
     if battle.front:
         out |= near(pixels, battle.front, 14)
+    for name in taken_on_the_way(st, battle.target):
+        c = place(mapdata, name)
+        out |= near(pixels, (c["x"], c["y"]), 12)
     return out
 
 
@@ -1430,6 +1463,9 @@ def advance_front(io, watch, mapdata, st, still, picture):
     mine = near(idle, (w["x"], w["y"]), 26)
     if battle.front:
         mine |= near(idle, battle.front, 14)
+    for name in taken_on_the_way(st, battle.target):
+        c = place(mapdata, name)         # left behind at a city taken earlier
+        mine |= near(idle, (c["x"], c["y"]), 12)
     idle = mine
     # Troops standing forward count toward the next hit, unless they are
     # already holding the end of their road: those have arrived.
@@ -1447,7 +1483,15 @@ def advance_front(io, watch, mapdata, st, still, picture):
                    for j in range(-reach, reach + 1)) >= 6
     at_target = near(idle, (w["x"], w["y"]), 9)
     objective = battle.target
-    if battle.arrived or len(at_target) >= IDLE_FORWARD:
+    enemy_left = len(near(hostile, (w["x"], w["y"]), 8))
+    if enemy_left >= CLEARED and (battle.arrived
+                                  or len(at_target) >= IDLE_FORWARD):
+        # there, but not cleared: the troops there finish the job first
+        if not battle.clearing:
+            battle.clearing = True
+            io.log(f"{battle.target} reached but not cleared "
+                   f"({enemy_left} pixels of enemy): clearing it first")
+    elif battle.arrived or len(at_target) >= IDLE_FORWARD:
         st.reached.add(battle.target)
         objective = NEXT.get(battle.target)
         if objective is None:

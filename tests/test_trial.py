@@ -348,8 +348,13 @@ def test_opening_masses_fast_and_hits_berlin():
         spawned = [u for u in alive if u.get("spawn")]
         assert sum(near(u["to"], trial.MASS, 14) or u in sent
                    for u in spawned) >= 20, error
-        at_berlin = [u for u in sent if near(u["to"], (w["x"], w["y"]), 20)]
-        assert len(at_berlin) >= 80                 # the first hit: Berlin
+        # the first hit: Berlin (and, Berlin being undefended here, on
+        # down the road to Paris and Madrid)
+        beyond = [trial.place(m, n) for n in ("Berlin 1000", "Paris 500",
+                                              "Madrid 1000")]
+        at_berlin = [u for u in sent if any(
+            near(u["to"], (p["x"], p["y"]), 20) for p in beyond)]
+        assert len(at_berlin) >= 80
         assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 4   # a wall
         # a spare building (never a barracks) was flown to Warsaw after
         # the first hit
@@ -616,6 +621,7 @@ def test_the_road_south_leads_to_belgrade_and_on_to_the_netherlands():
         road.append(at)
         trial.place(m, at)                          # every stop is on the map
     assert road[0] == "Factory 7" and road[-1] == "Amsterdam 100"
+    assert trial.NEXT["Warsaw 200"] == "Berlin 1000"
 
 
 def test_no_hit_below_the_minimum_even_if_the_general_asks():
@@ -802,3 +808,53 @@ def test_a_hit_leaves_nobody_at_the_massing_place():
     trial.hit(g, watch, m, st, "Berlin 1000", use_keys=False)
     left = [u for u in g.units[:170] if near(u["to"], trial.MASS, 14)]
     assert len(left) <= 0.1 * 170, len(left)
+
+
+def test_after_berlin_is_cleared_the_army_goes_on_to_paris_then_madrid(monkeypatch):
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    berlin, paris = trial.place(m, "Berlin 1000"), trial.place(m, "Paris 500")
+    assert trial.NEXT["Berlin 1000"] == "Paris 500"
+    assert trial.NEXT["Paris 500"] == "Madrid 1000"
+    # a whole hit standing at Berlin, nothing of the enemy left: on to Paris
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    there = g.units[:170]
+    stand_at(there, berlin)
+    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+    monkeypatch.setattr(watch, "others", lambda pic, slots: set())
+    st = trial.State()
+    st.battle = trial.Battle("Berlin 1000", 0)
+    assert looks(g, watch, m, st, 15) >= 4
+    assert "Berlin 1000" in st.reached and "Paris 500" in st.sent_at
+    madrid = trial.place(m, "Madrid 1000")
+    # nothing defends Paris here either, so they go on to Madrid too
+    moved = sum(near(u["to"], (paris["x"], paris["y"]), 12)
+                or near(u["to"], (madrid["x"], madrid["y"]), 16) for u in there)
+    assert moved >= 100, moved
+    # new hits to the east go to Berlin, once it is taken to Paris, and
+    # after Paris to Madrid
+    st2 = trial.State()
+    assert trial.east_next(st2) == "Berlin 1000"
+    st2.reached.add("Berlin 1000")
+    assert trial.east_next(st2) == "Paris 500"
+    st2.reached.add("Paris 500")
+    assert trial.east_next(st2) == "Madrid 1000"
+
+
+def test_berlin_reached_but_not_cleared_is_cleared_first(monkeypatch):
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    berlin = trial.place(m, "Berlin 1000")
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    stand_at(g.units[:170], berlin)
+    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+    c, r = live.to_drawn(berlin["x"], berlin["y"])
+    enemy = {(int(c) + i, int(r) + j) for i in range(-3, 4) for j in range(-3, 4)}
+    monkeypatch.setattr(watch, "others", lambda pic, slots: set(enemy))
+    st = trial.State()
+    st.battle = trial.Battle("Berlin 1000", 0)
+    looks(g, watch, m, st, 4)
+    assert st.battle.target == "Berlin 1000" and st.battle.clearing
+    assert "Paris 500" not in st.sent_at

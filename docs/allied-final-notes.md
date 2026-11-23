@@ -853,3 +853,16 @@ The repository owner's rules:
 - Who can override: any of the three allies; the latest order wins
   (a stop cancels a pending go, a go cancels a wait). Enemy colours
   never count. The Claude adviser cannot hit through an ally's wait.
+
+## After Berlin: Paris, then Madrid
+
+- User: once a hit has cleared Berlin, the army goes on to Paris and
+  then Madrid. NEXT: Berlin 1000 -> Paris 500 -> Madrid 1000.
+- "Cleared": troops are at Berlin and fewer than 8 enemy minimap pixels
+  are within 8 of it. Reached but not cleared: the troops there keep
+  attacking Berlin first (logged once). Same rule on the Balkan road.
+- Moving on still needs a hit-sized body; a handful holds the city.
+- Troops left at a city taken earlier on the road (Berlin when the push
+  is at Paris) follow the push instead of being fetched home.
+- New hits east go to Berlin, or to Paris once Berlin is taken, then
+  Madrid (east_next). They are announced as "gone east".
