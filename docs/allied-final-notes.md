@@ -645,3 +645,9 @@ real game.
   Now a hit is not called back for 45 s after it is sent.
 - Germany's ground did not shrink in nine minutes: hits reach the
   border and Poland, not Berlin.
+- Trial 15, user's view: "it keeps making selection boxes and does
+  nothing with them". Those are the counts: 625 boxes in the run, only
+  296 followed by an order; one count took 77 boxes. A full box is now
+  sampled (two quarters, then one quarter of a full quarter: at most 5
+  boxes a patch, was up to 21), and counts come every 30 s (15 s at
+  the supply limit). The Axis slots were computers.

@@ -111,8 +111,8 @@ COUNT_WHEN = 0.6               # count once the minimap suggests this share of t
 RECOUNT_GROWTH = 1.15          # and again when the minimap figure has grown this much
 NEW_TROOPS = 40                # a new hit needs at least this many at the mass
 COUNT_LEAST = 20               # minimap pixels at the mass worth a count
-RECOUNT_EVERY = 20             # seconds: count again at least this often
-RECOUNT_CAPPED = 10            # and this often at the supply limit
+RECOUNT_EVERY = 30             # seconds: count again at least this often
+RECOUNT_CAPPED = 15            # and this often at the supply limit
 SUPPLY_SLACK = 4               # this close to the limit counts as at it
 RETRY_IDLE = 30                # seconds before the same idle group is tried again
 BIG_MASS = WANT_HIT
@@ -234,10 +234,12 @@ UNIT_ON_SCREEN = 30            # screen pixels: about the width of a man
 
 
 def count_box(io, box, depth=0):
-    """How many units stand in a box on the game screen: box them and
-    read how many the game says are selected. The game selects at most
-    twelve, so a box that comes back full is cut in four and each part
-    counted."""
+    """About how many units stand in a box on the game screen: box them
+    and read how many the game says are selected. The game selects at
+    most twelve, so a box that comes back full is sampled: two of its
+    quarters are boxed (then one quarter of a full quarter) and the
+    figure scaled up. That keeps the count to a few boxes a patch
+    instead of a screenful of boxes that give no orders."""
     io.drag(*box)
     io.sleep(0.05)
     n = live.selected_count(io.shot("count", keep=False))
@@ -249,9 +251,10 @@ def count_box(io, box, depth=0):
         w, h = r - l + 1, b - t + 1
         return n * (w * h) / ((w + UNIT_ON_SCREEN) * (h + UNIT_ON_SCREEN))
     mx, my = (l + r) // 2, (t + b) // 2
-    return sum(count_box(io, q, depth + 1) for q in
-               [(l, t, mx - 1, my - 1), (mx, t, r, my - 1),
-                (l, my, mx - 1, b), (mx, my, r, b)])
+    quarters = [(l, t, mx - 1, my - 1), (mx, my, r, b),
+                (mx, t, r, my - 1), (l, my, mx - 1, b)]
+    sample = quarters[:2] if depth == 0 else quarters[:1]
+    return 4 / len(sample) * sum(count_box(io, q, depth + 1) for q in sample)
 
 
 def count_men(io, pixels, enough=None):
