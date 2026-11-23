@@ -305,8 +305,9 @@ def test_opening_masses_fast_and_hits_berlin():
                                 for u in io.alive())
                 seen["t"] = io.time
             out = real_hit(io, *a, **k)
-            if not hasattr(io, "time_first_hit_done"):
-                io.time_first_hit_done = io.time
+            game = getattr(io, "io", io)            # under the listening wrapper
+            if not hasattr(game, "time_first_hit_done"):
+                game.time_first_hit_done = game.time
             return out
         trial.hit = hit
         try:
@@ -626,10 +627,10 @@ def test_no_hit_below_the_minimum_even_if_the_general_asks():
     old_limit = trial.TRIAL_SECONDS
     trial.TRIAL_SECONDS = 20
     try:
-        strength = trial.build_big_mass(g, watch, m, st, 0.0)
+        strength, went = trial.build_big_mass(g, watch, m, st, 0.0)
     finally:
         trial.gather_idle, trial.TRIAL_SECONDS = real, old_limit
-    assert strength < trial.MIN_HIT                 # too few
+    assert strength < trial.MIN_HIT and not went    # too few
     assert not st.hit_wanted                        # the request was dropped
 
 

@@ -121,11 +121,14 @@ def main():
                 io = WinIO(out, sct, status=lambda s: status.set(s[:200]))
                 time.sleep(0.6)          # let go of F9 first
                 try:
+                    key = secret.load()
                     advisor = general_module.make(
-                        secret.load(), lessons=memory.load(),
+                        key, lessons=memory.load(),
                         model=memory.load_model(general_module.MODEL))
+                    from bot import team
                     result = trial.run(io, general=advisor,
-                                       save_lessons=memory.save)
+                                       save_lessons=memory.save,
+                                       ears=team.make_ears(key))
                     io.log(f"finished: {result}")
                 except trial.Stopped as e:
                     io.log(f"stopped: {e}")
@@ -157,11 +160,13 @@ def selftest(path):
     """Used by the build to check that everything needed is packed in."""
     import anthropic
 
-    from bot import general, trial
-    from eyes import numbers
+    from bot import general, team, trial
+    from eyes import clock, numbers
     general.General(anthropic.Anthropic(api_key="not-a-real-key"))
+    team.ChatEars(anthropic.Anthropic(api_key="not-a-real-key"))
     trial.load_map()
     numbers._load()
+    clock.templates()
     open(path, "w").write("ok " + anthropic.__version__)
 
 

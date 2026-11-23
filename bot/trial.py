@@ -39,6 +39,7 @@ API key, Claude is shown the fight every few seconds and advises
 import json
 
 from eyes import live, numbers
+from bot import team as team_rules
 
 SLOT = "5"                     # Russia
 # The first hit goes to Berlin. Later hits go to Berlin again, or south
@@ -98,6 +99,7 @@ FIRST_ORDERS_UNTIL = 45        # seconds: stop the first round of orders
 WAVE_EARLIEST = 45             # seconds: do not hit before this (qororo98
                                # and penny[eef] send theirs at 37 to 51)
 WAVE_LATEST = 100              # seconds: hit by now whatever happens
+OPENING_ANNOUNCE = 30          # seconds: the first hit is announced (it goes 30 s later)
 TRIAL_SECONDS = 7200           # play for up to two hours
 GAME_OVER_LOOKS = 8            # looks in a row with no minimap: the game has ended
 # How big a hit has to be, in men. The repository owner: at least 140,
@@ -149,6 +151,13 @@ class State:
         self.rekey = 8             # ground keys already re-used this hit
         self.outcomes = []         # how each hit went, for the lessons
         self.last_advance = -1e9   # when idle forward troops were last sent on
+        self.last_heard = -1e9
+        self.go_pending = False    # the team plan said go: the hit leaves now
+        self.team = None           # the plan agreed with the allies (bot/team.py)
+        self.ears = None           # reads the allies' chat, with an API key
+        self.clock = None          # the game clock at the bottom of the screen
+        self.planned_target = None # where the hit being announced goes
+        self.chosen_target = None  # where the hit that has gone goes
         self.blind, self.over = 0, False   # looks without a minimap; game ended
         self.reached = set()       # targets our troops have stood on
         self.supply_seen = None    # (supply, when) last read off the screen
@@ -394,6 +403,10 @@ def first_orders(io, watch, mapdata, st, t0):
             continue                    # a stray dot: not worth a trip
         if orders % 6 == 5:
             consult(io, watch, mapdata, st)
+        if io.now() - t0 >= OPENING_ANNOUNCE:
+            # the first hit is announced on time; it goes 30 s later
+            team_gate(io, watch, mapdata, st, True,
+                      st.opening_target or TARGETS[0])
         if not select_group(io, group, st, watch):
             continue
         attack_move(io, *MASS)
@@ -442,8 +455,11 @@ def at_home(pixels, mapdata):
 
 def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
     """Watch the mass grow; meanwhile pick up groups standing still away
-    from it. Returns when it is time to hit."""
+    from it. Once it is time to hit, the hit is announced to the allies
+    and goes 30 seconds later, unless they say to wait (then the army
+    keeps gathering and training) or send it elsewhere."""
     tried, history, collected = set(), [], False
+    ready, why, last_train = False, "", io.now()
     while True:
         a = watch.units(io.shot("watch", keep=False))
         io.sleep(1.0)
@@ -451,19 +467,28 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
         now = io.now() - t0
         massed = len(at_mass(b))
         history.append((now, massed))
-        if now >= latest:
-            why = "time is up"
-            break
         old = [m for (t, m) in history if t <= now - 6]
-        if now >= earliest and old and massed <= old[-1] * 1.04:
-            why = "the mass stopped growing"
-            break
+        if not ready:
+            if now >= OPENING_ANNOUNCE:
+                # announced now, it goes in 30 seconds: by then the
+                # starting army has had a minute to gather
+                ready, why = True, "announced at the usual time"
+            elif now >= latest:
+                ready, why = True, "time is up"
+            elif now >= earliest and old and massed <= old[-1] * 1.04:
+                ready, why = True, "the mass stopped growing"
         consult(io, watch, mapdata, st)
-        if st.hit_wanted and now >= 40 and massed >= MIN_HIT:
-            why = "the general says hit now"
+        if not ready and st.hit_wanted and now >= 40 and massed >= MIN_HIT:
+            ready, why = True, "the general says hit now"
+        target = st.opening_target or TARGETS[0]
+        if st.go_pending or \
+                team_gate(io, watch, mapdata, st, ready, target) == "go":
             break
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
+        if io.now() - last_train >= RETRAIN_EVERY:
+            last_train = io.now()       # waiting on the allies: keep building
+            train_everywhere(io, mapdata, st)
         idle = at_home((a & b) - at_mass(b) - near(b, MIDDLE_EAST, 6), mapdata)
         for group in live.clusters(idle, *GROUP)[:2]:
             key = min(group)
@@ -473,8 +498,44 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
                     attack_move(io, *MASS)
     io.shot("mass")
     io.log(f"mass at {now:.0f} s: {massed} minimap pixels of units there "
-           f"({why})")
+           f"({why or 'the allies asked'})")
     return massed
+
+
+def target_for_front(st, mapdata, front, battle=None):
+    """The target on the front the allies named: the Balkans road from
+    where Russia has got to, or toward Berlin in the east."""
+    if front == "balks":
+        return south_next(st)
+    if battle and battle.front and \
+            battle.verdict()[0] in ("stalled", "losing"):
+        fx, fy = battle.front
+        cities = [place(mapdata, n) for n in EAST_FRONT]
+        return min(cities, key=lambda c: (c["x"] - fx) ** 2
+                   + (c["y"] - fy) ** 2)["name"]
+    return "Berlin 1000"
+
+
+def team_gate(io, watch, mapdata, st, ready, target):
+    """Ask the team plan whether the hit goes now. `ready`: Russia's own
+    rules say so, toward `target`. On "go", st.chosen_target is where
+    it goes: the allies' front if they named one."""
+    if st.team is None:
+        return "go" if ready else "mass"
+    if ready and st.planned_target is None:
+        st.planned_target = target
+    planned = st.planned_target or target
+    asked = st.team.ally_front()
+    answer = st.team.gate(st.clock.time(), ready,
+                          team_rules.front_of(planned))
+    if answer == "go":
+        front = st.team.front
+        if front != team_rules.front_of(planned) or asked:
+            planned = target_for_front(st, mapdata, front, st.battle)
+            io.log(f"the hit goes {front}, as the allies asked: {planned}")
+        st.chosen_target, st.planned_target = planned, None
+        st.go_pending = True            # in case the caller cannot go at once
+    return answer
 
 
 def back_to_front(items, target_xy, where):
@@ -611,6 +672,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=2):
         attack_move(io, *front_point(mapdata, st, target))
         orders += 1
     st.hit_sent = io.now()
+    st.go_pending = False
     st.air_home = False
     per_box = st.selected / max(st.selections, 1)
     io.log(f"hit: {orders} groups sent at {target}; its boxes have held "
@@ -719,6 +781,16 @@ def planned_front(seconds_in):
     return "south" if turn % 2 == 0 else "north"
 
 
+def south_next(st):
+    """Going south means carrying on from the farthest point reached on
+    the southern road, not starting it again."""
+    south, at = "Romania 300", "Romania 300"
+    while at in NEXT and (at in st.sent_at or at in st.reached):
+        at = NEXT[at]
+        south = at
+    return south
+
+
 def choose_target(io, watch, st, mapdata=None, battle=None):
     """Where the next hit should go.
 
@@ -736,12 +808,7 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
                + ("" if name == st.advised[0] else
                   f" was {st.advised[0]}, which is already taken") + ")")
         return name
-    # going south means carrying on from the farthest point reached on
-    # the southern road, not starting it again
-    south, at = "Romania 300", "Romania 300"
-    while at in NEXT and (at in st.sent_at or at in st.reached):
-        at = NEXT[at]
-        south = at
+    south = south_next(st)
     if planned_front(io.now() - st.t0) == "south":
         io.log(f"next target {south} (the plan: south at this point in the "
                f"game, as qororo98 and penny[eef] do)")
@@ -1177,10 +1244,11 @@ def carry_out(io, mapdata, st, order, camera):
     return True
 
 
-def say(io, st, text):
-    """Type a line to the allies, not too often."""
+def say(io, st, text, force=False):
+    """Type a line to the allies, not too often (announcements of hits
+    always go)."""
     text = "".join(c for c in text if " " <= c <= "~")[:60].strip()
-    if not text or io.now() - st.last_chat < CHAT_EVERY:
+    if not text or (not force and io.now() - st.last_chat < CHAT_EVERY):
         return False
     st.last_chat = io.now()
     io.combo("ctrl", "enter")           # Ctrl+Enter: allies only (Shift+Enter is everyone)
@@ -1252,6 +1320,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     All the while it reacts: the rules to an enemy at the mass, the
     general to what it is shown."""
     began = last_train = io.now()
+    went = False
     train_everywhere(io, mapdata, st)
     collected, tried, gathered = False, {}, 0
     need, readings, strength = WANT_HIT, [], 0
@@ -1324,11 +1393,21 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         # A new hit needs new troops at the massing place to send. Troops
         # already forward are moved by advance_front, not by a new hit.
         fresh = massed >= NEW_TROOPS
+        ready = fresh and strength >= need
         if st.hit_wanted and fresh and strength >= MIN_HIT:
-            io.log("the general says hit now")
-            break
-        st.hit_wanted = False           # not enough for a hit: asked again later
-        if fresh and strength >= need:
+            if not ready:
+                io.log("the general says hit now")
+            ready = True
+        else:
+            st.hit_wanted = False       # not enough for a hit: asked again later
+        # Russia's own plan for where it goes, fixed when it is first ready
+        target = st.planned_target
+        if ready and target is None:
+            target = choose_target(io, watch, st, mapdata, battle)
+        # the allies have the last word on when, and where
+        if team_gate(io, watch, mapdata, st, ready,
+                     target or TARGETS[0]) == "go":
+            went = True
             break
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
@@ -1345,7 +1424,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
            f"{strength - massed} forward in reserve) after "
            f"{io.now() - began:.0f} s; {gathered} idle groups brought in; "
            f"wanted {need}")
-    return strength
+    return strength, went
 
 
 def close_battle(st, mapdata):
@@ -1356,9 +1435,50 @@ def close_battle(st, mapdata):
         st.outcomes.append(f"hit at {b.target}: {kind} ({facts})")
 
 
-def run(io, mapdata=None, general=None, save_lessons=None):
+class Listening:
+    """The game's io, but every screenshot is also used to read the game
+    clock and to listen to the allies' chat."""
+
+    def __init__(self, io, st):
+        self.io, self.st = io, st
+
+    def __getattr__(self, name):
+        return getattr(self.io, name)
+
+    def shot(self, label, keep=True):
+        picture = self.io.shot(label, keep)
+        hear(self.io, self.st, picture)
+        return picture
+
+
+HEAR_EVERY = 0.5               # seconds between readings of the clock and chat
+
+
+def hear(io, st, picture):
+    """Read the game clock, and act on what the allies have said."""
+    if st.clock is None or io.now() - st.last_heard < HEAR_EVERY:
+        return
+    st.last_heard = io.now()
+    now = st.clock.update(picture)
+    ears = st.ears
+    if ears is None:
+        return
+    if ears.dead():
+        io.log(f"the chat reader is out: {ears.summary()}")
+        st.ears = None
+        return
+    ears.listen(picture, now)
+    for when, colour, text in ears.lines(now):
+        io.log(f"chat [{colour}] {text}")
+    for order in ears.orders(now):
+        st.team.heard(order, now)
+
+
+def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     """Returns a short result for the log. `save_lessons` is called with
-    the general's lessons for the next game, if it wrote any."""
+    the general's lessons for the next game, if it wrote any. `ears`
+    reads the allies' chat (bot/team.py); without it Russia still
+    announces its hits but cannot hear the answers."""
     mapdata = mapdata or load_map()
     side = mapdata["slots"][SLOT]
     first = io.shot("start")
@@ -1368,6 +1488,20 @@ def run(io, mapdata=None, general=None, save_lessons=None):
         return {"trained": 0, "gathered": 0, "hits": []}
     t0, st = io.now(), State()
     st.general, st.t0 = general, t0
+    raw = io
+    st.clock = team_rules.GameClock(raw.now)
+    st.clock.update(first)
+    st.ears = ears
+
+    def announce(text):
+        say(raw, st, text, force=True)
+        if st.ears:
+            st.ears.context = text
+    st.team = team_rules.Team(announce, raw.log)
+    io = Listening(raw, st)
+    if ears is None:
+        io.log("no API key: hits are announced, but the allies' answers "
+               "cannot be read")
     st.balkan_start = axis_in(watch, first, BALKANS)
     st.home_axis0 = len(axis_at_home(watch, first))
     since = lambda: f"{io.now() - t0:.0f} s"
@@ -1382,8 +1516,8 @@ def run(io, mapdata=None, general=None, save_lessons=None):
         io.log(f"  ({since()} since start)")
         wait_for_mass(io, watch, mapdata, st, t0, WAVE_EARLIEST, WAVE_LATEST)
         result["hit_at"] = round(io.now() - t0)
-        target = st.opening_target or TARGETS[0]
-        if st.opening_target:
+        target = st.chosen_target or st.opening_target or TARGETS[0]
+        if st.opening_target and not st.chosen_target:
             io.log(f"first target {target} (the general's choice)")
         hits = result["hits"]
         st.hit_wanted = False
@@ -1395,15 +1529,14 @@ def run(io, mapdata=None, general=None, save_lessons=None):
         flights_after(io, mapdata, st, 1)
         st.battle = Battle(target, io.now())
         while io.now() - t0 < TRIAL_SECONDS:
-            massed = build_big_mass(io, watch, mapdata, st, t0, st.battle,
-                                    general)
-            if st.over:
+            massed, went = build_big_mass(io, watch, mapdata, st, t0,
+                                          st.battle, general)
+            if st.over or not went:
+                if not went and not st.over:
+                    io.log(f"about {massed} men, not sent: time is up")
                 break
-            if massed < MIN_HIT:
-                io.log(f"about {massed} men is too few for a hit "
-                       f"(the least is {MIN_HIT}): kept in reserve")
-                break
-            target = choose_target(io, watch, st, mapdata, st.battle)
+            target = st.chosen_target or choose_target(io, watch, st,
+                                                       mapdata, st.battle)
             close_battle(st, mapdata)
             st.hit_wanted = False
             hits.append(hit(io, watch, mapdata, st, target, use_keys=False))
@@ -1428,6 +1561,8 @@ def run(io, mapdata=None, general=None, save_lessons=None):
                 save_lessons(lessons)
                 io.log("general's lessons for next game saved")
             io.log(general.summary())
+        if st.ears:
+            io.log(st.ears.summary())
     result.update({"targets": st.sent_at,
                    "units_per_box": round(st.selected / max(st.selections, 1), 1),
                    "keys": "".join(st.ground_keys + st.air_keys),

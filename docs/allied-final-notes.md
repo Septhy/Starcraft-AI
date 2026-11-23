@@ -708,3 +708,30 @@ real game.
   Tests keep 480 s (tests/conftest.py).
 - The general's $5 cap: Haiku is about $0.20/hour; a dearer model may
   hit the cap in a long game and the general then stops.
+
+## Team chat: announcing hits and obeying the allies (bot/team.py)
+
+The repository owner's rules:
+- 30 s before every hit type "gone east in 30 seconds" / "gone balks in
+  30 seconds"; at 30 s type "gone east" / "gone balks" and send it.
+- Orange, teal or purple (Norway, UK, France) saying "no", "don't",
+  "stop", "wait", "halt" or the like: wait 2 minutes of the game clock,
+  then restart the 30 s. A named wait is obeyed exactly. While waiting
+  the army keeps training and gathering.
+- "go east" / "go balks": the hit goes there; "go east in 2": wait 2
+  minutes, then hit east. Allies' orders override the bot's own plan.
+  After the hit, back to the usual preparation.
+- The game clock is the one at the BOTTOM of the screen (console,
+  around x 990-1075, y 820-838): it counts up in real seconds from
+  00:00 and stops when paused. The countdown at the top runs about 1.47
+  times faster (game seconds): a 5:00 round is about 200 real seconds,
+  so round_timer() in trial.py is wrong and should not be trusted.
+- eyes/clock.py reads the bottom clock from templates built from 47
+  pictures of trial 18 (all read right; checked on trials 15 and 17).
+- Chat is read by Claude Haiku from the strip (0,360)-(1300,660) when
+  new white-with-shadow text appears there (at most every 1.5 s, cap
+  $2 a game). It returns lines (logged as "chat [colour] text") and
+  orders of fixed kinds only; orders from any colour but teal, purple
+  or orange are dropped in code. No key: hits are still announced but
+  answers cannot be read. Never tested on real chat yet.
+- The first hit is announced at 0:30 and goes at about 1:00.
