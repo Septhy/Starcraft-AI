@@ -581,7 +581,7 @@ def test_a_hit_that_took_its_target_goes_on_but_a_handful_holds():
     side = m["slots"]["5"]
     romania, berlin = trial.place(m, "Romania 300"), trial.place(m, "Berlin 1000")
     road = ("Factory 7", "Hungary 200", "Munich 200", "Frankfurt 200",
-            "Amsterdam 100")
+            "Amsterdam 100", "Paris 500", "Madrid 1000")
     onward = [trial.place(m, n) for n in road]
 
     # a handful: 30 men at Romania
@@ -620,7 +620,11 @@ def test_the_road_south_leads_to_belgrade_and_on_to_the_netherlands():
         at = trial.NEXT[at]
         road.append(at)
         trial.place(m, at)                          # every stop is on the map
-    assert road[0] == "Factory 7" and road[-1] == "Amsterdam 100"
+    # Romania, Belgrade (Factory 7), Hungary, Munich, Frankfurt, the
+    # Netherlands, and only then Paris and Madrid
+    assert road == ["Factory 7", "Hungary 200", "Munich 200",
+                    "Frankfurt 200", "Amsterdam 100", "Paris 500",
+                    "Madrid 1000"]
     assert trial.NEXT["Warsaw 200"] == "Berlin 1000"
 
 
@@ -863,3 +867,16 @@ def test_berlin_reached_but_not_cleared_is_cleared_first(monkeypatch):
     looks(g, watch, m, st, 4)
     assert st.battle.target == "Berlin 1000" and st.battle.clearing
     assert "Paris 500" not in st.sent_at
+
+
+def test_a_balkans_hit_reaches_paris_only_through_the_netherlands():
+    st = trial.State()
+    st.reached |= {"Romania 300", "Factory 7", "Hungary 200", "Munich 200",
+                   "Frankfurt 200"}
+    assert trial.south_next(st) == "Romania 300"    # new hits start at Romania
+    assert "Amsterdam 100" not in trial.taken_on_the_way(st, "Paris 500")
+    st.reached.add("Amsterdam 100")
+    assert "Amsterdam 100" in trial.taken_on_the_way(st, "Paris 500")
+    # Paris comes from Berlin or from Amsterdam, nowhere else
+    assert sorted(k for k, v in trial.NEXT.items() if v == "Paris 500") \
+        == ["Amsterdam 100", "Berlin 1000"]

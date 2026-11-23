@@ -61,10 +61,12 @@ HOSTILE = AXIS + [6]
 # that lie between.
 NEXT = {"Romania 300": "Factory 7", "Factory 7": "Hungary 200",
         "Hungary 200": "Munich 200", "Munich 200": "Frankfurt 200",
-        "Frankfurt 200": "Amsterdam 100", "Konigsberg 200": "Berlin 1000",
+        "Frankfurt 200": "Amsterdam 100", "Amsterdam 100": "Paris 500",
+        "Konigsberg 200": "Berlin 1000",
         "Warsaw 200": "Berlin 1000", "Krakow 200": "Berlin 1000",
         # the repository owner: once Berlin is cleared, on to Paris and
-        # then Madrid
+        # then Madrid; the Balkan road also ends at Paris and Madrid,
+        # after the Netherlands (Amsterdam)
         "Berlin 1000": "Paris 500", "Paris 500": "Madrid 1000"}
 CLEARED = 8                    # fewer enemy minimap pixels than this at a
                                # target: it is cleared, and the troops go on

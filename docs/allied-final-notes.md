@@ -868,3 +868,7 @@ The repository owner's rules:
   sent to Berlin (east_next), even once Berlin and Paris are taken; it
   is carried on to Paris and Madrid from Berlin once there and cleared.
   A chosen target is never moved past Berlin. Announced "gone east".
+- User: the Balkan road also goes on to Paris and Madrid, after the
+  Netherlands: Romania, Factory 7, Hungary, Munich, Frankfurt,
+  Amsterdam, Paris, Madrid. New Balkan hits still start at Romania, so
+  Paris is only reached from Berlin or from Amsterdam.
