@@ -124,21 +124,38 @@ def test_the_hit_goes_to_the_city_named(monkeypatch):
     assert st.chosen_target == "Krakow 200"
 
 
-def test_status_says_supply_mass_and_plan(monkeypatch):
+def test_status_says_supply_mass_plan_and_when_the_next_hit_goes(monkeypatch):
     m = trial.load_map()
     monkeypatch.setattr(trial, "MASS", trial.HOME_MASS)
     st, io = trial.State(), StubIO()
     st.clock = team.GameClock(io.now)
+    st.clock.value = 600                            # 10:00 on the game clock
     st.team = a_team(m, [])
     st.supply_seen = ((185, 200), 0.0)
     st.strength, st.need = 120, 140
+    # grown from 60 to 120 men in the last minute: 1 man a second, so
+    # 20 more in 20 s, then the 30 s warning: about 10:50
+    st.strength_log = [(540.0, 60), (570.0, 90), (600.0, 120)]
     line = trial.status_line(io, m, st)
-    assert line.startswith("185/200 | mass Smolensk | massing 120/140 for ")
-    assert len(line) <= 60
+    assert line.startswith("185/200 | Smolensk | 120/140 men, "), line
+    assert line.endswith("| hit ~10:50"), line
+    assert len(line) <= 60, line
+    # not growing: no telling
+    st.strength_log = [(540.0, 120), (600.0, 120)]
+    assert trial.status_line(io, m, st).endswith("| hit ?")
+    # at full supply: as soon as the warning is out
+    st.capped = True
+    assert trial.status_line(io, m, st).endswith("| hit ~10:30")
+    st.capped = False
+    # the allies said wait a minute: waiting, the hit 30 s after it
     st.team.heard(team.Order({"colour": "teal", "kind": "stop", "front": "none",
                               "wait_seconds": 60, "until_clock": "",
-                              "place": "", "said": "@R wait 1"}), 0)
-    assert "waiting till 01:00" in trial.status_line(io, m, st)
+                              "place": "", "said": "@R wait 1"}), 600)
+    assert trial.status_line(io, m, st).endswith("| waiting | hit ~11:30")
+    # an announced hit: its time
+    st.team.hold_until = None
+    st.team.gate(600, True, "balks")
+    assert trial.status_line(io, m, st).endswith("| gone balks | hit ~10:30")
 
 
 def test_reset_drops_every_order_and_masses_at_smolensk(monkeypatch):

@@ -167,6 +167,7 @@ class State:
         self.f7_told = None
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.hits_sent = 0
+        self.strength_log = []     # (game clock, men for the next hit)
         self.box_px = None         # minimap pixels that make a box of twelve
         self.depots = {}           # tax city -> the SCV-and-depot job for it
         self.depot_tries = {}
@@ -1865,6 +1866,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         elif st.supply_seen and io.now() - st.supply_seen[1] <= 30:
             supply = st.supply_seen[0]  # unreadable this look: the last one
         capped = bool(supply) and supply[0] >= supply[1] - SUPPLY_SLACK
+        st.capped = capped
         # How many are there is judged at a glance, with no boxes drawn.
         ours = watch.units(picture)
         massed = men_at_mass(supply, rough, len(ours - mass_pixels))
@@ -1873,6 +1875,9 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         if rough >= 20:
             st.men_per_pixel = min(6.0, max(0.3, massed / rough))
         strength = st.strength = int(massed + st.reserve * SPREAD_MEN)
+        if st.clock:
+            st.strength_log.append((st.clock.time(), strength))
+            del st.strength_log[:-120]
         if abs(massed - told) >= 25:
             told = massed
             io.log(f"about {massed} men at the massing place (supply "
@@ -2010,18 +2015,44 @@ def mass_name(mapdata):
     return places.plain(place_name(mapdata, *MASS))
 
 
+STATUS_LOOKBACK = 90           # seconds of army growth used to guess the next hit
+
+
+def next_hit_eta(st, now):
+    """When Russia's own next hit should go, on the game clock: when the
+    army is big enough (judged from how fast it has grown lately), plus
+    the 30 seconds' warning. None if it cannot be guessed."""
+    if st.capped or st.strength >= st.need:
+        return now + team_rules.ANNOUNCE
+    old = [(t, s) for t, s in st.strength_log if t <= now - 20]
+    if not old:
+        return None
+    t0, s0 = max((p for p in old if p[0] >= now - STATUS_LOOKBACK),
+                 default=old[-1])
+    rate = (st.strength - s0) / max(now - t0, 1)
+    if rate <= 0.05:
+        return None                     # not growing: no telling
+    wait = (st.need - st.strength) / rate
+    return now + min(wait, 900) + team_rules.ANNOUNCE
+
+
 def status_line(io, mapdata, st):
-    """"@R status": supply, plan and massing place, in one chat line."""
+    """"@R status": supply, massing place, plan and the time of the next
+    hit, in one chat line."""
     seen = st.supply_seen
     pop = f"{seen[0][0]}/{seen[0][1]}" if seen else "?/200"
     now = st.clock.time() if st.clock else io.now()
-    plan = st.team.plan(now) if st.team else None
-    if plan is None:
+    told = st.team.plan(now) if st.team else None
+    if told is not None:
+        plan, at = told
+    else:
         target = st.planned_target
         front = team_rules.front_of(target) if target else \
             ("east" if planned_front(now) == "north" else "balks")
-        plan = f"massing {st.strength}/{st.need} for {front}"
-    return f"{pop} | mass {mass_name(mapdata)} | {plan}"
+        plan = f"{st.strength}/{st.need} men, {front}"
+        at = next_hit_eta(st, now)
+    when = f"hit ~{team_rules.clock_text(at)}" if at is not None else "hit ?"
+    return f"{pop} | {mass_name(mapdata)} | {plan} | {when}"
 
 
 def reset_orders(io, mapdata, st):

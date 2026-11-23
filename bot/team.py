@@ -253,15 +253,17 @@ class Team:
         self.pending_target = None
 
     def plan(self, now):
-        """A few words on what Russia means to do next, for "@R status"."""
+        """What Russia means to do next and when the hit goes, for "@R
+        status": (words, clock time of the hit or None if not known).
+        None if the allies have not set the plan."""
         if self.held(now):
-            return f"waiting till {clock_text(self.hold_until)}"
+            # after the wait, the usual 30 seconds' warning
+            return "waiting", self.hold_until + ANNOUNCE
         if self.announced:
-            return f"gone {self.announced[0]} at {clock_text(self.announced[1])}"
+            return f"gone {self.announced[0]}", self.announced[1]
         if self.ally_go:
             front, at, at_once = self.ally_go
-            return f"hit {front or 'now'}" + ("" if at_once else
-                                              f" at {clock_text(at)}")
+            return f"hit {front or 'now'}", (now if at_once else at)
         return None
 
 
