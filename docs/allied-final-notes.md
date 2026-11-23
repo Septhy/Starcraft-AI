@@ -953,3 +953,18 @@ The repository owner's rules:
   30 game s (Moscow until fetched).
 - Untested in a real game: whether the click on the factory middle
   picks a Scout, and Ctrl+click selecting only Scouts.
+- Telling Scouts from ground (user: separate the unit types in the
+  spawns accurately; key and park the air first). At the start the bot
+  learns what a Scout looks like in the bottom panel from Russia's own
+  starting Scouts: one alone (picture and name, PANEL_ONE) and a group
+  (a framed picture, via Ctrl+click on the starting pair). Every pick
+  at a spawn is checked against these before Shift+key: one picture
+  that differs (mean colour difference >= 22) and nothing is added
+  ("not-scouts" picture kept).
+- Air first: each spawn point is tried on the next passes (3 times at
+  most) while it is kept from the idle pickup, so the ground there
+  goes to the mass only after the Scouts are keyed and flying to the
+  fleet. Moscow now uses click + Ctrl+click (only Scouts) instead of a
+  box; later passes plain clicks for those left. Scouts go to a key
+  with room for them all, else a new key; twelve fill a new key and
+  the twelfth joins a key with room.

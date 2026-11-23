@@ -953,11 +953,13 @@ def test_new_scouts_from_the_factories_go_on_the_fleet_keys(monkeypatch):
     m = trial.load_map()
     fake_new_keys(monkeypatch)
     io = StubIO()
+    io.shot = lambda label, keep=True: None
     st = fleet_state(6)
     st.clock = team.GameClock(io.now)
     looked = []
     monkeypatch.setattr(trial, "scouts_on_top",
-                        lambda io_, x, y: looked.append((x, y)) or 2)
+                        lambda io_, x, y, every=True: looked.append((x, y)) or 2)
+    monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
     monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: 1 / 0)
     # just before the first tax: nothing
     st.clock.value = (trial.TAX_MARK + 1) / trial.COUNTDOWN_RATE
@@ -975,24 +977,81 @@ def test_new_scouts_from_the_factories_go_on_the_fleet_keys(monkeypatch):
     assert trial.collect_new_scouts(io, None, m, st) == 0
     st.clock.value = (trial.TAX_MARK + 305) / trial.COUNTDOWN_RATE
     assert trial.collect_new_scouts(io, None, m, st) == 6
+    assert [f["scouts"] for f in st.fleet] == [10, 8]
 
 
-def test_twelve_scouts_at_moscow_fill_a_key_and_start_another(monkeypatch):
+def test_a_factory_with_nothing_on_top_is_tried_a_few_times(monkeypatch):
+    from bot import team
+    m = trial.load_map()
+    io = StubIO()
+    st = fleet_state(6)
+    st.clock = team.GameClock(io.now)
+    tries = []
+    monkeypatch.setattr(trial, "scouts_on_top",
+                        lambda io_, x, y, every=True: (tries.append(1), 0)[1])
+    st.clock.value = (trial.TAX_MARK + 5) / trial.COUNTDOWN_RATE
+    for _ in range(6):
+        trial.collect_new_scouts(io, None, m, st)
+    assert len(tries) == 3 * trial.SCOUT_TRIES      # then left alone
+
+
+def test_what_is_not_a_scout_is_not_put_on_the_fleet(monkeypatch):
+    m = trial.load_map()
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    st = fleet_state(6)
+    monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: False)
+    assert trial.add_selected_scouts(io, st, lambda: 2) == 0
+    assert st.fleet[0]["scouts"] == 6 and not io.combos
+    assert any("not all Scouts" in line for line in io.lines)
+
+
+def test_scouts_are_told_from_other_units_by_their_panel_pictures():
+    """What a Scout looks like is learnt from Russia's own Scouts at the
+    start; a group with anything else in it is refused."""
+    import numpy as np
+    from PIL import Image
+    st = trial.State()
+    scout = Image.new("RGB", (1920, 1080), (10, 10, 10))
+    for i in range(3):                              # three framed Scouts
+        x0, y0, x1, y1 = trial._frame_box(i)
+        scout.paste((40, 200, 40), (x0 + 10, y0 + 10, x1 - 10, y1 - 10))
+    st.scout_frame = trial._crop(scout, trial._frame_box(0))
+    io = StubIO()
+    io.shot = lambda label, keep=True: scout
+    assert trial.picked_are_scouts(io, st, 3)
+    mixed = scout.copy()                            # the third is something else
+    x0, y0, x1, y1 = trial._frame_box(2)
+    mixed.paste((200, 200, 200), (x0 + 4, y0 + 4, x1 - 4, y1 - 4))
+    io.shot = lambda label, keep=True: mixed
+    assert not trial.picked_are_scouts(io, st, 3)
+    # one alone: the big picture and name
+    st.scout_one = trial._crop(scout, trial.PANEL_ONE)
+    io.shot = lambda label, keep=True: scout
+    assert trial.picked_are_scouts(io, st, 1)
+    other = Image.new("RGB", (1920, 1080), (120, 60, 60))
+    io.shot = lambda label, keep=True: other
+    assert not trial.picked_are_scouts(io, st, 1)
+
+
+def test_twelve_scouts_at_moscow_fill_a_key_and_the_rest_join_another(monkeypatch):
     from bot import team
     m = trial.load_map()
     fake_new_keys(monkeypatch)
     io = StubIO()
     st = fleet_state(6)
-    st.scout_round = 99                             # no factory round now
     st.clock = team.GameClock(io.now)
     st.clock.value = (trial.MOSCOW_AIR[0] + 5) / trial.COUNTDOWN_RATE
-    boxes = iter([12, 12, 1, 1, 0])                 # what each box picks up
-    monkeypatch.setattr(trial, "box_at", lambda io_, area: next(boxes))
+    st.scouts_done |= {(k, n) for k in range(20) for n in trial.SCOUT_FACTORIES}
+    picks = iter([12, 12, 1, 0])                    # what each look picks up
+    monkeypatch.setattr(trial, "scouts_on_top",
+                        lambda io_, x, y, every=True: next(picks))
+    monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
     monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
     assert trial.collect_new_scouts(io, None, m, st) == 12
-    assert [f["scouts"] for f in st.fleet] == [6, 11, 1]
-    assert st.air_keys == ["9", "0", "8"] and "8" not in st.ground_keys
-    assert "8" not in trial.free_ground_keys(st)
+    # eleven start key 0; the twelfth goes on key 9, which had room
+    assert [f["scouts"] for f in st.fleet] == [7, 11]
+    assert st.air_keys == ["9", "0"]
     assert trial.MOSCOW_AIR[0] in st.moscow_done
 
 
