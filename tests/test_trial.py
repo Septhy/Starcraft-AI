@@ -252,8 +252,13 @@ def test_reads_the_real_pictures():
     assert not live.building_selected(blank)
     assert not live.building_selected(screen("units"))
     assert live.building_selected(screen("barracks"))
-    assert trial.round_timer(0) == "5:00" and trial.round_timer(180) == "2:00"
-    assert trial.round_timer(310) == "4:50"
+    # the countdown runs 1.488 game seconds to a real one (trial 18:
+    # bottom clock 05:21 with the countdown at 2:01, 12:35 with 1:16)
+    assert trial.round_timer(0) == "5:00"
+    assert trial.round_timer(321) in ("1:59", "2:00", "2:01", "2:02", "2:03")
+    assert trial.round_timer(755) in ("1:15", "1:16", "1:17")
+    assert abs(trial.until_tax(0) - 121) < 1          # 3:00 of countdown
+    assert trial.until_tax(122) > 190                 # just paid: next round
 
 
 def test_map_data():
@@ -728,8 +733,10 @@ def test_troops_at_the_mass_meet_an_enemy_inside_russia(monkeypatch):
     st.air_keys = ["9"]
     mass = blob(trial.MASS, 6)
     inside = (200 * 32, 60 * 32)                # deep in Russia
-    # a few dots, or the enemy in his own country: nothing
-    for axis in (blob(inside, 2), blob((100 * 32, 80 * 32), 6)):
+    # a few dots, the enemy in his own country, or enemy that was always
+    # near Odessa and Romania and only now shows: nothing
+    for axis in (blob(inside, 2), blob((100 * 32, 80 * 32), 6),
+                 blob((164 * 32, 104 * 32), 6), blob((158 * 32, 118 * 32), 6)):
         assert trial.defend_home(io, StubWatch(mass, axis), m, st, None,
                                  mass) == 0
     watch = StubWatch(mass, blob(inside, 5))

@@ -735,3 +735,16 @@ The repository owner's rules:
   or orange are dropped in code. No key: hits are still announced but
   answers cannot be read. Never tested on real chat yet.
 - The first hit is announced at 0:30 and goes at about 1:00.
+
+## Fixes 1 and 4 after trial 18
+
+- "Inside Russia" (defend_home) is now tiles x >= 170, y < 98: east of
+  the massing place, north of the Black Sea. Odessa (164,104), Romania
+  and the Polish border are out: Axis there was always there and only
+  showed once our troops came near.
+- Round countdown: 1.488 game seconds per real second (least squares on
+  47 pairs of bottom clock and top countdown, max error 1.1 s). A round
+  is about 201.6 real seconds; tax at countdown 2:00 is about 121 real
+  seconds into each round. round_timer() and until_tax() take the
+  bottom clock; Claude's status now gives both clocks and the seconds
+  to the next tax.

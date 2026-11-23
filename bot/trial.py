@@ -703,11 +703,25 @@ def push_front(io, watch, mapdata, st, target, limit=30):
     return orders
 
 
-def round_timer(seconds_in):
-    """What the round's countdown shows, given the seconds since the
-    game began. Rounds are five minutes; tax is paid at 2:00."""
-    left = 300 - int(seconds_in) % 300
+# The round countdown at the top of the screen runs in game seconds,
+# 1.488 of them to a real second (fitted to 47 pictures of trial 18, to
+# within a second over 24 minutes). So a "5:00" round lasts about 3:22
+# of the real clock at the bottom, and the tax at "2:00" comes about
+# 2:01 of real time into each round.
+COUNTDOWN_RATE = 1.488
+
+
+def round_timer(clock_seconds):
+    """What the round's countdown at the top shows, given the game clock
+    at the bottom (real seconds since the game began)."""
+    left = 300 - int(clock_seconds * COUNTDOWN_RATE) % 300
     return f"{left // 60}:{left % 60:02d}"
+
+
+def until_tax(clock_seconds):
+    """Real seconds until the next tax (the countdown reaching 2:00)."""
+    into = (clock_seconds * COUNTDOWN_RATE) % 300     # game seconds into the round
+    return ((180 - into) % 300) / COUNTDOWN_RATE
 
 
 def fly_building(io, mapdata, st, kind, tile, city_name):
@@ -1021,7 +1035,11 @@ def advance_front(io, watch, mapdata, st, still, picture):
     return orders
 
 
-HOME = (154, 0, 256, 105)      # tiles: Russia itself, behind the massing place
+# Deep Russia only: east of the massing place and north of the Black
+# Sea. Enemy standing near Odessa, Romania or the Polish border has been
+# there all along, and only shows on the minimap once our troops come
+# near: that is not an invasion (trial 18).
+HOME = (170, 0, 256, 98)       # tiles: left, top, right, bottom
 INTRUDERS = 10                 # more Axis pixels there than at the start: defend
 DEFEND_EVERY = 20              # seconds between sending troops at intruders
 AIR_REACH = 10                 # minimap pixels from the front the air looks for prey
@@ -1140,9 +1158,11 @@ def recall(io, st, why):
 def status_report(io, st, t0, massed, need, battle, axis_balkans, axis_mass,
                   supply, mapdata=None):
     """The few lines the general is given with each screenshot."""
-    now = io.now() - t0
-    lines = [f"Time in game: {int(now) // 60}:{int(now) % 60:02d}. "
-             f"Round timer about {round_timer(now)}.",
+    now = st.clock.time() if st.clock else io.now() - t0
+    lines = [f"Game clock (bottom of the screen): "
+             f"{int(now) // 60}:{int(now) % 60:02d}. Round countdown (top) "
+             f"about {round_timer(now)}; next tax in about "
+             f"{until_tax(now):.0f} real seconds.",
              f"Men for the next hit, by the program's count: about "
              f"{st.strength} (the mass waiting at the massing place plus "
              f"about {int(st.reserve * SPREAD_MEN)} standing forward "
@@ -1544,8 +1564,10 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
             st.battle = Battle(target, io.now())
             flights_after(io, mapdata, st, len(hits))
             flights_after(io, mapdata, st, target)
-            io.log(f"  ({since()} since start; round timer about "
-                   f"{round_timer(io.now() - t0)})")
+            game = st.clock.time() if st.clock else io.now() - t0
+            io.log(f"  ({since()} since start; round countdown about "
+                   f"{round_timer(game)}, tax in about "
+                   f"{until_tax(game):.0f} s)")
         for name in ("Berlin 1000", "Warsaw 200", "Romania 300", "Factory 7"):
             w = place(mapdata, name)
             look_at(io, w["x"], w["y"], wait=0.5)
