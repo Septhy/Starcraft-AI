@@ -62,6 +62,7 @@ class WinIO:
         self.user = ctypes.windll.user32
         self.out_dir, self.sct, self.status = out_dir, sct, status
         self.names, self.n, self.lines = [], 0, []
+        self.last_kept = 0.0
         self.t0 = time.time()
         os.makedirs(out_dir, exist_ok=True)
 
@@ -169,9 +170,14 @@ class WinIO:
                 break
             time.sleep(0.12)
         img = self._wait_out_pause(img)
+        # A long game would fill the zip with pictures: after the first
+        # forty, keep at most one every 45 seconds.
+        if keep and self.n >= 40 and time.time() - self.last_kept < 45:
+            keep = False
         if keep:
+            self.last_kept = time.time()
             name = f"{self.n:03d}-{label}.jpg"
-            img.save(os.path.join(self.out_dir, name), quality=85)
+            img.save(os.path.join(self.out_dir, name), quality=75)
             self.names.append(name)
             self.n += 1
         return img

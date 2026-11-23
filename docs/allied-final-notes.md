@@ -691,3 +691,20 @@ real game.
   Romania. Now floored at one man a mass pixel, and the last supply
   reading is kept for 30 s. Still rough.
 - First hit lost again: supply 190 -> 124 by 103 s against computers.
+
+## Trial 17 and the two-hour game
+
+- User: the computer opponents do nothing, so losses come from
+  Germany's standing defences. Hit 3 took supply from 190 to 28.
+- The glance said "240 men" with supply at 136 (the one-man-a-pixel
+  floor): hit 2 went under-strength. men_at_mass is now the larger of
+  supply less spread-out men and the mass's share of our pixels, never
+  more than the supply.
+- "Bodies elsewhere" worked: 18, 20, 29 bodies joined hits 2-4.
+- TRIAL_SECONDS 480 -> 7200 (user: two hours). The plan alternates
+  fronts every 4.5 min after the studied 21 min. The bot stops when
+  the minimap is gone for 8 looks. After 40 pictures it keeps one per
+  45 s at lower quality (expect roughly 200 pictures a full game).
+  Tests keep 480 s (tests/conftest.py).
+- The general's $5 cap: Haiku is about $0.20/hour; a dearer model may
+  hit the cap in a long game and the general then stops.

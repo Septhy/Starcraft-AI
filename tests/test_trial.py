@@ -533,7 +533,9 @@ def test_the_plan_alternates_fronts_like_the_players_studied():
     assert trial.planned_front(4 * 60) == "south"
     assert trial.planned_front(9 * 60) == "north"
     assert trial.planned_front(13 * 60) == "south"
-    assert trial.planned_front(40 * 60) == "north"
+    # past the studied part of the game it keeps alternating
+    late = [trial.planned_front(1260 + 270 * k + 10) for k in range(4)]
+    assert late == ["south", "north", "south", "north"]
 
 
 def stand_at(units, spot, per_row=14):
@@ -648,15 +650,16 @@ def test_reads_how_many_units_are_selected():
 
 
 def test_men_at_the_mass_are_judged_at_a_glance():
-    """No boxes: the supply figure less the men spread out elsewhere."""
-    # a packed crowd of few pixels is still seen as the army it is
+    """No boxes: from the supply figure and where our pixels are."""
+    # a packed crowd of few pixels is still seen as most of the army
     assert trial.men_at_mass((204, 200), 57, 150) >= 140
     # nearly everyone is away: few at the mass, however high the supply
     assert trial.men_at_mass((190, 200), 5, 300) <= 20
-    assert trial.men_at_mass((60, 200), 40, 400) == 40
+    # never more than Russia has (trial 17: "240 men" with supply 136)
+    assert trial.men_at_mass((136, 200), 240, 248) <= 136
+    assert 40 <= trial.men_at_mass((136, 200), 240, 248) <= 100
     # no supply figure to read: the pixels are all there is
     assert trial.men_at_mass(None, 90, 10) == 90
-
 
 
 class StubIO:

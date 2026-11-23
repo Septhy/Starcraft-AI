@@ -1,7 +1,7 @@
 """The first trial as a small Windows app.
 
 Start it, get into a game as Russia, then press F9. It takes over the
-mouse and keyboard for about a minute and a half. Press F9 again to
+mouse and keyboard for up to two hours, or until the game ends. Press F9 again to
 stop it at any moment.
 """
 import os

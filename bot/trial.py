@@ -98,7 +98,8 @@ FIRST_ORDERS_UNTIL = 45        # seconds: stop the first round of orders
 WAVE_EARLIEST = 45             # seconds: do not hit before this (qororo98
                                # and penny[eef] send theirs at 37 to 51)
 WAVE_LATEST = 100              # seconds: hit by now whatever happens
-TRIAL_SECONDS = 480            # stop starting new hits after this long
+TRIAL_SECONDS = 7200           # play for up to two hours
+GAME_OVER_LOOKS = 8            # looks in a row with no minimap: the game has ended
 # How big a hit has to be, in men. The repository owner: at least 140,
 # and normally 160 to 300. How many are at hand is judged at a glance
 # (men_at_mass): the supply figure less the men spread out elsewhere.
@@ -148,6 +149,7 @@ class State:
         self.rekey = 8             # ground keys already re-used this hit
         self.outcomes = []         # how each hit went, for the lessons
         self.last_advance = -1e9   # when idle forward troops were last sent on
+        self.blind, self.over = 0, False   # looks without a minimap; game ended
         self.reached = set()       # targets our troops have stood on
         self.supply_seen = None    # (supply, when) last read off the screen
         self.home_axis0 = 0        # Axis pixels inside Russia at the start
@@ -243,9 +245,13 @@ def men_at_mass(supply, mass_px, elsewhere_px):
     there is to go on."""
     if supply is None:
         return int(mass_px)
-    men = supply[0] - SPREAD_MEN * elsewhere_px
-    # never fewer than one a pixel: the pixels there are men too
-    return int(max(mass_px, min(men, CROWD_MEN * mass_px)))
+    # two readings, each too low in its own case: the supply less the
+    # men spread out elsewhere (too low when those are packed as well),
+    # and the mass's share of our pixels (too low when the mass is packed)
+    by_rest = supply[0] - SPREAD_MEN * elsewhere_px
+    by_share = supply[0] * mass_px / max(1, mass_px + elsewhere_px)
+    men = max(by_rest, by_share)
+    return int(max(0, min(men, supply[0], CROWD_MEN * mass_px)))
 
 
 def attack_move(io, map_x, map_y):
@@ -708,7 +714,9 @@ def planned_front(seconds_in):
     for start, end, front in PLAN:
         if start <= seconds_in < end:
             return front
-    return "north"
+    # after the studied part of the game: keep alternating
+    turn = int((seconds_in - PLAN[-1][1]) // 270)
+    return "south" if turn % 2 == 0 else "north"
 
 
 def choose_target(io, watch, st, mapdata=None, battle=None):
@@ -1251,6 +1259,11 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     while io.now() - t0 < TRIAL_SECONDS:
         orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
+        st.blind = 0 if live.minimap_showing(picture) else st.blind + 1
+        if st.blind >= GAME_OVER_LOOKS:
+            st.over = True
+            io.log("the minimap has gone: the game seems to be over")
+            break
         advance_front(io, watch, mapdata, st, still, picture)
         battle = st.battle              # it may have moved on to a new objective
         # The minimap gives a rough figure cheaply, and says when it is
@@ -1384,6 +1397,8 @@ def run(io, mapdata=None, general=None, save_lessons=None):
         while io.now() - t0 < TRIAL_SECONDS:
             massed = build_big_mass(io, watch, mapdata, st, t0, st.battle,
                                     general)
+            if st.over:
+                break
             if massed < MIN_HIT:
                 io.log(f"about {massed} men is too few for a hit "
                        f"(the least is {MIN_HIT}): kept in reserve")
