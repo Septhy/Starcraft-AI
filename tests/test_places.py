@@ -138,24 +138,35 @@ def test_status_says_supply_mass_plan_and_when_the_next_hit_goes(monkeypatch):
     st.strength_log = [(540.0, 60), (570.0, 90), (600.0, 120)]
     line = trial.status_line(io, m, st)
     assert line.startswith("185/200 | Smolensk | 120/140 men, "), line
-    assert line.endswith("| hit ~10:50"), line
+    assert line.endswith("| hit est. 10:50"), line
     assert len(line) <= 60, line
     # not growing: no telling
     st.strength_log = [(540.0, 120), (600.0, 120)]
-    assert trial.status_line(io, m, st).endswith("| hit ?")
+    assert trial.status_line(io, m, st).endswith("| hit est. ?")
     # at full supply: as soon as the warning is out
     st.capped = True
-    assert trial.status_line(io, m, st).endswith("| hit ~10:30")
+    assert trial.status_line(io, m, st).endswith("| hit est. 10:30")
     st.capped = False
-    # the allies said wait a minute: waiting, the hit 30 s after it
+    # the allies said wait a minute: the hit 30 s after the wait, if the
+    # army is ready by then
     st.team.heard(team.Order({"colour": "teal", "kind": "stop", "front": "none",
                               "wait_seconds": 60, "until_clock": "",
                               "place": "", "said": "@R wait 1"}), 600)
-    assert trial.status_line(io, m, st).endswith("| waiting | hit ~11:30")
+    st.strength_log = [(540.0, 60), (570.0, 90), (600.0, 120)]
+    assert trial.status_line(io, m, st).endswith("| waiting | hit est. 11:30")
+    # wait 5: the army is ready long before; the wait decides
+    st.team.hold_until = 900
+    assert trial.status_line(io, m, st).endswith("| waiting | hit est. 15:30")
+    # a short wait, but a slow-growing army: the army decides
+    st.team.hold_until = 610
+    st.strength_log = [(510.0, 105), (600.0, 120)]  # 1 man every 6 s
+    assert trial.status_line(io, m, st).endswith("| waiting | hit est. 12:30")
+    st.strength_log = [(540.0, 120), (600.0, 120)]  # not growing
+    assert trial.status_line(io, m, st).endswith("| waiting | hit est. ?")
     # an announced hit: its time
     st.team.hold_until = None
     st.team.gate(600, True, "balks")
-    assert trial.status_line(io, m, st).endswith("| gone balks | hit ~10:30")
+    assert trial.status_line(io, m, st).endswith("| gone balks | hit est. 10:30")
 
 
 def test_reset_drops_every_order_and_masses_at_smolensk(monkeypatch):

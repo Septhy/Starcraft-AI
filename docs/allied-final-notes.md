@@ -901,10 +901,11 @@ The repository owner's rules:
   city the usual road carries on (Berlin -> Paris and so on).
 - "@R status": one line, at most 60 characters, with the time of the
   next hit on the game clock: "185/200 | Smolensk | 120/140 men, east
-  | hit ~10:50". Own plan: (need - men) / growth over the last 90 s,
+  | hit est. 10:50". Own plan: (need - men) / growth over the last 90 s,
   plus the 30 s warning; at full supply or enough men, now + 30 s; not
-  growing: "hit ?". Allies' plan: "waiting | hit ~11:30" (wait end +
-  30 s), "gone balks | hit ~10:30", "hit Warsaw | hit ~12:00".
+  growing: "hit est. ?". After an ally's wait: the later of the wait's
+  end + 30 s and the army's own estimate ("waiting | hit est. 11:30").
+  "gone balks | hit est. 10:30", "hit Warsaw | hit est. 12:00".
 - "@R reset": drops waits, pending hits and announcements, masses at
   Smolensk again; reply "reset: massing at Smolensk, usual plan".
 - All from teal, purple or orange only, tag required, as before.

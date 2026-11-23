@@ -2045,13 +2045,21 @@ def status_line(io, mapdata, st):
     told = st.team.plan(now) if st.team else None
     if told is not None:
         plan, at = told
+        if plan == "waiting":
+            # after the wait the hit still needs the army to be ready
+            own = next_hit_eta(st, now)
+            if own is not None:
+                at = max(at, own)
+            elif not (st.capped or st.strength >= st.need):
+                at = None               # not ready, not growing: no telling
     else:
         target = st.planned_target
         front = team_rules.front_of(target) if target else \
             ("east" if planned_front(now) == "north" else "balks")
         plan = f"{st.strength}/{st.need} men, {front}"
         at = next_hit_eta(st, now)
-    when = f"hit ~{team_rules.clock_text(at)}" if at is not None else "hit ?"
+    when = f"hit est. {team_rules.clock_text(at)}" if at is not None \
+        else "hit est. ?"
     return f"{pop} | {mass_name(mapdata)} | {plan} | {when}"
 
 
