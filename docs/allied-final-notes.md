@@ -1003,7 +1003,11 @@ The repository owner's rules:
   shown in the fog; turrets cannot be told from other buildings on the
   minimap, so all are avoided). Stops every 25 pixels; first stop
   attack-move, the rest queued with Shift+click.
-- The fleet stays with them (not steered over the army) until Russia's
-  next hit, "@R reset" (fleet back to its spot) or another bring air.
+- User: the fleet stays with the ally's air even through Russia's own
+  hits and planned hits; only "@R return air" (or another "@R bring
+  air") moves it. "@R reset" (also "@Reset") is for massing and hitting
+  only and leaves the air alone. While it is away, own_fleet_keys() is
+  empty: hits, recalls, retreats, defence and the general's orders do
+  not use the fleet keys.
   Replies: "air on its way to you", "I can't find your air", "I have no
   air". Whether Shift+click after A queues in Remastered is untested.

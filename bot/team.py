@@ -18,7 +18,9 @@ The rules, from the repository owner:
 - "@R hit Warsaw" sends the mass at that city (any city the troops can
   walk to), now, or at a time given ("@R hit Warsaw in 2").
 - "@R bring air": the whole air fleet goes, by attack-move along a safe
-  way, to where that ally's air is thickest.
+  way, to where that ally's air is thickest, and stays there through
+  Russia's own hits until "@R return air". "@R reset" (also "@Reset")
+  is about massing and hitting only and leaves the air alone.
 - "@R status": Russia answers with its supply (x/200), its plan and
   where it masses. "@R reset": every earlier order is dropped and the
   mass goes back to Smolensk; Russia plays its usual pattern again.
@@ -56,12 +58,12 @@ CHAT_MODEL = "claude-haiku-5-5"  # reading chat needs speed, not depth
 LISTEN_EVERY = 1.5             # seconds between looks at the chat at most
 REPEAT_WINDOW = 25             # seconds: the same line seen again is the same line
 SPEND_CAP = 2.00               # dollars per game for reading chat
-ADDRESS = re.compile(r"^\s*@(russia|russ|r)(?![a-z])", re.IGNORECASE)
+ADDRESS = re.compile(r"^\s*@(russia|russ|reset|r)(?![a-z])", re.IGNORECASE)
 
 
 def addressed(text):
     """True if a chat message is meant for Russia: it starts with @R,
-    @Russ or @Russia (any capitals)."""
+    @Russ or @Russia (any capitals), or is "@Reset"."""
     return bool(ADDRESS.match(str(text)))
 
 
@@ -121,12 +123,14 @@ class Team:
     and its 30 seconds are up, typing the announcements on the way."""
 
     def __init__(self, say, log, on_mass=None, on_status=None,
-                 on_reset=None, resolve=None, on_bring_air=None):
+                 on_reset=None, resolve=None, on_bring_air=None,
+                 on_return_air=None):
         self.say, self.log = say, log   # say(text) types to the allies
         self.on_mass = on_mass          # on_mass(order): move the mass
         self.on_status = on_status      # on_status(): say how things stand
         self.on_reset = on_reset        # on_reset(): back to the usual
         self.on_bring_air = on_bring_air  # on_bring_air(order): fleet to them
+        self.on_return_air = on_return_air  # on_return_air(): fleet back
         self.resolve = resolve          # resolve(place) -> (target, label)
                                         # or (None, the answer to type)
         self.pending_target = None      # the city the allies named for the hit
@@ -143,6 +147,10 @@ class Team:
         if order.kind == "mass":
             if self.on_mass:
                 self.on_mass(order)
+            return
+        if order.kind == "return_air":
+            if self.on_return_air:
+                self.on_return_air()
             return
         if order.kind == "bring_air":
             if self.on_bring_air:
@@ -310,7 +318,7 @@ ORDER_SCHEMA = {
                 "colour": {"type": "string", "enum": ALLY_COLOURS},
                 "kind": {"type": "string",
                          "enum": ["stop", "go", "mass", "status", "reset",
-                                  "bring_air"]},
+                                  "bring_air", "return_air"]},
                 "front": {"type": "string",
                           "enum": ["east", "balks", "none"]},
                 "wait_seconds": {"type": "integer"},
@@ -357,9 +365,13 @@ given it means now.
 listed below if it is one of them, otherwise as written). With "east" \
 or "balks" instead of a city, leave "place" empty.
 - status: "@R status": the ally asks how Russia stands.
-- reset: "@R reset": the ally wants every earlier order dropped.
+- reset: "@R reset" (or "@Reset"): the ally wants every earlier order \
+about massing and hitting dropped.
 - bring_air: "@R bring air", "@R air to me", "@R send air", "@R need \
 air": the ally wants Russia's air fleet brought to their own air.
+- return_air: "@R return air", "@R air back", "@R take your air back": \
+Russia's air fleet goes back to Russia. "@R reset" is NOT this: reset \
+is about massing and hitting only.
 - mass: the ally tells Russia where to gather its army: "@R mass at \
 Warsaw", "@R mass in Odessa", "@R gather at Kiev". Put the place in \
 "place", as one of the place names listed below if it is one of them, \
@@ -502,7 +514,7 @@ class ChatEars:
                            if o.get("colour") in ALLY_COLOURS
                            and o.get("kind") in ("stop", "go", "mass",
                                                  "status", "reset",
-                                                 "bring_air")
+                                                 "bring_air", "return_air")
                            and addressed(o.get("said", ""))]
                     with self._lock:
                         self._found += [(game_clock, o) for o in got]

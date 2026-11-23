@@ -1078,7 +1078,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     # fight() keeps it over the army
     w = place(mapdata, target)
     over = toward(MASS, (w["x"], w["y"]), AIR_LEAD)
-    for key in st.air_keys:
+    for key in own_fleet_keys(st):
         io.key(key)
         io.sleep(0.035)
         io.click(*live.minimap_point(*over), button="right")
@@ -1087,7 +1087,6 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     st.air_moved = io.now()
     st.hit_sent = io.now()
     st.hits_sent += 1
-    st.fleet_task = None                # the fleet goes with the hit again
     st.go_pending = False
     st.air_home = False
     per_box = st.selected / max(st.selections, 1)
@@ -1955,7 +1954,7 @@ def defend_home(io, watch, mapdata, st, picture, still):
         if len(group) >= 4 and select_group(io, group, st, watch):
             attack_move(io, x, y)
             orders += 1
-    for key in st.air_keys:
+    for key in own_fleet_keys(st):
         io.key(key)
         io.sleep(0.05)
         attack_move(io, x, y)
@@ -1987,7 +1986,7 @@ def fight(io, watch, mapdata, st, picture):
                 io.click(*home, button="right")     # walk, do not fight back
                 io.sleep(0.04)
                 orders += 1
-        for key in st.air_keys:         # the fleet, as one, to its spot
+        for key in own_fleet_keys(st):         # the fleet, as one, to its spot
             io.key(key)
             io.sleep(0.05)
             io.click(*live.minimap_point(*fleet_spot()), button="right")
@@ -2179,7 +2178,7 @@ def recall(io, st, why):
         io.key(key)
         io.sleep(0.05)
         attack_move(io, *MASS)
-    for key in st.air_keys:             # the fleet, as one, to its spot
+    for key in own_fleet_keys(st):             # the fleet, as one, to its spot
         io.key(key)
         io.sleep(0.05)
         attack_move(io, *fleet_spot())
@@ -2241,14 +2240,21 @@ def order_point(mapdata, st, name):
     return w["x"], w["y"]
 
 
+def own_fleet_keys(st):
+    """The fleet keys Russia may use for itself: none while the fleet is
+    with an ally's air ("@R bring air"), until "@R return air"."""
+    return [] if st.fleet_task is not None else list(st.air_keys)
+
+
 def keys_for(st, group):
+    fleet = own_fleet_keys(st)
     if group == "ground":
         return list(st.ground_keys)
     if group == "air":
-        return list(st.air_keys)
+        return fleet
     if group == "all":
-        return st.ground_keys + st.air_keys
-    return [group] if group in st.ground_keys + st.air_keys else []
+        return st.ground_keys + fleet
+    return [group] if group in st.ground_keys + fleet else []
 
 
 def carry_out(io, mapdata, st, order, camera):
@@ -2621,13 +2627,9 @@ def reset_orders(io, mapdata, st):
         st.idle_orders.clear()
     MASS = HOME_MASS
     st.planned_target = st.chosen_target = None
-    st.go_pending = False
-    if st.fleet_task is not None:       # the fleet back to its spot
-        st.fleet_task = None
-        for key in st.air_keys:
-            io.key(key)
-            io.sleep(0.05)
-            attack_move(io, *fleet_spot())
+    st.go_pending = False               # (the air is not touched: a fleet
+                                        # with an ally stays until "@R
+                                        # return air")
     say(io, st, "reset: massing at Smolensk, usual plan", force=True)
     io.log("reset by the allies: massing at Smolensk, usual plan")
 
@@ -2767,8 +2769,9 @@ def air_route(watch, picture, start, goal):
 
 def bring_air(io, watch, mapdata, st, colour):
     """"@R bring air": the whole fleet, by attack-move along a safe way,
-    to where that ally's air is thickest. It stays with them until
-    Russia's next hit, "@R reset" or another "@R bring air"."""
+    to where that ally's air is thickest. It stays with them, through
+    Russia's own hits, until an ally says "@R return air" (or asks for it
+    again elsewhere)."""
     if not st.air_keys:
         say(io, st, "I have no air", force=True)
         return False
@@ -2798,6 +2801,23 @@ def bring_air(io, watch, mapdata, st, colour):
     say(io, st, "air on its way to you", force=True)
     io.log(f"bring air: the fleet sent to the {colour} air near "
            f"{place_name(mapdata, *where)}, {len(stops)} stops")
+    return True
+
+
+def return_air(io, mapdata, st):
+    """"@R return air": the fleet comes back from the ally's air to its
+    spot by the mass, and goes with Russia's hits again."""
+    if st.fleet_task is None:
+        say(io, st, "my air is already with me", force=True)
+        return False
+    st.fleet_task = None
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.05)
+        attack_move(io, *fleet_spot())
+    st.air_home = True                  # parked until the next hit sends it
+    say(io, st, "air coming back", force=True)
+    io.log("return air: the fleet called back to its spot")
     return True
 
 
@@ -2871,6 +2891,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
         on_status=lambda: say_status(raw, mapdata, st),
         on_reset=lambda: reset_orders(raw, mapdata, st),
         on_bring_air=lambda o: bring_air(raw, st.watch, mapdata, st, o.colour),
+        on_return_air=lambda: return_air(raw, mapdata, st),
         resolve=lambda text: place_for_hit(mapdata, text))
     if ears is not None:
         from bot import places

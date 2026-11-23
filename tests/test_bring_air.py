@@ -102,3 +102,53 @@ def test_no_air_found_is_said(monkeypatch):
     st.air_keys = ["9"]
     assert not trial.bring_air(StubIO(), Watch(), m, st, "purple")
     assert said == ["I can't find your air"] and st.fleet_task is None
+
+
+def test_the_fleet_stays_with_the_ally_through_hits_and_resets(monkeypatch):
+    m = trial.load_map()
+    said = []
+    monkeypatch.setattr(trial, "say", lambda io, st, text, force=False:
+                        said.append(text))
+    st = trial.State()
+    st.air_keys, st.ground_keys = ["9", "0"], ["1", "2"]
+    st.fleet_task = {"colour": "teal", "spot": (0, 0), "since": 0}
+    # Russia's own orders do not use the fleet keys while it is away
+    assert trial.own_fleet_keys(st) == []
+    assert trial.keys_for(st, "air") == [] and trial.keys_for(st, "all") == ["1", "2"]
+    io = StubIO()
+    trial.recall(io, st, "test")
+    assert "9" not in io.keys and "0" not in io.keys
+    # a hit does not take it back
+    monkeypatch.setattr(trial, "sweep_mass", lambda *a, **k: (0, 0))
+    monkeypatch.setattr(trial, "push_front", lambda *a, **k: 0)
+    io = StubIO()
+    trial.hit(io, None, m, st, "Berlin 1000", use_keys=False)
+    assert "9" not in io.keys and st.fleet_task is not None
+    # "@R reset" is for massing and hitting: the air stays
+    trial.reset_orders(StubIO(), m, st)
+    assert st.fleet_task is not None
+    # "@R return air" brings it back to its spot
+    io = StubIO()
+    assert trial.return_air(io, m, st)
+    assert st.fleet_task is None and st.air_home
+    assert io.keys.count("a") == 2 and said[-1] == "air coming back"
+    assert trial.own_fleet_keys(st) == ["9", "0"]
+    assert not trial.return_air(StubIO(), m, st)      # already back
+
+
+def test_return_air_and_reset_are_told_apart():
+    from bot import team
+    got = []
+    t = team.Team(lambda s: None, lambda s: None,
+                  on_reset=lambda: got.append("reset"),
+                  on_return_air=lambda: got.append("return"),
+                  on_bring_air=lambda o: got.append("bring " + o.colour))
+    def order(kind):
+        return team.Order({"colour": "orange", "kind": kind, "front": "none",
+                           "wait_seconds": -1, "until_clock": "", "place": "",
+                           "said": "@R x"})
+    for k in ("bring_air", "reset", "return_air"):
+        t.heard(order(k), 10)
+    assert got == ["bring orange", "reset", "return"]
+    assert team.addressed("@Reset") and team.addressed("@R return air")
+    assert not team.addressed("@Re go")
