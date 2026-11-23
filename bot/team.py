@@ -253,7 +253,8 @@ balks in 30 seconds". The orders it takes:
 like, answering Russia's announcement or about Russia's hit. A remark \
 that only happens to contain "no" or "wait" but is about something else \
 is not an order.
-- go: the ally tells Russia to hit: "go east", "go balks", "go now".
+- go: the ally tells Russia to hit: "go east", "go balks", "go now", \
+"hit east", "attack balks", "push east", "rus go" and the like.
 The front: "east" means the eastern front toward Germany (Berlin, \
 Warsaw, Konigsberg, Poland, "ger", "berlin", "north"). "balks" means the \
 Balkans (Romania, Belgrade, Hungary, "rom", "balkans", "south"). Use \
