@@ -764,3 +764,33 @@ The repository owner's rules:
   unknown: map triggers do spawn Axis units (the Norway invasion
   message), or the minimap pings (dark green boxes) confuse the colour
   reading. Not fixed.
+
+## Trial 20, and taxing Krakow, Romania and Factory 7
+
+- Trial 20: hits went again after the first (supply-full rule worked:
+  hits at 4:58 and 8:15), but every Berlin hit was lost.
+- Clumps left idle (user): gather_idle took only bodies of 9+ minimap
+  pixels at home, 4 a pass. Now every still body of 3+ pixels anywhere
+  (forward ones too), 8 a pass, farthest first; left alone: the hit
+  being fought (in_battle), troops in contact, tax guards, the Middle
+  East spawn. Small bodies standing exactly where something of ours
+  stood at the start are skipped (buildings hidden under units at the
+  start): empty boxes in the fake game 62 -> 30 of about 330.
+- At a hit, bodies behind the mass (standing or walking) are ordered
+  before the mass sweeps, bodies forward of it after.
+- Tax (user rules): Krakow 200, Romania 300 and Factory 7 always get a
+  floated building when no enemies are within 6 minimap pixels; with a
+  few enemies (4-40 px) a detachment of 12 is sent first (every 120 s
+  at most per city), more than 40 is left to hits. Factory 7: sets off
+  at countdown 1:00, must arrive before the next round's 3:00 (about
+  121 real s); buildings able to reach it are kept for it. Never a
+  barracks or a command centre (fly_building refuses them); 2 buildings
+  per city per game at most. With no factory, starport or engineering
+  bay left: the nearest command centre makes an SCV (S), rallies it to
+  the city, and it builds a supply depot (B, S, click around the
+  beacon, Esc). Warsaw and Konigsberg flights now take the nearest
+  spare building, never the Smolensk barracks.
+- Guesses to check in a real game: lifted building speed 0.75 tiles/s
+  (Krakow about 2 minutes away), SCV 2 tiles/s, that a floated
+  building shows on the minimap as our colour at the city (presence
+  check), that the CC trains SCVs on this map, and S/B/S hotkeys.

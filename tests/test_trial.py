@@ -46,7 +46,9 @@ class FakeGame:
         self.time, self.inputs, self.arrivals = 0.0, 0, {}
         self.groups, self.key_orders = {}, 0
         self.lifted, self.flights = False, []
-        self.starports = [b for b in side["buildings"] if b["type"] == "Starport"]
+        # buildings that may be floated (shown as "starport" when picked)
+        self.starports = [b for b in side["buildings"] if b["type"] in
+                          ("Starport", "Factory", "Engineering Bay")]
         self.money, self.spawned_at, self.last_key = 1000, None, None
 
     def alive(self):
@@ -152,7 +154,7 @@ class FakeGame:
             else:
                 self.m_elsewhere += 1
         if name == "l":
-            assert self.selected in ("barracks", "starport")   # only buildings
+            assert self.selected == "starport"   # never a barracks
             self.lifted = True
         if name == "a":
             assert isinstance(self.selected, list)   # never A on nothing
@@ -349,10 +351,12 @@ def test_opening_masses_fast_and_hits_berlin():
         at_berlin = [u for u in sent if near(u["to"], (w["x"], w["y"]), 20)]
         assert len(at_berlin) >= 80                 # the first hit: Berlin
         assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 4   # a wall
-        # the Smolensk barracks was flown to Warsaw after the first hit
+        # a spare building (never a barracks) was flown to Warsaw after
+        # the first hit
         warsaw = trial.place(m, "Warsaw 200")
-        kinds = {k: (x, y) for k, x, y in g.flights}
-        assert near(kinds["barracks"], (warsaw["x"], warsaw["y"]), 3), error
+        assert any(near((x, y), (warsaw["x"], warsaw["y"]), 3)
+                   for k, x, y in g.flights), error
+        assert all(k != "barracks" for k, x, y in g.flights)
         # the first hits go north; from about 3:30 the plan turns south
         assert result["targets"][0] == "Berlin 1000"
         # every hit after the first was at least the minimum size
@@ -442,12 +446,13 @@ def test_target_follows_the_axis_in_the_balkans():
         == "Berlin 1000"
 
 
-def test_romania_flight_follows_the_first_romania_hit():
+def test_a_building_floats_to_romania():
     m = trial.load_map()
     g = FakeGame(m)
     g.camera = (0, 0)
     st = trial.State()
-    trial.flights_after(g, m, st, "Romania 300")
+    trial.fly_building(g, m, st, "Starport", (190, 110), "Romania 300")
+    st.flights_done.add((190, 110))
     romania = trial.place(m, "Romania 300")
     assert g.flights and g.flights[0][0] == "starport"
     assert near(g.flights[0][1:], (romania["x"], romania["y"]), 3)
