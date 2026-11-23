@@ -968,3 +968,23 @@ The repository owner's rules:
   box; later passes plain clicks for those left. Scouts go to a key
   with room for them all, else a new key; twelve fill a new key and
   the twelfth joins a key with room.
+
+## The fleet in a hit (user's rules)
+
+- At a hit the fleet keys get a plain move (stays stacked) to a point
+  6 tiles ahead of the mass toward the target; then every 8 s
+  steer_fleet puts it, as one, over the middle of our own forward
+  troops at the front (attack-move there), never over the enemy.
+- More than 3 enemy to one Scout round that spot: it steps back 4 tiles
+  toward the mass, up to 4 times. Enemy counted on the GAME SCREEN
+  (user): look at the spot, count patches of Germany red (R>200, G<60,
+  B<60) and Italy blue (B>170, R<50, G<80) within 7 tiles, one man per
+  patch or per 150 pixels of a big patch; health bars (one cell tall),
+  the kills list and Russia's own buildings (red lamps; positions from
+  the map) left out; yellow dropped (Russia's Scouts are gold on
+  screen). On trial pictures: a German marine fight read 31; quiet
+  views 0 (78 of 96). Every 5th "too many" keeps a picture
+  "fleet-too-many" for tuning MAN_COLOUR.
+- The hit fades (under half its peak forward): the fleet is pulled back
+  (move) to fleet_spot and waits for the next hit; the ground's own
+  retreat still comes at under 30%.

@@ -190,6 +190,7 @@ class State:
         self.scout_frame = None    # and its framed picture in a group
         self.last_added_key = None
         self.moscow_done = set()   # the Moscow air spawns already fetched
+        self.fleet_checks = 0
         self.old_mass = None       # the massing place just left: its army moves
         self.strength_log = []     # (game clock, men for the next hit)
         self.box_px = None         # minimap pixels that make a box of twelve
@@ -1070,11 +1071,18 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
         io.sleep(1.5)
     if not use_keys:                    # nothing is forward before the first hit
         orders += push_front(io, watch, mapdata, st, target, side="forward")
-    for key in st.air_keys:             # air is fastest, so it goes last
+    # the fleet goes last (it is fastest), as one stack: a plain move to
+    # a point just ahead of the mass, over the army's back; from there
+    # fight() keeps it over the army
+    w = place(mapdata, target)
+    over = toward(MASS, (w["x"], w["y"]), AIR_LEAD)
+    for key in st.air_keys:
         io.key(key)
         io.sleep(0.035)
-        attack_move(io, *front_point(mapdata, st, target))
+        io.click(*live.minimap_point(*over), button="right")
+        io.sleep(0.035)
         orders += 1
+    st.air_moved = io.now()
     st.hit_sent = io.now()
     st.hits_sent += 1
     st.go_pending = False
@@ -1900,6 +1908,14 @@ HOME = (170, 0, 256, 98)       # tiles: left, top, right, bottom
 INTRUDERS = 10                 # more Axis pixels there than at the start: defend
 DEFEND_EVERY = 20              # seconds between sending troops at intruders
 AIR_REACH = 10                 # minimap pixels from the front the air looks for prey
+# The fleet in a hit (the repository owner): stacked, over our own ground
+# troops, away from too many marines (more than 3 to a Scout), pulled
+# back to wait for the next hit once the hit fades.
+AIR_LEAD = 6                   # tiles ahead of the mass where the fleet first goes
+AIR_DANGER = 6                 # minimap pixels round the fleet's spot for enemy
+AIR_ODDS = 3                   # enemy men to one Scout: too many
+AIR_STEP = 4                   # tiles the fleet holds back each time it is too many
+AIR_FADE = 0.5                 # share of the hit's peak left when it is fading
 
 
 def axis_at_home(watch, picture):
@@ -1980,13 +1996,165 @@ def fight(io, watch, mapdata, st, picture):
     if st.air_keys and not st.air_home and \
             io.now() - st.air_moved >= AIR_FOLLOW_EVERY:
         st.air_moved = io.now()
-        prey = near(watch.others(picture, HOSTILE), battle.front, AIR_REACH)
-        spot = middle(prey) if len(prey) >= 6 else battle.front
-        for key in st.air_keys:         # the air goes for the enemy at the front
+        steer_fleet(io, watch, mapdata, st, picture)
+    return orders
+
+
+def fleet_scouts(st):
+    return sum(e["scouts"] for e in st.fleet) or len(st.air_keys) * 3
+
+
+def toward(a, b, tiles):
+    """The point `tiles` from a toward b (map pixels)."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    d = max((dx * dx + dy * dy) ** 0.5, 1.0)
+    step = min(tiles * 32, d)
+    return (a[0] + dx / d * step, a[1] + dy / d * step)
+
+
+CELL_LEAST = 6                 # enemy-coloured pixels that make a patch
+MAN_COLOUR = 150               # team-colour pixels one man shows (a guess, to tune)
+AIR_DANGER_TILES = 7           # how near the fleet's spot enemy count (tiles)
+
+
+def enemy_mask(picture):
+    """Pixels of the game view in the enemy's team colours: Germany red
+    and Italy blue (the bright, strong shades units wear; the grass,
+    trees, blood and Russia's brown do not reach them)."""
+    import numpy as np
+    l, t, r, b = live.GAME_AREA
+    a = np.asarray(picture.convert("RGB").crop((l, t, r, b))).astype(int)
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    # bright team red, not the darker red of blood and fire; strong blue.
+    # Not yellow: Russia's own Scouts are gold on screen, and Spain is
+    # seldom near Russia's fronts.
+    red = (R > 200) & (G < 60) & (B < 60)
+    blue = (B > 170) & (R < 50) & (G < 80)
+    mask = red | blue
+    mask[:200, :170] = False            # the kills list, top left
+    return mask
+
+
+def enemy_on_screen(picture, cx, cy, radius, skip=()):
+    """Roughly how many enemy units the game screen shows within `radius`
+    screen pixels of (cx, cy). The patches of their team colour are
+    found (pixels joined, a few apart); each counts as one man, a big one
+    (several men close together, or a building) as one per MAN_COLOUR
+    pixels. Thin streaks, such as health bars, are left out."""
+    import numpy as np
+    from collections import deque
+    m = enemy_mask(picture)
+    l, t = live.GAME_AREA[:2]
+    for x, y, r in skip:                # our own buildings: their red lamps
+        y0, x0 = max(0, int(y - t - r)), max(0, int(x - l - r))
+        m[y0:int(y - t + r), x0:int(x - l + r)] = False
+    k = 4                               # join pixels this close
+    h, w = m.shape
+    g = m[:h - h % k, :w - w % k].reshape(h // k, k, w // k, k)
+    count = g.sum(axis=(1, 3))
+    cells = count > 0
+    seen = np.zeros_like(cells)
+    n = 0
+    for j0, i0 in zip(*np.nonzero(cells)):
+        if seen[j0, i0]:
+            continue
+        seen[j0, i0] = True
+        todo, part = deque([(j0, i0)]), []
+        while todo:
+            j, i = todo.popleft()
+            part.append((j, i))
+            for dj in (-1, 0, 1):
+                for di in (-1, 0, 1):
+                    y, x = j + dj, i + di
+                    if 0 <= y < cells.shape[0] and 0 <= x < cells.shape[1] \
+                            and cells[y, x] and not seen[y, x]:
+                        seen[y, x] = True
+                        todo.append((y, x))
+        ys = [p[0] for p in part]
+        if max(ys) - min(ys) + 1 < 2:   # one cell tall: a bar, not a man
+            continue
+        pixels = sum(int(count[p]) for p in part)
+        if pixels < CELL_LEAST:
+            continue
+        y = t + (sum(ys) / len(ys) + 0.5) * k
+        x = l + (sum(p[1] for p in part) / len(part) + 0.5) * k
+        if (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2:
+            n += max(1, round(pixels / MAN_COLOUR))
+    return n
+
+
+OWN_BUILDING = 90               # screen pixels round each of our buildings left out
+_own_buildings = None
+
+
+def enemy_near_fleet(io, spot):
+    """Look at the game screen round a spot and count the enemy there.
+    Russia's own buildings are left out (Terran buildings carry red
+    lamps that look like Germany's colour)."""
+    global _own_buildings
+    if _own_buildings is None:
+        side = load_map()["slots"][SLOT]
+        _own_buildings = [(b["x"], b["y"]) for b in side["buildings"]] + \
+            [tuple(p) for p in side["structures"]]
+    cam = look_at(io, *centred(*spot), wait=0.2)
+    pic = io.shot("fleet-check", keep=False)
+    sx, sy = live.on_screen(spot[0], spot[1], cam)
+    skip = [(*live.on_screen(x, y, cam), OWN_BUILDING)
+            for x, y in _own_buildings]
+    return enemy_on_screen(pic, sx, sy, AIR_DANGER_TILES * 32 * live.ZOOM,
+                           skip), pic
+
+
+def enemy_men_near(hostile, xy, radius=AIR_DANGER):
+    """Roughly how many enemy stand within `radius` minimap pixels of a
+    point: their pixels at the rate our own spread-out men show."""
+    return len(near(hostile, xy, radius)) * SPREAD_MEN
+
+
+def steer_fleet(io, watch, mapdata, st, picture):
+    """Keep the fleet, as one stack, over our own army at the front.
+
+    It hangs over the middle of our troops at the front, never ahead of
+    them. Where there are more than three enemy (marines, mostly) to one
+    Scout round that point, it holds further back over our army, toward
+    the mass. Once the hit begins to fade (half its men gone) the fleet
+    is pulled back to its spot to wait for the next hit."""
+    battle = st.battle
+    ours_now = battle.samples[-1][1] if battle.samples else 0
+    peak = max((s[1] for s in battle.samples), default=0)
+    if peak >= 20 and ours_now < AIR_FADE * peak:
+        park = live.minimap_point(*fleet_spot())
+        for key in st.air_keys:
             io.key(key)
             io.sleep(0.05)
-            attack_move(io, *spot)
-    return orders
+            io.click(*park, button="right")
+            io.sleep(0.04)
+        st.air_home = True
+        io.log(f"the hit at {battle.target} is fading: the fleet pulled "
+               f"back to wait for the next hit")
+        return "parked"
+    army = near(forward_units(watch.units(picture), mapdata), battle.front, 14)
+    if len(army) < 4:
+        return None                     # nothing of ours there to cover
+    spot = middle(army)
+    limit = AIR_ODDS * fleet_scouts(st)
+    # count the enemy on the game screen round where the fleet would go;
+    # too many (more than three to a Scout): further back over our army
+    for _ in range(4):
+        seen, pic = enemy_near_fleet(io, spot)
+        if seen <= limit:
+            break
+        st.fleet_checks += 1
+        if st.fleet_checks % 5 == 1:     # now and then, for the record
+            io.shot("fleet-too-many")
+        io.log(f"fleet: about {seen} enemy near {place_name(mapdata, *spot)}"
+               f" (limit {limit}): holding further back")
+        spot = toward(spot, MASS, AIR_STEP)
+    for key in st.air_keys:             # one stack, over our own troops
+        io.key(key)
+        io.sleep(0.05)
+        attack_move(io, *spot)
+    return spot
 
 
 TARGET_NAMES = {"Berlin": "Berlin 1000", "Romania": "Romania 300",

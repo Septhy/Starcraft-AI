@@ -726,14 +726,16 @@ def blob(map_xy, n=5):
     return {(c + i, r + j) for i in range(n) for j in range(n)}
 
 
-def test_a_losing_hit_is_broken_off_and_the_air_goes_for_the_enemy(monkeypatch):
+def test_a_losing_hit_is_broken_off_and_the_fleet_stays_over_our_army(monkeypatch):
     m = trial.load_map()
     w = trial.place(m, "Warsaw 200")
     front = (w["x"], w["y"])
     monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
     home = live.minimap_point(*trial.MASS)
 
-    # winning or even: the air is sent at the enemy standing by the front
+    # going well: the fleet, one stack, over the middle of our own troops
+    # at the front, not over the enemy
+    monkeypatch.setattr(trial, "enemy_near_fleet", lambda io_, spot: (0, None))
     st, io = trial.State(), StubIO()
     st.air_keys = ["9", "0"]
     st.battle = trial.Battle("Berlin 1000", 0)
@@ -743,8 +745,8 @@ def test_a_losing_hit_is_broken_off_and_the_air_goes_for_the_enemy(monkeypatch):
     watch = StubWatch(blob(front), blob(enemy))
     assert trial.fight(io, watch, m, st, None) == 0
     assert io.keys == ["9", "a", "0", "a"]
-    ex, ey = live.minimap_point(*trial.middle(blob(enemy)))
-    assert all(abs(x - ex) <= 1 and abs(y - ey) <= 1 and b == "left"
+    ox, oy = live.minimap_point(*trial.middle(blob(front)))
+    assert all(abs(x - ox) <= 1 and abs(y - oy) <= 1 and b == "left"
                for x, y, b in io.clicks), io.clicks
     assert not st.battle.retreated
 
@@ -1067,3 +1069,81 @@ def test_new_scouts_are_kept_out_of_the_mass_while_they_are_fetched():
     assert trial.scout_spots(io, m, st, there) == there
     st.clock.value = (trial.TAX_MARK + 100) / trial.COUNTDOWN_RATE
     assert trial.scout_spots(io, m, st, there) == set()
+
+
+def test_the_fleet_keeps_back_from_more_than_three_enemy_to_a_scout(monkeypatch):
+    m = trial.load_map()
+    w = trial.place(m, "Warsaw 200")
+    front = (w["x"], w["y"])
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": "9", "scouts": 6, "ha": None}]
+    st.air_keys = ["9"]
+    st.battle = trial.Battle("Berlin 1000", 0)
+    st.battle.front = front
+    st.battle.samples = [(10, 100, 8, 20), (40, 90, 8, 14)]
+    ours = blob(front, 5)
+    io.shot = lambda label, keep=True: None
+    d = lambda p, q: ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5
+    # the game screen shows 15 enemy round the army: under 3 to a Scout
+    monkeypatch.setattr(trial, "enemy_near_fleet", lambda io_, spot: (15, None))
+    spot = trial.steer_fleet(io, StubWatch(ours, set()), m, st, None)
+    assert spot == trial.middle(ours)
+    # 30 enemy round the front, none further back: held back toward the
+    # mass, over our own side
+    monkeypatch.setattr(trial, "enemy_near_fleet", lambda io_, spot: (
+        30 if d(spot, trial.middle(ours)) < 2 * 32 else 4, None))
+    spot = trial.steer_fleet(io, StubWatch(ours, set()), m, st, None)
+    assert d(spot, trial.MASS) < d(trial.middle(ours), trial.MASS)
+    assert any("holding further back" in line for line in io.lines)
+
+
+def test_enemy_are_counted_on_the_game_screen_near_the_fleet():
+    from PIL import Image
+    pic = Image.new("RGB", (1920, 1080), (30, 50, 25))      # grass
+    for k in range(10):                                     # ten red men
+        x, y = 700 + (k % 5) * 60, 300 + (k // 5) * 60
+        pic.paste((210, 30, 30), (x, y, x + 13, y + 13))
+    pic.paste((205, 190, 40), (900, 500, 960, 503))         # a health bar
+    pic.paste((210, 30, 30), (20, 20, 60, 60))              # the kills list
+    pic.paste((200, 40, 40), (1700, 600, 1713, 613))        # far away
+    pic.paste((140, 70, 30), (800, 450, 813, 463))          # Russia's brown
+    n = trial.enemy_on_screen(pic, 820, 330, 300)
+    assert 8 <= n <= 12, n
+    assert trial.enemy_on_screen(pic, 1500, 200, 150) == 0
+
+
+def test_the_fleet_is_parked_when_the_hit_fades():
+    m = trial.load_map()
+    w = trial.place(m, "Warsaw 200")
+    front = (w["x"], w["y"])
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": "9", "scouts": 6, "ha": None}]
+    st.air_keys = ["9"]
+    st.battle = trial.Battle("Berlin 1000", 0)
+    st.battle.front = front
+    # 45 of a peak of 100 left: fading (the ground is not yet losing)
+    st.battle.samples = [(10, 100, 8, 20), (40, 45, 8, 14)]
+    assert trial.fight(io, StubWatch(blob(front), set()), m, st, None) == 0
+    park = live.minimap_point(*trial.fleet_spot())
+    assert st.air_home and (*park, "right") in io.clicks
+    assert not st.battle.retreated
+    # and it stays parked until the next hit sends it
+    io2 = StubIO()
+    st.air_moved = -1e9
+    trial.fight(io2, StubWatch(blob(front), set()), m, st, None)
+    assert io2.clicks == []
+
+
+def test_our_own_buildings_red_lamps_are_not_counted_as_enemy():
+    from PIL import Image
+    pic = Image.new("RGB", (1920, 1080), (30, 50, 25))
+    pic.paste((230, 20, 20), (800, 400, 813, 413))          # a lamp on our depot
+    pic.paste((230, 20, 20), (1000, 400, 1013, 413))        # an enemy man
+    assert trial.enemy_on_screen(pic, 900, 400, 400) == 2
+    assert trial.enemy_on_screen(pic, 900, 400, 400,
+                                 skip=[(806, 406, 40)]) == 1
+    # blood and fire are darker than team red; gold Scouts are not counted
+    pic2 = Image.new("RGB", (1920, 1080), (30, 50, 25))
+    pic2.paste((150, 10, 10), (800, 400, 830, 430))         # blood
+    pic2.paste((230, 200, 40), (900, 400, 930, 430))        # a gold Scout
+    assert trial.enemy_on_screen(pic2, 900, 400, 400) == 0
