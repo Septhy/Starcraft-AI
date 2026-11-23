@@ -891,3 +891,17 @@ The repository owner's rules:
 - Not handled: what counts as "at home" and "forward" is measured
   toward Berlin from the massing place, so a massing place west of
   Berlin would confuse gathering and the front.
+
+## "@R hit <city>", "@R status", "@R reset"
+
+- "@R hit Warsaw": the mass is sent at that city, now ("gone Warsaw"),
+  or at a time given ("@R hit Warsaw in 2": "gone Warsaw in 30
+  seconds" then "gone Warsaw"). Any city the troops can walk to;
+  otherwise "I can't hit there" / "I can't find that place". From the
+  city the usual road carries on (Berlin -> Paris and so on).
+- "@R status": one line, at most 60 characters: "185/200 | mass
+  Smolensk | massing 120/140 for east" (or "waiting till 12:30",
+  "gone balks at 12:30", "hit Warsaw at 12:30").
+- "@R reset": drops waits, pending hits and announcements, masses at
+  Smolensk again; reply "reset: massing at Smolensk, usual plan".
+- All from teal, purple or orange only, tag required, as before.

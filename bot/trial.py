@@ -551,7 +551,10 @@ def team_gate(io, watch, mapdata, st, ready, target):
                           team_rules.front_of(planned))
     if answer == "go":
         front = st.team.front
-        if front != team_rules.front_of(planned) or asked:
+        if st.team.target:              # "@R hit Warsaw": that city
+            planned = st.team.target
+            io.log(f"the hit goes to {planned}, as the allies asked")
+        elif front != team_rules.front_of(planned) or asked:
             planned = target_for_front(st, mapdata, front, st.battle)
             io.log(f"the hit goes {front}, as the allies asked: {planned}")
         st.chosen_target, st.planned_target = planned, None
@@ -1986,6 +1989,52 @@ def move_mass(io, mapdata, st, order):
     io.log(f"{order.colour} said {order.said!r}: massing at {name} from now on")
 
 
+def place_for_hit(mapdata, text):
+    """"@R hit <city>": the city meant, if the troops can walk there.
+    Returns (map name, name to type) or (None, the answer to type)."""
+    from bot import places
+    name = places.resolve(mapdata, text)
+    if name is None:
+        return None, "I can't find that place"
+    city = place(mapdata, name)
+    if not places.walkable(city["x"], city["y"]):
+        return None, "I can't hit there"
+    return name, places.plain(name)
+
+
+def mass_name(mapdata):
+    """The name of the place Russia masses at now."""
+    if MASS == HOME_MASS:
+        return "Smolensk"
+    from bot import places
+    return places.plain(place_name(mapdata, *MASS))
+
+
+def status_line(io, mapdata, st):
+    """"@R status": supply, plan and massing place, in one chat line."""
+    seen = st.supply_seen
+    pop = f"{seen[0][0]}/{seen[0][1]}" if seen else "?/200"
+    now = st.clock.time() if st.clock else io.now()
+    plan = st.team.plan(now) if st.team else None
+    if plan is None:
+        target = st.planned_target
+        front = team_rules.front_of(target) if target else \
+            ("east" if planned_front(now) == "north" else "balks")
+        plan = f"massing {st.strength}/{st.need} for {front}"
+    return f"{pop} | mass {mass_name(mapdata)} | {plan}"
+
+
+def reset_orders(io, mapdata, st):
+    """"@R reset": every order dropped, mass back at Smolensk, and the
+    usual pattern again."""
+    global MASS
+    MASS = HOME_MASS
+    st.planned_target = st.chosen_target = None
+    st.go_pending = False
+    say(io, st, "reset: massing at Smolensk, usual plan", force=True)
+    io.log("reset by the allies: massing at Smolensk, usual plan")
+
+
 class Listening:
     """The game's io, but every screenshot is also used to read the game
     clock and to listen to the allies' chat."""
@@ -2050,8 +2099,13 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
             st.ears.context = text
     global MASS
     MASS = HOME_MASS                    # every game starts at Smolensk
-    st.team = team_rules.Team(announce, raw.log,
-                              on_mass=lambda o: move_mass(raw, mapdata, st, o))
+    st.team = team_rules.Team(
+        announce, raw.log,
+        on_mass=lambda o: move_mass(raw, mapdata, st, o),
+        on_status=lambda: say(raw, st, status_line(raw, mapdata, st),
+                              force=True),
+        on_reset=lambda: reset_orders(raw, mapdata, st),
+        resolve=lambda text: place_for_hit(mapdata, text))
     if ears is not None:
         from bot import places
         ears.places = places.names_for_chat(mapdata)

@@ -15,6 +15,11 @@ The rules, from the repository owner:
   Russia goes back to preparing its next hit as usual.
 - An ally talks to Russia by starting the message with "@R", "@Russ" or
   "@Russia". Nothing else is taken as an order.
+- "@R hit Warsaw" sends the mass at that city (any city the troops can
+  walk to), now, or at a time given ("@R hit Warsaw in 2").
+- "@R status": Russia answers with its supply (x/200), its plan and
+  where it masses. "@R reset": every earlier order is dropped and the
+  mass goes back to Smolensk; Russia plays its usual pattern again.
 - "@R mass at Warsaw" moves Russia's massing place there, anywhere its
   troops can walk to; where they cannot, Russia answers "I can't mass
   there". "@R mass home" (or "at Smolensk") goes back. "@R hit east" means hit
@@ -113,12 +118,20 @@ class Team:
     answers "mass" (not yet), or "go" once the hit has been announced
     and its 30 seconds are up, typing the announcements on the way."""
 
-    def __init__(self, say, log, on_mass=None):
+    def __init__(self, say, log, on_mass=None, on_status=None,
+                 on_reset=None, resolve=None):
         self.say, self.log = say, log   # say(text) types to the allies
         self.on_mass = on_mass          # on_mass(order): move the mass
+        self.on_status = on_status      # on_status(): say how things stand
+        self.on_reset = on_reset        # on_reset(): back to the usual
+        self.resolve = resolve          # resolve(place) -> (target, label)
+                                        # or (None, the answer to type)
+        self.pending_target = None      # the city the allies named for the hit
+        self.target = None              # the city of the hit that has gone
         self.hold_until = None          # no hit before this clock time
         self.ally_go = None             # (front, clock time) the allies asked for
         self.announced = None           # (front, clock time it goes)
+        self.announced_target = None
         self.front = None               # the front of the hit being sent
 
     # --- what the allies said
@@ -128,6 +141,18 @@ class Team:
             if self.on_mass:
                 self.on_mass(order)
             return
+        if order.kind == "status":
+            if self.on_status:
+                self.on_status()
+            return
+        if order.kind == "reset":
+            self.hold_until = self.ally_go = self.announced = None
+            self.pending_target = None
+            self.log(f"{order.colour} said {order.said!r}: all orders "
+                     f"dropped, back to the usual")
+            if self.on_reset:
+                self.on_reset()
+            return
         if order.kind == "stop":
             until = parse_clock(order.until_clock)
             if until is None or until <= now:
@@ -135,6 +160,7 @@ class Team:
                                else STOP_WAIT)
             self.hold_until = until
             self.ally_go = None
+            self.pending_target = None
             if self.announced:
                 self.log(f"hit to the {self.announced[0]} called off: "
                          f"{order.colour} said {order.said!r}")
@@ -148,8 +174,18 @@ class Team:
                 timed = order.wait_seconds > 0
                 at = now + max(0, order.wait_seconds)
             # "@R hit east" with no time: right now. With no front named
-            # ("@R go"), Russia's own front.
+            # ("@R go"), Russia's own front. "@R hit Warsaw": that city.
             front = order.front if order.front in FRONTS else None
+            self.pending_target = None
+            if order.place and order.place.lower() not in ("east", "balks",
+                                                           "none"):
+                target, label = self.resolve(order.place) if self.resolve \
+                    else (None, "I can't find that place")
+                if target is None:
+                    self.say(label)     # why it cannot
+                    self.log(f"{order.colour} said {order.said!r}: {label}")
+                    return
+                front, self.pending_target = label, target
             self.ally_go = (front, at, not timed)
             self.hold_until = None
             self.announced = None       # announce again, for this order
@@ -178,7 +214,7 @@ class Team:
             asked, at, at_once = self.ally_go
             asked = asked or front
             if at_once:                 # "@R hit east": now
-                self.front = asked
+                self.front, self.target = asked, self.pending_target
                 self.say(f"gone {asked}")
                 self.log(f"announced: gone {asked} (the allies asked for it now)")
                 self.sent()
@@ -187,6 +223,7 @@ class Team:
                 return "mass"           # the allies set the time: not before
             if self.announced is None:
                 go_at = max(at, now + 5)
+                self.announced_target = self.pending_target
                 self.announced = (asked, go_at)
                 secs = int(round(go_at - now))
                 self.say(f"gone {asked} in {secs} seconds")
@@ -196,6 +233,7 @@ class Team:
         if self.announced:
             if now >= self.announced[1]:
                 self.front = self.announced[0]
+                self.target = self.pending_target
                 self.say(f"gone {self.front}")
                 self.log(f"announced: gone {self.front}")
                 self.sent()             # then back to the usual preparation
@@ -212,6 +250,19 @@ class Team:
     def sent(self):
         """The hit has gone: back to the usual preparation."""
         self.announced = self.ally_go = None
+        self.pending_target = None
+
+    def plan(self, now):
+        """A few words on what Russia means to do next, for "@R status"."""
+        if self.held(now):
+            return f"waiting till {clock_text(self.hold_until)}"
+        if self.announced:
+            return f"gone {self.announced[0]} at {clock_text(self.announced[1])}"
+        if self.ally_go:
+            front, at, at_once = self.ally_go
+            return f"hit {front or 'now'}" + ("" if at_once else
+                                              f" at {clock_text(at)}")
+        return None
 
 
 # --------------------------------------------------------- reading chat
@@ -248,7 +299,8 @@ ORDER_SCHEMA = {
                            "players only.",
             "items": {"type": "object", "properties": {
                 "colour": {"type": "string", "enum": ALLY_COLOURS},
-                "kind": {"type": "string", "enum": ["stop", "go", "mass"]},
+                "kind": {"type": "string",
+                         "enum": ["stop", "go", "mass", "status", "reset"]},
                 "front": {"type": "string",
                           "enum": ["east", "balks", "none"]},
                 "wait_seconds": {"type": "integer"},
@@ -290,6 +342,12 @@ like.
 - go: the ally tells Russia to hit: "go east", "go balks", "go now", \
 "hit east", "attack balks", "push east", "go" and the like. With no time \
 given it means now.
+- go with a city: "@R hit Warsaw", "@R attack Odessa in 2": kind \
+"go", front "none", and the city in "place" (one of the place names \
+listed below if it is one of them, otherwise as written). With "east" \
+or "balks" instead of a city, leave "place" empty.
+- status: "@R status": the ally asks how Russia stands.
+- reset: "@R reset": the ally wants every earlier order dropped.
 - mass: the ally tells Russia where to gather its army: "@R mass at \
 Warsaw", "@R mass in Odessa", "@R gather at Kiev". Put the place in \
 "place", as one of the place names listed below if it is one of them, \
@@ -307,7 +365,7 @@ give no time. A bare number from 1 to 9 means minutes ("go east in 2" is \
 - until_clock: if they name a time on the game clock ("go at 12:00", \
 "wait till 10:30"), that time as m:ss; otherwise "". The current game \
 clock is given to you.
-- place: for a mass order, the place; otherwise "".
+- place: for a mass order, or a hit on a city, the place; otherwise "".
 - said: the ally's words, as written.
 
 If the same order appears on several lines, report it once. If there are \
@@ -430,7 +488,8 @@ class ChatEars:
                              for line in data.get("lines", [])[:12]]
                     got = [Order(o) for o in data.get("orders", [])[:4]
                            if o.get("colour") in ALLY_COLOURS
-                           and o.get("kind") in ("stop", "go", "mass")
+                           and o.get("kind") in ("stop", "go", "mass",
+                                                 "status", "reset")
                            and addressed(o.get("said", ""))]
                     with self._lock:
                         self._found += [(game_clock, o) for o in got]
