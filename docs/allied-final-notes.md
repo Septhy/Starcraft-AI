@@ -671,3 +671,23 @@ real game.
   (Claude reads the chat and can give attack_point orders).
 - Not done: retreating single hurt units, rule-based focus fire. All of
   this is untested against opponents that move.
+
+## Trial 16: clumps left out of hits; clog at Romania
+
+- User: bodies idling on the minimap were not in the hit; in the
+  Balkans it checked the front and did nothing; Romania clogged.
+- Log: six hits; four of the last five aimed at Romania again (the
+  general kept choosing it though it was held), so troops piled up
+  there. Idle troops at a held city were sent on at most 14 small
+  groups a time and only if hit-sized; the hit's own troops stopped
+  short were left unless hit-sized.
+- Now: a chosen target that is already reached moves on down the road
+  (st.reached); troops of the hit stopped short are sent at it again
+  whatever their number (20+ pixels); up to 24 groups a pass; a hit
+  also takes every still body anywhere on the map (push_front), not
+  only the massing place and the front.
+- The glance estimate swung (0, 145, 253, 0): supply was often
+  unreadable and "elsewhere" pixels were huge with troops packed at
+  Romania. Now floored at one man a mass pixel, and the last supply
+  reading is kept for 30 s. Still rough.
+- First hit lost again: supply 190 -> 124 by 103 s against computers.

@@ -148,6 +148,8 @@ class State:
         self.rekey = 8             # ground keys already re-used this hit
         self.outcomes = []         # how each hit went, for the lessons
         self.last_advance = -1e9   # when idle forward troops were last sent on
+        self.reached = set()       # targets our troops have stood on
+        self.supply_seen = None    # (supply, when) last read off the screen
         self.home_axis0 = 0        # Axis pixels inside Russia at the start
         self.last_defence = -1e9   # when troops were last sent at intruders
         self.air_home = False      # the air has been pulled back to the mass
@@ -242,7 +244,8 @@ def men_at_mass(supply, mass_px, elsewhere_px):
     if supply is None:
         return int(mass_px)
     men = supply[0] - SPREAD_MEN * elsewhere_px
-    return int(max(0, min(men, CROWD_MEN * mass_px)))
+    # never fewer than one a pixel: the pixels there are men too
+    return int(max(mass_px, min(men, CROWD_MEN * mass_px)))
 
 
 def attack_move(io, map_x, map_y):
@@ -609,23 +612,26 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=2):
     return orders
 
 
-def push_front(io, watch, mapdata, st, target, limit=14):
-    """Units from earlier hits that are standing still at the front go
-    in with this hit, so it arrives with everything."""
+def push_front(io, watch, mapdata, st, target, limit=30):
+    """Everyone else goes in with the hit: every body of ours standing
+    still anywhere on the map, not only those at the massing place.
+    Troops left at the front by earlier hits, and bodies idling at
+    home off the massing place, are all sent at the target."""
     a = watch.units(io.shot("watch", keep=False))
     io.sleep(1.0)
     b = watch.units(io.shot("front"))
-    idle = forward_units(a & b, mapdata)
     w = place(mapdata, target)
+    idle = (a & b) - at_mass(b) - near(b, MIDDLE_EAST, 6)
     idle -= near(idle, (w["x"], w["y"]), 6)        # already there
     orders = 0
-    for group in back_to_front(live.clusters(idle, 3, 3), (w["x"], w["y"]),
-                               lambda g: live.from_drawn(*g[0]))[:limit]:
-        if len(group) >= 4 and select_group(io, group, st, watch):
+    bodies = [g for g in live.clusters(idle, 6, 6) if len(g) >= 4][:limit]
+    for group in back_to_front(bodies, (w["x"], w["y"]),
+                               lambda g: live.from_drawn(*g[0])):
+        if select_group(io, group, st, watch):
             attack_move(io, *front_point(mapdata, st, target))
             orders += 1
     if orders:
-        io.log(f"  {orders} groups standing at the front sent on as well")
+        io.log(f"  {orders} bodies standing elsewhere on the map sent as well")
     return orders
 
 
@@ -715,12 +721,17 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
     Balkans since the start (Germany starts with troops there), and
     Berlin if not."""
     if st.advised and io.now() - st.advised[1] <= 40:
-        io.log(f"next target {st.advised[0]} (the general's choice)")
-        return st.advised[0]
+        name = st.advised[0]
+        while name in st.reached and name in NEXT:
+            name = NEXT[name]           # already ours: on down the road
+        io.log(f"next target {name} (the general's choice"
+               + ("" if name == st.advised[0] else
+                  f" was {st.advised[0]}, which is already taken") + ")")
+        return name
     # going south means carrying on from the farthest point reached on
     # the southern road, not starting it again
     south, at = "Romania 300", "Romania 300"
-    while at in NEXT and at in st.sent_at:
+    while at in NEXT and (at in st.sent_at or at in st.reached):
         at = NEXT[at]
         south = at
     if planned_front(io.now() - st.t0) == "south":
@@ -891,9 +902,8 @@ def advance_front(io, watch, mapdata, st, still, picture):
     holding = near(idle, (w["x"], w["y"]), 9) \
         if battle.target not in NEXT else set()
     st.reserve = len(idle - holding)
-    if len(idle) * SPREAD_MEN * 2 < MIN_HIT:
-        return 0                        # too few to be a hit: they hold, and
-                                        # go in with the next one
+    if len(idle) < IDLE_FORWARD:
+        return 0
     st.last_advance = io.now()
     hostile = watch.others(picture, HOSTILE)
 
@@ -904,21 +914,27 @@ def advance_front(io, watch, mapdata, st, still, picture):
     at_target = near(idle, (w["x"], w["y"]), 9)
     objective = battle.target
     if battle.arrived or len(at_target) >= IDLE_FORWARD:
+        st.reached.add(battle.target)
         objective = NEXT.get(battle.target)
         if objective is None:
             return 0                    # the last objective: hold it
+        if len(idle) * SPREAD_MEN * 2 < MIN_HIT:
+            return 0                    # too few to go on alone: they hold
+                                        # the city and go in with the next hit
         st.outcomes.append(f"hit at {battle.target}: arrived, sent on to "
                            f"{objective}")
         io.log(f"{battle.target} reached: sending the troops there on to "
                f"{objective}")
         st.battle = battle = Battle(objective, io.now())
         st.sent_at.append(objective)
+    # (troops of this hit that have stopped short of its target are sent
+    # at it again whatever their number: the hit has to keep advancing)
     o = place(mapdata, objective)
     idle -= near(idle, (o["x"], o["y"]), 6)        # already at the objective
     orders = 0
-    groups = back_to_front(live.clusters(idle, 3, 3), (o["x"], o["y"]),
+    groups = back_to_front(live.clusters(idle, 4, 4), (o["x"], o["y"]),
                            lambda g: live.from_drawn(*g[0]))
-    for group in groups[:14]:
+    for group in groups[:24]:
         if len(group) < 4 or fighting(group):
             continue
         # a tight box: wide ones overlap and pick the same troops again
@@ -1246,6 +1262,10 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         # At the supply limit the army cannot grow: whatever is there
         # is the hit, so the least is enough.
         supply = numbers.read_supply(picture)
+        if supply:
+            st.supply_seen = (supply, io.now())
+        elif st.supply_seen and io.now() - st.supply_seen[1] <= 30:
+            supply = st.supply_seen[0]  # unreadable this look: the last one
         capped = bool(supply) and supply[0] >= supply[1] - SUPPLY_SLACK
         if capped:
             need = min(need, MIN_HIT)
@@ -1274,6 +1294,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
                 need = BIG_HIT          # come back with more
             if battle.arrived and not battle.taxed:
                 battle.taxed = True     # the city is ours: fly a building in
+                st.reached.add(battle.target)
                 io.log(f"{battle.target} reached: holding it")
                 flights_after(io, mapdata, st, battle.target)
         fight(io, watch, mapdata, st, picture)

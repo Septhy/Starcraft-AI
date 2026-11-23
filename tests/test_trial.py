@@ -653,7 +653,7 @@ def test_men_at_the_mass_are_judged_at_a_glance():
     assert trial.men_at_mass((204, 200), 57, 150) >= 140
     # nearly everyone is away: few at the mass, however high the supply
     assert trial.men_at_mass((190, 200), 5, 300) <= 20
-    assert trial.men_at_mass((60, 200), 40, 400) == 0
+    assert trial.men_at_mass((60, 200), 40, 400) == 40
     # no supply figure to read: the pixels are all there is
     assert trial.men_at_mass(None, 90, 10) == 90
 
