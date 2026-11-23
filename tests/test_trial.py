@@ -779,3 +779,26 @@ def test_at_full_supply_a_lost_hit_does_not_stop_the_next(monkeypatch):
     assert battle.verdict()[0] == "losing"
     strength, went = trial.build_big_mass(g, watch, m, st, 0.0, battle)
     assert went and strength >= trial.MIN_HIT and st.need == trial.MIN_HIT
+
+
+def test_a_hit_leaves_nobody_at_the_massing_place():
+    """Trials 20 and 21: about a third of every hit stayed at the
+    massing place. Packed men under a box are more than the twelve the
+    game picks; a full box must not count its ground as done."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    for k, u in enumerate(g.units):
+        if k < 170:                                 # packed tight at the mass
+            p = (trial.MASS[0] + (k % 17 - 8) * 14,
+                 trial.MASS[1] + (k // 17 - 5) * 14)
+        else:
+            p = (7000 + (k % 10) * 30, 600 + (k // 10) * 30)
+        u["from"] = u["to"] = p
+    st = trial.State()
+    st.men_per_pixel = 0.4                          # the glance thinks them spread out
+    st.ground_keys, st.rekey = [], 8
+    trial.hit(g, watch, m, st, "Berlin 1000", use_keys=False)
+    left = [u for u in g.units[:170] if near(u["to"], trial.MASS, 14)]
+    assert len(left) <= 0.1 * 170, len(left)

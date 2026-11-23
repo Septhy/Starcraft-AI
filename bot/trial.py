@@ -113,7 +113,8 @@ SUPPLY_SLACK = 4               # this close to the limit counts as at it
 RETRY_IDLE = 30                # seconds before the same idle group is tried again
 BIG_MASS = WANT_HIT
 RETRAIN_EVERY = 55             # seconds between rounds of the barracks
-FIRST_HIT_SWEEPS = 2           # stragglers wait for the next mass
+FIRST_HIT_SWEEPS = 3           # passes over the massing place at the first hit
+HIT_SWEEPS = 4                 # and at the later ones, stopping once it is empty
 
 
 class Stopped(Exception):
@@ -158,6 +159,7 @@ class State:
         self.f7_told = None
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.hits_sent = 0
+        self.box_px = None         # minimap pixels that make a box of twelve
         self.depots = {}           # tax city -> the SCV-and-depot job for it
         self.depot_tries = {}
         self.tax_tries = {}        # tax city -> buildings sent there so far
@@ -592,8 +594,10 @@ def select_full(io, st, seed, pool, cam):
     pixels boxed, how many units were selected)."""
     near_first = sorted(pool, key=lambda p: (p[0] - seed[0]) ** 2
                         + (p[1] - seed[1]) ** 2)
-    want = max(3, round(FULL / max(st.men_per_pixel, 0.2)))
-    take, chosen, n = want, [], 0
+    # how many minimap pixels make a box of twelve: learnt from the boxes
+    # themselves; at first a guess from the army estimate
+    want = st.box_px or max(3, round(FULL / max(st.men_per_pixel, 0.2)))
+    take, chosen, n = max(2, want), [], 0
     for attempt in range(3):
         chosen = near_first[:take]
         box = box_around(chosen, cam)
@@ -603,10 +607,18 @@ def select_full(io, st, seed, pool, cam):
         io.sleep(0.05)
         st.boxes += 1
         n = live.selected_count(io.shot("box", keep=False))
+        if n >= FULL:
+            # full: the box may have held many more than twelve, and
+            # those were not picked. Draw the next ones smaller.
+            st.box_px = max(2, int(take * 0.6))
+            break
         if n >= GOOD_BOX or take >= len(near_first):
+            if n >= GOOD_BOX:
+                st.box_px = take        # about right
             break
         # too few: reach for more, in proportion to how short it fell
         take = min(len(near_first), int(take * min(3.0, FULL / max(n, 2))) + 2)
+        st.box_px = take
     if n == 0:
         st.empty += 1
     st.selected += n
@@ -641,7 +653,13 @@ def sweep_mass(io, watch, mapdata, st, target):
             seed = back_to_front(list(left), (w["x"], w["y"]),
                                  lambda p: live.from_drawn(*p))[0]
             boxed, n = select_full(io, st, seed, left, cam)
-            left -= set(boxed) or {seed}
+            if n >= FULL and len(boxed) > 1:
+                # a full box: more may stand there than were picked, so
+                # only the nearest half of it counts as done (trial 21:
+                # a third of every hit was left at the massing place)
+                left -= set(boxed[:max(1, len(boxed) // 2)])
+            else:
+                left -= set(boxed) or {seed}
             if n == 0:
                 watch.forget(boxed)
                 continue
@@ -656,7 +674,7 @@ def sweep_mass(io, watch, mapdata, st, target):
     return orders, len(there)
 
 
-def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=2):
+def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     """Send the mass at the target as a wall."""
     orders = 0
     if use_keys:
@@ -676,7 +694,8 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=2):
         n, found = sweep_mass(io, watch, mapdata, st, target)
         orders += n
         start = start or max(found, 1)
-        if n == 0 or found < 0.15 * start:
+        # sweep again until the massing place is about empty
+        if n == 0 or found < 0.1 * start:
             break
         io.sleep(1.5)
     if not use_keys:                    # nothing is forward before the first hit

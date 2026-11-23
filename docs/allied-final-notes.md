@@ -825,3 +825,17 @@ The repository owner's rules:
   fresh hit from Smolensk to Frankfurt marches through Poland. Now a
   new Balkans hit always goes to Romania, and is carried on down the
   road from there.
+
+## The clumps left behind (confirmed with the user)
+
+- What the user meant: after each hit, clumps stayed at and around the
+  massing place, just west of Smolensk. Confirmed in trials 20 and 21:
+  about 66-73 men still counted there seconds after a hit left.
+- Cause: select_full sized boxes from the army estimate (men per
+  minimap pixel), which takes packed men for spread out; a box covered
+  20-40 men, the game picked 12, and sweep_mass marked the whole box
+  done. Boxes averaged 10-11 units (mostly full). Only 2 sweeps.
+- Fix: box size is learnt from the boxes (full -> next 40% smaller;
+  short -> bigger); a full box marks only its nearest half done; up to
+  4 sweeps (3 at the first hit), stopping when under 10% is left.
+  Fake test, 170 packed men: left behind 134 -> 0; boxes 40 -> 79.
