@@ -152,3 +152,48 @@ def test_return_air_and_reset_are_told_apart():
     assert got == ["bring orange", "reset", "return"]
     assert team.addressed("@Reset") and team.addressed("@R return air")
     assert not team.addressed("@Re go")
+
+
+def test_the_fleet_follows_the_allys_air_every_eight_seconds(monkeypatch):
+    m = trial.load_map()
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    st = trial.State()
+    st.air_keys = ["9"]
+    st.fleet_task = {"colour": "teal", "spot": (40 * 32, 60 * 32),
+                     "since": io.t, "checked": io.t}
+    seen = iter([(40 * 32, 60 * 32), (70 * 32, 40 * 32), None])
+    monkeypatch.setattr(trial, "find_ally_air", lambda io_, w, c: next(seen))
+    # not before 8 seconds
+    io.t += 5
+    assert not trial.follow_ally_air(io, Watch(), m, st)
+    # 8 s on, their air has not moved: the fleet stays on it
+    io.t += 4
+    assert trial.follow_ally_air(io, Watch(), m, st)
+    assert io.keys == ["9", "a"]
+    # 8 s later it has moved: the fleet follows along the safe way
+    io.keys.clear()
+    io.t += 8
+    assert trial.follow_ally_air(io, Watch(), m, st)
+    assert st.fleet_task["spot"] == (70 * 32, 40 * 32)
+    assert io.keys.count("a") >= 1
+    assert any("the fleet follows" in line for line in io.lines)
+    # their air not seen: the fleet waits where it is
+    io.keys.clear()
+    io.t += 8
+    assert not trial.follow_ally_air(io, Watch(), m, st)
+    assert io.keys == []
+    # back home: no more check-ups
+    st.fleet_task = None
+    io.t += 8
+    assert not trial.follow_ally_air(io, Watch(), m, st)
+
+
+def test_the_massing_goes_on_while_the_fleet_is_away(monkeypatch):
+    """The check-ups are part of the massing loop: training and gathering
+    carry on in between."""
+    import inspect
+    src = inspect.getsource(trial.build_big_mass)
+    assert "follow_ally_air(" in src and "gather_idle(" in src \
+        and "train_everywhere(" in src
+    assert "follow_ally_air(" in inspect.getsource(trial.wait_for_mass)

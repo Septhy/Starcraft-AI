@@ -1011,3 +1011,9 @@ The repository owner's rules:
   not use the fleet keys.
   Replies: "air on its way to you", "I can't find your air", "I have no
   air". Whether Shift+click after A queues in Remastered is untested.
+- User: while the fleet is with an ally, check on it every 8 s and keep
+  massing. follow_ally_air (called in both massing loops, between the
+  other steps): find their air again; moved 6+ minimap pixels -> send
+  the fleet after it along the safe way; else attack-move on the same
+  spot; not seen -> the fleet waits (logged after 3 misses). No checks
+  while a hit is being sent (30-60 s).

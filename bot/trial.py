@@ -851,6 +851,7 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
                 team_gate(io, watch, mapdata, st, ready, target) == "go":
             break
         relocate_mass(io, watch, mapdata, st)
+        follow_ally_air(io, watch, mapdata, st)
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
         if not st.fleet_moved and now >= FLEET_MOVE_AFTER:
@@ -2386,6 +2387,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     while io.now() - t0 < TRIAL_SECONDS:
         relocate_mass(io, watch, mapdata, st)
         collect_new_scouts(io, watch, mapdata, st)
+        follow_ally_air(io, watch, mapdata, st)
         orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
         st.blind = 0 if live.minimap_showing(picture) else st.blind + 1
@@ -2767,6 +2769,62 @@ def air_route(watch, picture, start, goal):
     return [live.from_drawn(c, r) for r, c in stops]
 
 
+def send_fleet(io, watch, st, start, goal):
+    """Attack-move every fleet key from start to goal along the safe way:
+    the first stop at once, the rest queued (Shift + click). Returns
+    the stops."""
+    stops = air_route(watch, io.shot("route", keep=False), start, goal)
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.05)
+        for k, stop in enumerate(stops):
+            io.key("a")
+            io.sleep(0.03)
+            point = live.minimap_point(*stop)
+            if k == 0:
+                io.click(*point)
+            else:
+                io.click_with("shift", *point)   # queued: the next stop
+            io.sleep(0.03)
+    return stops
+
+
+ALLY_AIR_CHECK = 8             # seconds between check-ups on the fleet with an ally
+ALLY_AIR_MOVED = 6             # minimap pixels the ally's air must move to re-route
+
+
+def follow_ally_air(io, watch, mapdata, st):
+    """While the fleet is with an ally's air: every 8 seconds, find their
+    air again; if it has moved, take the fleet after it by the safe way,
+    else attack-move it on the same spot. Called from the massing loops,
+    so the massing goes on in between."""
+    task = st.fleet_task
+    if task is None or io.now() - task["checked"] < ALLY_AIR_CHECK:
+        return False
+    task["checked"] = io.now()
+    where = find_ally_air(io, watch, task["colour"])
+    if where is None:
+        task["lost"] = task.get("lost", 0) + 1
+        if task["lost"] == 3:
+            io.log(f"bring air: the {task['colour']} air is not to be seen;"
+                   f" the fleet waits where it is")
+        return False
+    task["lost"] = 0
+    c0 = live.to_drawn(*task["spot"])
+    c1 = live.to_drawn(*where)
+    if abs(c0[0] - c1[0]) + abs(c0[1] - c1[1]) >= ALLY_AIR_MOVED:
+        send_fleet(io, watch, st, task["spot"], where)
+        io.log(f"bring air: the {task['colour']} air moved to near "
+               f"{place_name(mapdata, *where)}: the fleet follows")
+        task["spot"] = where
+    else:
+        for key in st.air_keys:         # stay on them
+            io.key(key)
+            io.sleep(0.05)
+            attack_move(io, *where)
+    return True
+
+
 def bring_air(io, watch, mapdata, st, colour):
     """"@R bring air": the whole fleet, by attack-move along a safe way,
     to where that ally's air is thickest. It stays with them, through
@@ -2780,23 +2838,11 @@ def bring_air(io, watch, mapdata, st, colour):
         say(io, st, "I can't find your air", force=True)
         io.log(f"bring air: no {colour} air found")
         return False
-    picture = io.shot("route", keep=False)
     start = fleet_spot() if st.air_home or not st.battle or \
         not st.battle.front else st.battle.front
-    stops = air_route(watch, picture, start, where)
-    for key in st.air_keys:
-        io.key(key)
-        io.sleep(0.05)
-        for k, stop in enumerate(stops):
-            io.key("a")
-            io.sleep(0.03)
-            point = live.minimap_point(*stop)
-            if k == 0:
-                io.click(*point)
-            else:
-                io.click_with("shift", *point)   # queued: the next stop
-            io.sleep(0.03)
-    st.fleet_task = {"colour": colour, "spot": where, "since": io.now()}
+    stops = send_fleet(io, watch, st, start, where)
+    st.fleet_task = {"colour": colour, "spot": where, "since": io.now(),
+                     "checked": io.now()}
     st.air_home = False
     say(io, st, "air on its way to you", force=True)
     io.log(f"bring air: the fleet sent to the {colour} air near "
