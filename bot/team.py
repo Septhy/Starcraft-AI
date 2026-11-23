@@ -19,8 +19,8 @@ The rules, from the repository owner:
   walk to), now, or at a time given ("@R hit Warsaw in 2").
 - "@R bring air": the whole air fleet goes, by attack-move along a safe
   way, to where that ally's air is thickest, and stays there through
-  Russia's own hits until "@R return air". "@R reset" (also "@Reset")
-  is about massing and hitting only and leaves the air alone.
+  Russia's own hits until "@R return air". "@R reset" is about massing
+  and hitting only and leaves the air alone.
 - "@R status": Russia answers with its supply (x/200), its plan and
   where it masses. "@R reset": every earlier order is dropped and the
   mass goes back to Smolensk; Russia plays its usual pattern again.
@@ -58,12 +58,14 @@ CHAT_MODEL = "claude-haiku-5-5"  # reading chat needs speed, not depth
 LISTEN_EVERY = 1.5             # seconds between looks at the chat at most
 REPEAT_WINDOW = 25             # seconds: the same line seen again is the same line
 SPEND_CAP = 2.00               # dollars per game for reading chat
-ADDRESS = re.compile(r"^\s*@(russia|russ|reset|r)(?![a-z])", re.IGNORECASE)
+# Only Russia's own tags: other countries' bots will have theirs, so a
+# word such as "@Reset" must never be taken as meant for Russia.
+ADDRESS = re.compile(r"^\s*@(russia|russ|r)(?![a-z])", re.IGNORECASE)
 
 
 def addressed(text):
     """True if a chat message is meant for Russia: it starts with @R,
-    @Russ or @Russia (any capitals), or is "@Reset"."""
+    @Russ or @Russia (any capitals)."""
     return bool(ADDRESS.match(str(text)))
 
 
@@ -365,8 +367,8 @@ given it means now.
 listed below if it is one of them, otherwise as written). With "east" \
 or "balks" instead of a city, leave "place" empty.
 - status: "@R status": the ally asks how Russia stands.
-- reset: "@R reset" (or "@Reset"): the ally wants every earlier order \
-about massing and hitting dropped.
+- reset: "@R reset": the ally wants every earlier order about massing \
+and hitting dropped.
 - bring_air: "@R bring air", "@R air to me", "@R send air", "@R need \
 air": the ally wants Russia's air fleet brought to their own air.
 - return_air: "@R return air", "@R air back", "@R take your air back": \

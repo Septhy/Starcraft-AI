@@ -150,7 +150,10 @@ def test_return_air_and_reset_are_told_apart():
     for k in ("bring_air", "reset", "return_air"):
         t.heard(order(k), 10)
     assert got == ["bring orange", "reset", "return"]
-    assert team.addressed("@Reset") and team.addressed("@R return air")
+    # "@Reset" is not Russia's tag (other countries' bots will have their
+    # own); only "@R reset" is
+    assert not team.addressed("@Reset") and team.addressed("@R reset")
+    assert team.addressed("@R return air")
     assert not team.addressed("@Re go")
 
 

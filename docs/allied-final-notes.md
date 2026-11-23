@@ -1005,8 +1005,9 @@ The repository owner's rules:
   attack-move, the rest queued with Shift+click.
 - User: the fleet stays with the ally's air even through Russia's own
   hits and planned hits; only "@R return air" (or another "@R bring
-  air") moves it. "@R reset" (also "@Reset") is for massing and hitting
-  only and leaves the air alone. While it is away, own_fleet_keys() is
+  air") moves it. "@R reset" is for massing and hitting only and leaves
+  the air alone. "@Reset" is NOT taken (user: other countries' bots
+  will play together later and have their own tags). While it is away, own_fleet_keys() is
   empty: hits, recalls, retreats, defence and the general's orders do
   not use the fleet keys.
   Replies: "air on its way to you", "I can't find your air", "I have no
