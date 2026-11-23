@@ -832,14 +832,19 @@ def test_after_berlin_is_cleared_the_army_goes_on_to_paris_then_madrid(monkeypat
     moved = sum(near(u["to"], (paris["x"], paris["y"]), 12)
                 or near(u["to"], (madrid["x"], madrid["y"]), 16) for u in there)
     assert moved >= 100, moved
-    # new hits to the east go to Berlin, once it is taken to Paris, and
-    # after Paris to Madrid
+    # new hits to the east always go to Berlin first, even once Berlin
+    # and Paris are taken: Paris and Madrid are only reached through it
     st2 = trial.State()
     assert trial.east_next(st2) == "Berlin 1000"
-    st2.reached.add("Berlin 1000")
-    assert trial.east_next(st2) == "Paris 500"
-    st2.reached.add("Paris 500")
-    assert trial.east_next(st2) == "Madrid 1000"
+    st2.reached |= {"Warsaw 200", "Berlin 1000", "Paris 500"}
+    assert trial.east_next(st2) == "Berlin 1000"
+    st2.advised = ("Warsaw", 0.0)                   # Warsaw is taken: Berlin
+    io = StubIO()
+    io.t = 1.0
+    st2.advised = ("Warsaw 200", 0.0)
+    assert trial.choose_target(io, None, st2) == "Berlin 1000"
+    st2.advised = ("Berlin 1000", 0.0)
+    assert trial.choose_target(io, None, st2) == "Berlin 1000"
 
 
 def test_berlin_reached_but_not_cleared_is_cleared_first(monkeypatch):

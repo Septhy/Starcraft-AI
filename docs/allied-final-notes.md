@@ -864,5 +864,7 @@ The repository owner's rules:
 - Moving on still needs a hit-sized body; a handful holds the city.
 - Troops left at a city taken earlier on the road (Berlin when the push
   is at Paris) follow the push instead of being fetched home.
-- New hits east go to Berlin, or to Paris once Berlin is taken, then
-  Madrid (east_next). They are announced as "gone east".
+- User: Russia must always go through Berlin. Every new eastern hit is
+  sent to Berlin (east_next), even once Berlin and Paris are taken; it
+  is carried on to Paris and Madrid from Berlin once there and cleared.
+  A chosen target is never moved past Berlin. Announced "gone east".

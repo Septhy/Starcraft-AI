@@ -1174,12 +1174,12 @@ def planned_front(seconds_in):
 
 
 def east_next(st):
-    """Where a new hit to the east goes: Berlin, and once Berlin has been
-    taken, on to Paris, then Madrid."""
-    name = "Berlin 1000"
-    while name in st.reached and name in NEXT:
-        name = NEXT[name]
-    return name
+    """Where a new hit to the east goes: always Berlin. Paris and Madrid
+    are only ever reached through Berlin (the repository owner): a hit
+    that takes and clears Berlin is carried on from there by
+    advance_front, and a hit sent later goes to Berlin first and is
+    carried on again once it is there."""
+    return "Berlin 1000"
 
 
 def south_next(st):
@@ -1206,8 +1206,9 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
         if team_rules.front_of(name) == "balks":
             name = south_next(st)       # the Balkans: in through Romania
         while name in st.reached and name in NEXT and \
-                team_rules.front_of(name) == "east":
-            name = NEXT[name]           # already ours: on to Berlin
+                team_rules.front_of(name) == "east" and name != "Berlin 1000":
+            name = NEXT[name]           # already ours: on to Berlin, never
+                                        # past it (Paris goes through Berlin)
         io.log(f"next target {name} (the general's choice"
                + ("" if name == st.advised[0] else
                   f" was {st.advised[0]}, which is already taken") + ")")
@@ -1232,8 +1233,8 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
         why = "go south"
     else:
         target = east_next(st)
-        why = "Berlin again" if target == "Berlin 1000" else \
-            "Berlin is taken: on to the west"
+        why = "Berlin again" if "Berlin 1000" not in st.reached else \
+            "through Berlin, and on west from there"
     io.log(f"next target {target} (Axis in the Balkans: {seen} pixels, "
            f"{st.balkan_start} at the start: {why})")
     return target
