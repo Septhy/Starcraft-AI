@@ -199,3 +199,31 @@ def test_reset_drops_every_order_and_masses_at_smolensk(monkeypatch):
     assert trial.MASS == trial.HOME_MASS and not st.team.held(3)
     assert st.planned_target is None and st.team.ally_go is None
     assert said[-1].startswith("reset")
+
+
+def test_moving_the_mass_takes_the_whole_army_along(monkeypatch):
+    from eyes import live
+    from tests.test_trial import FakeGame, near
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    monkeypatch.setattr(trial, "MASS", trial.HOME_MASS)
+    monkeypatch.setattr(trial, "say", lambda io, st, text, force=False: None)
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    for k, u in enumerate(g.units):
+        if k < 170:                                 # packed at Smolensk
+            p = (trial.HOME_MASS[0] + (k % 17 - 8) * 14,
+                 trial.HOME_MASS[1] + (k // 17 - 5) * 14)
+        else:
+            p = (7000 + (k % 10) * 30, 600 + (k // 10) * 30)
+        u["from"] = u["to"] = p
+    st = trial.State()
+    st.men_per_pixel = 0.4
+    trial.move_mass(g, m, st, order("Warsaw"))
+    assert st.old_mass == trial.HOME_MASS
+    trial.relocate_mass(g, watch, m, st)
+    w = trial.place(m, "Warsaw 200")
+    moved = [u for u in g.units[:170] if near(u["to"], (w["x"], w["y"]), 12)]
+    assert len(moved) >= 0.9 * 170, len(moved)
+    assert not any(near(u["to"], trial.HOME_MASS, 14) for u in g.units[:170])
+    assert st.old_mass is None                      # done once

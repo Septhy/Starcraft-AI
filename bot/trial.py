@@ -167,6 +167,7 @@ class State:
         self.f7_told = None
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.hits_sent = 0
+        self.old_mass = None       # the massing place just left: its army moves
         self.strength_log = []     # (game clock, men for the next hit)
         self.box_px = None         # minimap pixels that make a box of twelve
         self.depots = {}           # tax city -> the SCV-and-depot job for it
@@ -506,6 +507,7 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
         if st.go_pending or \
                 team_gate(io, watch, mapdata, st, ready, target) == "go":
             break
+        relocate_mass(io, watch, mapdata, st)
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
         if io.now() - last_train >= RETRAIN_EVERY:
@@ -638,15 +640,20 @@ def select_full(io, st, seed, pool, cam):
     return chosen, n
 
 
-def sweep_mass(io, watch, mapdata, st, target):
-    """One pass over the massing place: every part of it where the
-    minimap shows units standing still is boxed, back to front, each
-    box drawn to hold as near to twelve units as it can. Returns
+def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None):
+    """One pass over the massing place (or the ground round `centre`):
+    every part of it where the minimap shows units standing still is
+    boxed, back to front, each box drawn to hold as near to twelve units
+    as it can, and sent at the target (or moved to `dest`). Returns
     (orders given, pixels found)."""
-    w = place(mapdata, target)
+    if dest is not None:
+        w = {"x": dest[0], "y": dest[1]}
+    else:
+        w = place(mapdata, target)
     a = watch.units(io.shot("sweep"))
     io.sleep(1.2)                       # only those still standing there
-    there = at_mass(a) & watch.units(io.shot("watch", keep=False))
+    area = near(a, centre, MASS_RADIUS) if centre else at_mass(a)
+    there = area & watch.units(io.shot("watch", keep=False))
     if len(there) < 12:
         return 0, len(there)
     orders = 0
@@ -674,6 +681,10 @@ def sweep_mass(io, watch, mapdata, st, target):
                 left -= set(boxed) or {seed}
             if n == 0:
                 watch.forget(boxed)
+                continue
+            if dest is not None:
+                attack_move(io, *dest)
+                orders += 1
                 continue
             attack_move(io, *front_point(mapdata, st, target))
             orders += 1
@@ -1843,6 +1854,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     need, readings, strength = WANT_HIT, [], 0
     capped, told = False, -99
     while io.now() - t0 < TRIAL_SECONDS:
+        relocate_mass(io, watch, mapdata, st)
         orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
         st.blind = 0 if live.minimap_showing(picture) else st.blind + 1
@@ -1975,6 +1987,9 @@ def move_mass(io, mapdata, st, order):
     from bot import places
     asked = order.place.strip()
     if asked.lower() in ("home", "smolensk", "smolensk 200", "back"):
+        if MASS != HOME_MASS:
+            st.old_mass = MASS
+            st.idle_orders.clear()
         MASS = HOME_MASS
         say(io, st, "massing at Smolensk", force=True)
         io.log(f"{order.colour} said {order.said!r}: massing at Smolensk again")
@@ -1989,6 +2004,9 @@ def move_mass(io, mapdata, st, order):
         say(io, st, "I can't mass there", force=True)
         io.log(f"{order.colour} said {order.said!r}: {name} cannot be walked to")
         return
+    if (city["x"], city["y"]) != MASS:
+        st.old_mass = MASS              # the army there walks over as one
+        st.idle_orders.clear()
     MASS = (city["x"], city["y"])
     say(io, st, f"massing at {places.plain(name)}", force=True)
     io.log(f"{order.colour} said {order.said!r}: massing at {name} from now on")
@@ -2073,11 +2091,40 @@ def reset_orders(io, mapdata, st):
     """"@R reset": every order dropped, mass back at Smolensk, and the
     usual pattern again."""
     global MASS
+    if MASS != HOME_MASS:
+        st.old_mass = MASS
+        st.idle_orders.clear()
     MASS = HOME_MASS
     st.planned_target = st.chosen_target = None
     st.go_pending = False
     say(io, st, "reset: massing at Smolensk, usual plan", force=True)
     io.log("reset by the allies: massing at Smolensk, usual plan")
+
+
+RELOCATE_SWEEPS = 4            # passes over the old massing place, at most
+
+
+def relocate_mass(io, watch, mapdata, st):
+    """The massing place has moved: the army standing at the old one is
+    swept over to the new one as one body, pass after pass until the old
+    place is about empty (not a few groups at a time by the idle pickup,
+    which left some behind)."""
+    old = st.old_mass
+    if old is None:
+        return 0
+    st.old_mass = None
+    orders, start = 0, None
+    for _ in range(RELOCATE_SWEEPS):
+        n, found = sweep_mass(io, watch, mapdata, st, None, centre=old,
+                              dest=MASS)
+        orders += n
+        start = start or max(found, 1)
+        if n == 0 or found < 0.1 * start:
+            break
+        io.sleep(1.0)
+    io.log(f"the army at {place_name(mapdata, *old)} sent to the new massing "
+           f"place, {place_name(mapdata, *MASS)}: {orders} groups")
+    return orders
 
 
 class Listening:

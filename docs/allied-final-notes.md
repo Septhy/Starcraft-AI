@@ -912,3 +912,8 @@ The repository owner's rules:
 - Status is now two chat lines: "Pop 185/200. Mass: Smolensk." and
   "Plan: 120/140 men, east. Next hit est. 10:50." (or "Plan: waiting.",
   "Plan: gone balks.", "Next hit est. unknown.").
+- When the massing place moves (mass at, mass home, reset), the army
+  at the old place is swept over as one (relocate_mass: the hit's
+  sweep, up to 4 passes, boxes learnt) instead of by the idle pickup,
+  which left some behind (its "stuck" rule). Fake test: 170 packed at
+  Smolensk, all ordered to Warsaw, none left.
