@@ -647,25 +647,13 @@ def test_reads_how_many_units_are_selected():
     assert live.selected_count(screen("barracks")) == 0   # a building
 
 
-def test_counts_men_on_the_game_screen():
-    """The count comes from boxing the troops and reading the game's own
-    selection count, cutting a full box in four."""
-    m = trial.load_map()
-    side = m["slots"]["5"]
-    for men in (30, 100, 170):
-        g = FakeGame(m)
-        watch = live.Watch(g.shot("start"), side["structures"], side["units"])
-        far = {"x": 7200, "y": 500}
-        stand_at(g.units, far)                      # everyone out of the way
-        there = g.units[:men]
-        for k, u in enumerate(there):               # then `men` at the mass
-            p = (trial.MASS[0] + (k % 14 - 7) * 30, trial.MASS[1] + (k // 14 - 6) * 30)
-            u["from"] = u["to"] = p
-        g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
-        pixels = trial.at_mass(watch.units(g.shot("x")))
-        counted, whole = trial.count_men(g, pixels)
-        assert whole and 0.75 * men <= counted <= 1.3 * men, (men, counted)
-        # told how many are enough, it stops counting once it has them
-        before = g.inputs
-        some, whole = trial.count_men(g, pixels, enough=20)
-        assert some >= 20 and (whole or g.inputs - before < 30)
+def test_men_at_the_mass_are_judged_at_a_glance():
+    """No boxes: the supply figure less the men spread out elsewhere."""
+    # a packed crowd of few pixels is still seen as the army it is
+    assert trial.men_at_mass((204, 200), 57, 150) >= 140
+    # nearly everyone is away: few at the mass, however high the supply
+    assert trial.men_at_mass((190, 200), 5, 300) <= 20
+    assert trial.men_at_mass((60, 200), 40, 400) == 0
+    # no supply figure to read: the pixels are all there is
+    assert trial.men_at_mass(None, 90, 10) == 90
+

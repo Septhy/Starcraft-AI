@@ -651,3 +651,9 @@ real game.
   sampled (two quarters, then one quarter of a full quarter: at most 5
   boxes a patch, was up to 21), and counts come every 30 s (15 s at
   the supply limit). The Axis slots were computers.
+- User: do not count with boxes at all; tell roughly at a glance.
+  count_men/count_box removed. men_at_mass: supply figure (top right)
+  less 0.3 men per minimap pixel of ours away from the mass (measured:
+  18 men/57 px, 23/81, 41/143 when spread out), capped at 4 men per
+  mass pixel. At full supply with troops at the mass it is taken as a
+  hit. No supply figure readable: mass pixels as before.
