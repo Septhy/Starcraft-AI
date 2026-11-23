@@ -988,3 +988,22 @@ The repository owner's rules:
 - The hit fades (under half its peak forward): the fleet is pulled back
   (move) to fleet_spot and waits for the next hit; the ground's own
   retreat still comes at under 30%.
+
+## "@R bring air"
+
+- From teal (UK), orange (Norway) or purple (France): the whole fleet
+  (every fleet key) goes by attack-move to where that ally's air is
+  thickest. Their air: their colour over water on the minimap (land
+  from data/land.png); else their colour that moved between two looks
+  a second apart (buildings do not move), then a look at it on the game
+  screen (picture "ally-air" kept).
+- The way: Dijkstra over minimap pixels (about 0.2 s): cost 1 within 8
+  pixels of our side's units and buildings (friendly ground, out of the
+  fog), 4 in the fog, +6 per enemy pixel within 4 (enemy buildings stay
+  shown in the fog; turrets cannot be told from other buildings on the
+  minimap, so all are avoided). Stops every 25 pixels; first stop
+  attack-move, the rest queued with Shift+click.
+- The fleet stays with them (not steered over the army) until Russia's
+  next hit, "@R reset" (fleet back to its spot) or another bring air.
+  Replies: "air on its way to you", "I can't find your air", "I have no
+  air". Whether Shift+click after A queues in Remastered is untested.

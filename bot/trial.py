@@ -191,6 +191,8 @@ class State:
         self.last_added_key = None
         self.moscow_done = set()   # the Moscow air spawns already fetched
         self.fleet_checks = 0
+        self.fleet_task = None     # bring air: the ally the fleet is with
+        self.watch = None
         self.old_mass = None       # the massing place just left: its army moves
         self.strength_log = []     # (game clock, men for the next hit)
         self.box_px = None         # minimap pixels that make a box of twelve
@@ -1085,6 +1087,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     st.air_moved = io.now()
     st.hit_sent = io.now()
     st.hits_sent += 1
+    st.fleet_task = None                # the fleet goes with the hit again
     st.go_pending = False
     st.air_home = False
     per_box = st.selected / max(st.selections, 1)
@@ -1993,7 +1996,7 @@ def fight(io, watch, mapdata, st, picture):
         io.log(f"hit at {battle.target} is being lost: {orders} groups of "
                f"survivors and the air pulled back to the massing place")
         return orders
-    if st.air_keys and not st.air_home and \
+    if st.air_keys and not st.air_home and st.fleet_task is None and \
             io.now() - st.air_moved >= AIR_FOLLOW_EVERY:
         st.air_moved = io.now()
         steer_fleet(io, watch, mapdata, st, picture)
@@ -2619,6 +2622,12 @@ def reset_orders(io, mapdata, st):
     MASS = HOME_MASS
     st.planned_target = st.chosen_target = None
     st.go_pending = False
+    if st.fleet_task is not None:       # the fleet back to its spot
+        st.fleet_task = None
+        for key in st.air_keys:
+            io.key(key)
+            io.sleep(0.05)
+            attack_move(io, *fleet_spot())
     say(io, st, "reset: massing at Smolensk, usual plan", force=True)
     io.log("reset by the allies: massing at Smolensk, usual plan")
 
@@ -2647,6 +2656,149 @@ def relocate_mass(io, watch, mapdata, st):
     io.log(f"the army at {place_name(mapdata, *old)} sent to the new massing "
            f"place, {place_name(mapdata, *MASS)}: {orders} groups")
     return orders
+
+
+# ------------------------------------------------- "@R bring air"
+# The repository owner: an ally (teal UK, orange Norway: Wraiths; purple
+# France: Scouts) types "@R bring air", and Russia brings its whole
+# fleet, by attack-move, to where that ally's air is thickest. Their air
+# is their colour over water on the minimap (nothing else can be there);
+# failing that, the bot looks for their colour on the move and checks it
+# on the game screen. The way there keeps to friendly ground (where our
+# side's units and buildings give sight), and where it cannot, passes
+# where the fewest enemy buildings (turrets among them) show in the fog.
+ALLY_SLOTS = {"teal": 2, "purple": 3, "orange": 4}
+SIGHT = 8                      # minimap pixels of sight round our side's things
+FOG_COST = 4                   # a step outside our sight costs this many
+ENEMY_COST = 6                 # and this much more for each enemy pixel close by
+ENEMY_NEAR = 4                 # minimap pixels: how close an enemy building counts
+WAYPOINT_EVERY = 25            # minimap pixels between the stops of the way
+
+
+def _land():
+    import numpy as np
+    from PIL import Image
+    return np.asarray(Image.open(live.data_path("land.png")).convert("L")) > 127
+
+
+def find_ally_air(io, watch, colour):
+    """Where an ally's air is thickest: (map x, map y) or None. Their
+    colour over water first; else their colour that moved between two
+    looks a second apart (buildings do not move), checked on the game
+    screen."""
+    slot = ALLY_SLOTS.get(colour)
+    if slot is None:
+        return None
+    land = _land()
+    a = watch.others(io.shot("ally-air", keep=False), [slot])
+    sea = {p for p in a if 0 <= p[1] < land.shape[0] and 0 <= p[0] < land.shape[1]
+           and not land[p[1], p[0]]}
+    groups = [g for g in live.clusters(sea, 12, 12) if len(g) >= 3]
+    if not groups:
+        io.sleep(1.0)
+        b = watch.others(io.shot("ally-air", keep=False), [slot])
+        moved = (a ^ b) & b
+        moved = {p for p in b if any((p[0] + i, p[1] + j) in moved
+                                     for i in (-2, 0, 2) for j in (-2, 0, 2))}
+        groups = [g for g in live.clusters(moved, 12, 12) if len(g) >= 3]
+    if not groups:
+        return None
+    x, y = middle(max(groups, key=len))
+    look_at(io, *centred(x, y), wait=0.3)
+    io.shot("ally-air")                  # what was taken for their air
+    return x, y
+
+
+def air_route(watch, picture, start, goal):
+    """The fleet's way from start to goal (map points), as stops a few
+    tiles apart: cheap through friendly ground (within sight of our
+    side's units and buildings), dearer through the fog, dearest near
+    enemy buildings."""
+    import heapq
+    import numpy as np
+    h, w = _land().shape
+    friend = set(watch.units(picture)) | watch.others(picture, [2, 3, 4])
+    try:
+        rows, cols = np.nonzero(watch.buildings)
+        friend |= set(zip(cols.tolist(), rows.tolist()))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    sight = np.zeros((h, w), dtype=bool)
+    for c, r in friend:
+        sight[max(0, r - SIGHT):r + SIGHT + 1, max(0, c - SIGHT):c + SIGHT + 1] = True
+    enemy = np.zeros((h, w), dtype=np.int32)
+    for c, r in watch.others(picture, HOSTILE):
+        if 0 <= r < h and 0 <= c < w:
+            enemy[max(0, r - ENEMY_NEAR):r + ENEMY_NEAR + 1,
+                  max(0, c - ENEMY_NEAR):c + ENEMY_NEAR + 1] += 1
+    cost = np.where(sight, 1, FOG_COST) + enemy * ENEMY_COST
+    sc, sr = (int(v) for v in live.to_drawn(*start))
+    gc, gr = (int(v) for v in live.to_drawn(*goal))
+    sc, sr = min(max(sc, 0), w - 1), min(max(sr, 0), h - 1)
+    gc, gr = min(max(gc, 0), w - 1), min(max(gr, 0), h - 1)
+    best = {(sr, sc): 0}
+    came = {}
+    todo = [(0, sr, sc)]
+    while todo:
+        d, r, c = heapq.heappop(todo)
+        if (r, c) == (gr, gc):
+            break
+        if d > best.get((r, c), 1e18):
+            continue
+        for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < h and 0 <= nc < w:
+                nd = d + int(cost[nr, nc]) * (1.4 if dr and dc else 1.0)
+                if nd < best.get((nr, nc), 1e18):
+                    best[(nr, nc)] = nd
+                    came[(nr, nc)] = (r, c)
+                    heapq.heappush(todo, (nd, nr, nc))
+    path, at = [], (gr, gc)
+    while at in came:
+        path.append(at)
+        at = came[at]
+    path.reverse()
+    stops = path[WAYPOINT_EVERY::WAYPOINT_EVERY]
+    if not stops or stops[-1] != (gr, gc):
+        stops.append((gr, gc))
+    return [live.from_drawn(c, r) for r, c in stops]
+
+
+def bring_air(io, watch, mapdata, st, colour):
+    """"@R bring air": the whole fleet, by attack-move along a safe way,
+    to where that ally's air is thickest. It stays with them until
+    Russia's next hit, "@R reset" or another "@R bring air"."""
+    if not st.air_keys:
+        say(io, st, "I have no air", force=True)
+        return False
+    where = find_ally_air(io, watch, colour)
+    if where is None:
+        say(io, st, "I can't find your air", force=True)
+        io.log(f"bring air: no {colour} air found")
+        return False
+    picture = io.shot("route", keep=False)
+    start = fleet_spot() if st.air_home or not st.battle or \
+        not st.battle.front else st.battle.front
+    stops = air_route(watch, picture, start, where)
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.05)
+        for k, stop in enumerate(stops):
+            io.key("a")
+            io.sleep(0.03)
+            point = live.minimap_point(*stop)
+            if k == 0:
+                io.click(*point)
+            else:
+                io.click_with("shift", *point)   # queued: the next stop
+            io.sleep(0.03)
+    st.fleet_task = {"colour": colour, "spot": where, "since": io.now()}
+    st.air_home = False
+    say(io, st, "air on its way to you", force=True)
+    io.log(f"bring air: the fleet sent to the {colour} air near "
+           f"{place_name(mapdata, *where)}, {len(stops)} stops")
+    return True
 
 
 class Listening:
@@ -2718,6 +2870,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
         on_mass=lambda o: move_mass(raw, mapdata, st, o),
         on_status=lambda: say_status(raw, mapdata, st),
         on_reset=lambda: reset_orders(raw, mapdata, st),
+        on_bring_air=lambda o: bring_air(raw, st.watch, mapdata, st, o.colour),
         resolve=lambda text: place_for_hit(mapdata, text))
     if ears is not None:
         from bot import places
@@ -2728,6 +2881,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
                "cannot be read")
     st.balkan_start = axis_in(watch, first, BALKANS)
     st.home_axis0 = len(axis_at_home(watch, first))
+    st.watch = watch
     st.start_px = watch.units(first)
     since = lambda: f"{io.now() - t0:.0f} s"
     result = {"trained": 0, "gathered": 0, "hits": []}
