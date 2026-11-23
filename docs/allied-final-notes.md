@@ -628,3 +628,20 @@ real game.
   count them several times.
 - Fix: each box's figure is scaled by box area over (box + one man)
   area; counting stops once it has reached what the hit needs.
+
+## Trial 15 (fixed build): no freeze, four hits
+
+- Counts ran every 20-40 s (23, 78, 226 men...), hits at 54 s, 217 s,
+  409 s, 487 s. No long idle stretch. One count read 0 with 82 pixels.
+- A hit took 45-65 s from decision to "sent": the general was asked
+  between views and its "ground attack_move front" order sent the
+  groups just put on the number keys to the old front, not the hit's
+  target; four sweeps re-boxed men already ordered (54 groups for 269
+  men). Now: no consult inside a hit, two sweeps.
+- "Reached" fired seconds after a hit was sent (Krakow 4 s, Factory 7
+  10 s, Hungary 5 s): any ten of our pixels within 12 of the target
+  counted. Now within 6.
+- The army was recalled 30 s after hit 2 for Axis colour at the mass.
+  Now a hit is not called back for 45 s after it is sent.
+- Germany's ground did not shrink in nine minutes: hits reach the
+  border and Poland, not Berlin.

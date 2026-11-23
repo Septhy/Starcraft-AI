@@ -597,7 +597,6 @@ def sweep_mass(io, watch, mapdata, st, target):
     views = back_to_front(live.clusters(there, 20, 8), (w["x"], w["y"]),
                           lambda g: live.from_drawn(*g[0]))
     for view in views:
-        consult(io, watch, mapdata, st)     # the general is asked mid-hit too
         cols = [p[0] for p in view]
         rows = [p[1] for p in view]
         cx, cy = live.from_drawn((min(cols) + max(cols)) / 2,
@@ -624,7 +623,7 @@ def sweep_mass(io, watch, mapdata, st, target):
     return orders, len(there)
 
 
-def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
+def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=2):
     """Send the mass at the target as a wall."""
     orders = 0
     if use_keys:
@@ -650,6 +649,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=4):
         io.sleep(0.035)
         attack_move(io, *front_point(mapdata, st, target))
         orders += 1
+    st.hit_sent = io.now()
     per_box = st.selected / max(st.selections, 1)
     io.log(f"hit: {orders} groups sent at {target}; its boxes have held "
            f"{per_box:.1f} units each on average so far")
@@ -852,7 +852,7 @@ class Battle:
     def sample(self, io, watch, mapdata, picture):
         w = place(mapdata, self.target)
         found = find_front(watch, picture, mapdata, self.target)
-        if near(watch.units(picture), (w["x"], w["y"]), 12).__len__() >= 10:
+        if len(near(watch.units(picture), (w["x"], w["y"]), ARRIVED_WITHIN)) >= 10:
             self.arrived = True
         if found is None:
             self.samples.append((io.now() - self.sent_at, 0, 0, None))
@@ -982,6 +982,8 @@ TARGET_NAMES = {"Berlin": "Berlin 1000", "Romania": "Romania 300",
 ENEMY_AT_MASS = 12             # Axis pixels at the mass that mean "defend"
 AIR_FOLLOW_EVERY = 8           # seconds between moving the air to the front
 RECALL_COOLDOWN = 20           # seconds between recalls of the army
+RECALL_AFTER_HIT = 45          # seconds: a hit just sent is not called back
+ARRIVED_WITHIN = 6             # minimap pixels from a target that count as there
 
 
 def recall(io, st, why):
@@ -1224,7 +1226,8 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         waited = io.now() - began
         # the fast rule: the enemy is at the mass
         axis_mass = len(at_mass(watch.others(picture, AXIS)))
-        if axis_mass >= ENEMY_AT_MASS:
+        if axis_mass >= ENEMY_AT_MASS and \
+                io.now() - getattr(st, "hit_sent", -1e9) >= RECALL_AFTER_HIT:
             recall(io, st, f"{axis_mass} pixels of Axis colour there")
         if battle:
             battle.sample(io, watch, mapdata, picture)
