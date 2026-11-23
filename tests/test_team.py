@@ -80,14 +80,37 @@ def test_an_ally_naming_how_long_to_wait_is_obeyed_exactly():
     assert run_until(t2, chat, 111, 400) == 180 + 30
 
 
-def test_go_east_or_balks_overrides_the_plan():
+def test_hit_east_or_balks_with_no_time_goes_now_and_overrides_the_plan():
     chat = Chat()
     t = team.Team(chat.say, chat.log)
     # Russia's own plan is not ready, and was going east
-    t.heard(order("go", front="balks", said="go balks"), 200)
+    t.heard(order("go", front="balks", said="@R hit balks"), 200)
     went = run_until(t, chat, 200, 400, ready=False, front="east")
-    assert went == 230 and t.front == "balks"
-    assert chat.said == ["gone balks in 30 seconds", "gone balks"]
+    assert went == 200 and t.front == "balks"
+    assert chat.said == ["gone balks"]
+    # an announced hit is sent at once too
+    chat2 = Chat()
+    t2 = team.Team(chat2.say, chat2.log)
+    t2.gate(300, True, "east")
+    t2.heard(order("go", front="east", said="@R hit east"), 305)
+    assert t2.gate(305, True, "east") == "go"
+    assert chat2.said == ["gone east in 30 seconds", "gone east"]
+
+
+def test_go_with_no_front_named_goes_on_russias_own_front():
+    chat = Chat()
+    t = team.Team(chat.say, chat.log)
+    t.heard(order("go", front="none", said="@R go"), 50)
+    assert t.gate(50, False, "balks") == "go" and t.front == "balks"
+
+
+@pytest.mark.parametrize("text, meant", [
+    ("@R hit east", True), ("@r wait", True), ("@Russ go balks", True),
+    ("@Russia stop", True), ("  @RUSSIA: no", True), ("@R, go", True),
+    ("hit east", False), ("rus go east", False), ("@Romania go", False),
+    ("wait @R", False), ("@Rus go", False), ("", False)])
+def test_only_messages_tagged_for_russia_are_orders(text, meant):
+    assert team.addressed(text) == meant
 
 
 def test_go_in_two_waits_two_minutes_then_hits_that_way():
@@ -173,7 +196,7 @@ def test_ears_take_orders_only_from_allies_and_only_once():
                         {"colour": "red", "text": "Germany: stop"}],
               "orders": [{"colour": "orange", "kind": "stop", "front": "none",
                           "wait_seconds": -1, "until_clock": "",
-                          "said": "wait"}]}
+                          "said": "@R wait"}]}
     now = [0.0]
     ears = team.ChatEars(chat_client(answer, seen), clock=lambda: now[0],
                          background=False)
@@ -189,10 +212,18 @@ def test_ears_take_orders_only_from_allies_and_only_once():
     assert ears.listen(chat_picture(["Norway: wait", "UK: ok"]), 102)
     assert ears.orders(102) == []
     assert ("red", "Germany: stop") in [(c, t) for _, c, t in ears.lines(102)]
+    # an ally's message without the tag is never an order, whatever the
+    # reply says
+    untagged = {"lines": [], "orders": [{"colour": "teal", "kind": "go",
+                                         "front": "east", "wait_seconds": -1,
+                                         "until_clock": "", "said": "go east"}]}
+    ears3 = team.ChatEars(chat_client(untagged, []), background=False)
+    ears3.listen(chat_picture(["UK: go east"]), 60)
+    assert ears3.orders(60) == []
     # an enemy's "order" never gets through, whatever the reply says
     bad = {"lines": [], "orders": [{"colour": "red", "kind": "stop",
                                     "front": "none", "wait_seconds": -1,
-                                    "until_clock": "", "said": "stop"}]}
+                                    "until_clock": "", "said": "@R stop"}]}
     ears2 = team.ChatEars(chat_client(bad, []), background=False)
     ears2.listen(chat_picture(["Germany: stop"]), 50)
     assert ears2.orders(50) == []

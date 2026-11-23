@@ -839,3 +839,17 @@ The repository owner's rules:
   short -> bigger); a full box marks only its nearest half done; up to
   4 sweeps (3 at the first hit), stopping when under 10% is left.
   Fake test, 170 packed men: left behind 134 -> 0; boxes 40 -> 79.
+
+## Talking to Russia: "@R", "@Russ", "@Russia"
+
+- User: allies must start a message with @R, @Russ or @Russia for the
+  bot to take it as meant for it. Checked in code (team.addressed), not
+  only by Claude: an order whose words do not start with the tag is
+  dropped. "@Rus", "@Romania", "rus go" are not orders.
+- "@R hit east" with no time: hit east right now ("gone east", no 30 s
+  countdown), even if a 30 s announcement is running. "@R hit east in
+  2": announce 30 s before, hit at 2 minutes. "@R go" with no front:
+  Russia's own front. Stop words as before, with the tag.
+- Who can override: any of the three allies; the latest order wins
+  (a stop cancels a pending go, a go cancels a wait). Enemy colours
+  never count. The Claude adviser cannot hit through an ally's wait.

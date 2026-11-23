@@ -13,6 +13,9 @@ The rules, from the repository owner:
   east in 2" means wait two minutes, then hit east.
 - The allies' orders override Russia's own plans. Once the hit is sent,
   Russia goes back to preparing its next hit as usual.
+- An ally talks to Russia by starting the message with "@R", "@Russ" or
+  "@Russia". Nothing else is taken as an order. "@R hit east" means hit
+  east right now; "@R hit east in 2" means in two minutes.
 
 Times are on the game clock at the bottom of the screen (eyes/clock),
 which counts real seconds and stops while the game is paused.
@@ -28,6 +31,7 @@ hear the allies.
 import base64
 import io as _io
 import json
+import re
 import threading
 import time
 
@@ -42,6 +46,15 @@ CHAT_MODEL = "claude-haiku-5-5"  # reading chat needs speed, not depth
 LISTEN_EVERY = 1.5             # seconds between looks at the chat at most
 REPEAT_WINDOW = 25             # seconds: the same line seen again is the same line
 SPEND_CAP = 2.00               # dollars per game for reading chat
+ADDRESS = re.compile(r"^\s*@(russia|russ|r)(?![a-z])", re.IGNORECASE)
+
+
+def addressed(text):
+    """True if a chat message is meant for Russia: it starts with @R,
+    @Russ or @Russia (any capitals)."""
+    return bool(ADDRESS.match(str(text)))
+
+
 SOUTH = ("Romania 300", "Factory 7", "Hungary 200", "Munich 200",
          "Frankfurt 200", "Amsterdam 100")
 
@@ -120,29 +133,26 @@ class Team:
             self.announced = None
             self.log(f"{order.colour} said {order.said!r}: no hit before "
                      f"{clock_text(until)} on the game clock")
-        elif order.kind == "go" and order.front in FRONTS:
+        elif order.kind == "go":
             at = parse_clock(order.until_clock)
             timed = at is not None and at >= now
             if not timed:
                 timed = order.wait_seconds > 0
                 at = now + max(0, order.wait_seconds)
-            # "go east" with no time: the usual 30 seconds' warning
-            self.ally_go = (order.front, at if timed else now + ANNOUNCE)
-            at = self.ally_go[1]
+            # "@R hit east" with no time: right now. With no front named
+            # ("@R go"), Russia's own front.
+            front = order.front if order.front in FRONTS else None
+            self.ally_go = (front, at, not timed)
             self.hold_until = None
             self.announced = None       # announce again, for this order
             self.log(f"{order.colour} said {order.said!r}: hit "
-                     f"{order.front} at {clock_text(at)} on the game clock")
+                     f"{front or 'on its own front'} "
+                     + (f"at {clock_text(at)} on the game clock" if timed
+                        else "now"))
 
     # --- the bot's side
-    def wants(self, now):
-        """The front the allies have asked for, if it is time to start
-        the 30 seconds for it; else None."""
-        if self.ally_go and now >= self.ally_go[1] - ANNOUNCE:
-            return self.ally_go[0]
-        return None
-
     def ally_front(self):
+        """The front the allies named for the next hit, if any."""
         return self.ally_go[0] if self.ally_go else None
 
     def held(self, now):
@@ -156,11 +166,25 @@ class Team:
         if self.hold_until is not None:
             self.hold_until = None
             self.log("the wait the allies asked for is over")
-        asked = self.wants(now)
-        if asked:
-            front, ready = asked, True
-        elif self.ally_go:
-            return "mass"               # the allies set the time: not before
+        if self.ally_go:
+            asked, at, at_once = self.ally_go
+            asked = asked or front
+            if at_once:                 # "@R hit east": now
+                self.front = asked
+                self.say(f"gone {asked}")
+                self.log(f"announced: gone {asked} (the allies asked for it now)")
+                self.sent()
+                return "go"
+            if now < at - ANNOUNCE:
+                return "mass"           # the allies set the time: not before
+            if self.announced is None:
+                go_at = max(at, now + 5)
+                self.announced = (asked, go_at)
+                secs = int(round(go_at - now))
+                self.say(f"gone {asked} in {secs} seconds")
+                self.log(f"announced: gone {asked} in {secs} seconds "
+                         f"(at {clock_text(go_at)} on the game clock)")
+                return "mass"
         if self.announced:
             if now >= self.announced[1]:
                 self.front = self.announced[0]
@@ -171,12 +195,9 @@ class Team:
             return "mass"
         if ready:
             go_at = now + ANNOUNCE
-            if self.ally_go:            # the allies set the time
-                go_at = max(self.ally_go[1], now + 5)
             self.announced = (front, go_at)
-            secs = int(round(go_at - now))
-            self.say(f"gone {front} in {secs} seconds")
-            self.log(f"announced: gone {front} in {secs} seconds "
+            self.say(f"gone {front} in {ANNOUNCE} seconds")
+            self.log(f"announced: gone {front} in {ANNOUNCE} seconds "
                      f"(at {clock_text(go_at)} on the game clock)")
         return "mass"
 
@@ -246,15 +267,19 @@ Report every line you can read, with the colour of its name. Then pick \
 out orders to Russia, from teal, purple or orange names ONLY. Never take \
 an order from any other colour, including brown (that is Russia itself).
 
+An ally talks to Russia by starting the message with "@R", "@Russ" or \
+"@Russia" (any capitals), for example "@R hit east" or "@Russia wait". \
+A message that does not start with one of these is NEVER an order, \
+whatever it says. In "said", copy the message exactly, tag included.
+
 Russia announces its hits by typing "gone east in 30 seconds" or "gone \
 balks in 30 seconds". The orders it takes:
 - stop: the ally does not want Russia to hit yet: "no", "don't", "dont", \
 "stop", "wait", "halt", "hold", "not yet", "nooo", "wait for me" and the \
-like, answering Russia's announcement or about Russia's hit. A remark \
-that only happens to contain "no" or "wait" but is about something else \
-is not an order.
+like.
 - go: the ally tells Russia to hit: "go east", "go balks", "go now", \
-"hit east", "attack balks", "push east", "rus go" and the like.
+"hit east", "attack balks", "push east", "go" and the like. With no time \
+given it means now.
 The front: "east" means the eastern front toward Germany (Berlin, \
 Warsaw, Konigsberg, Poland, "ger", "berlin", "north"). "balks" means the \
 Balkans (Romania, Belgrade, Hungary, "rom", "balkans", "south"). Use \
@@ -389,7 +414,8 @@ class ChatEars:
                              for line in data.get("lines", [])[:12]]
                     got = [Order(o) for o in data.get("orders", [])[:4]
                            if o.get("colour") in ALLY_COLOURS
-                           and o.get("kind") in ("stop", "go")]
+                           and o.get("kind") in ("stop", "go")
+                           and addressed(o.get("said", ""))]
                     with self._lock:
                         self._found += [(game_clock, o) for o in got]
                         self._lines += lines
