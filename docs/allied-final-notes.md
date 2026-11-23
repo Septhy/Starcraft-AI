@@ -909,3 +909,6 @@ The repository owner's rules:
 - "@R reset": drops waits, pending hits and announcements, masses at
   Smolensk again; reply "reset: massing at Smolensk, usual plan".
 - All from teal, purple or orange only, tag required, as before.
+- Status is now two chat lines: "Pop 185/200. Mass: Smolensk." and
+  "Plan: 120/140 men, east. Next hit est. 10:50." (or "Plan: waiting.",
+  "Plan: gone balks.", "Next hit est. unknown.").

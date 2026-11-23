@@ -2036,9 +2036,10 @@ def next_hit_eta(st, now):
     return now + min(wait, 900) + team_rules.ANNOUNCE
 
 
-def status_line(io, mapdata, st):
-    """"@R status": supply, massing place, plan and the time of the next
-    hit, in one chat line."""
+def status_lines(io, mapdata, st):
+    """"@R status": two chat lines, each at most 60 characters:
+    "Pop 185/200. Mass: Smolensk." and "Plan: 120/140 men, east. Next
+    hit est. 10:50." """
     seen = st.supply_seen
     pop = f"{seen[0][0]}/{seen[0][1]}" if seen else "?/200"
     now = st.clock.time() if st.clock else io.now()
@@ -2058,9 +2059,14 @@ def status_line(io, mapdata, st):
             ("east" if planned_front(now) == "north" else "balks")
         plan = f"{st.strength}/{st.need} men, {front}"
         at = next_hit_eta(st, now)
-    when = f"hit est. {team_rules.clock_text(at)}" if at is not None \
-        else "hit est. ?"
-    return f"{pop} | {mass_name(mapdata)} | {plan} | {when}"
+    when = team_rules.clock_text(at) if at is not None else "unknown"
+    return [f"Pop {pop}. Mass: {mass_name(mapdata)}.",
+            f"Plan: {plan}. Next hit est. {when}."]
+
+
+def say_status(io, mapdata, st):
+    for line in status_lines(io, mapdata, st):
+        say(io, st, line, force=True)
 
 
 def reset_orders(io, mapdata, st):
@@ -2141,8 +2147,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     st.team = team_rules.Team(
         announce, raw.log,
         on_mass=lambda o: move_mass(raw, mapdata, st, o),
-        on_status=lambda: say(raw, st, status_line(raw, mapdata, st),
-                              force=True),
+        on_status=lambda: say_status(raw, mapdata, st),
         on_reset=lambda: reset_orders(raw, mapdata, st),
         resolve=lambda text: place_for_hit(mapdata, text))
     if ears is not None:

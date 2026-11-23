@@ -136,16 +136,18 @@ def test_status_says_supply_mass_plan_and_when_the_next_hit_goes(monkeypatch):
     # grown from 60 to 120 men in the last minute: 1 man a second, so
     # 20 more in 20 s, then the 30 s warning: about 10:50
     st.strength_log = [(540.0, 60), (570.0, 90), (600.0, 120)]
-    line = trial.status_line(io, m, st)
-    assert line.startswith("185/200 | Smolensk | 120/140 men, "), line
-    assert line.endswith("| hit est. 10:50"), line
-    assert len(line) <= 60, line
+    first, second = trial.status_lines(io, m, st)
+    assert first == "Pop 185/200. Mass: Smolensk."
+    assert second.startswith("Plan: 120/140 men, ") and \
+        second.endswith(". Next hit est. 10:50."), second
+    assert len(first) <= 60 and len(second) <= 60
+    plan = lambda: trial.status_lines(io, m, st)[1]
     # not growing: no telling
     st.strength_log = [(540.0, 120), (600.0, 120)]
-    assert trial.status_line(io, m, st).endswith("| hit est. ?")
+    assert plan().endswith("Next hit est. unknown.")
     # at full supply: as soon as the warning is out
     st.capped = True
-    assert trial.status_line(io, m, st).endswith("| hit est. 10:30")
+    assert plan().endswith("Next hit est. 10:30.")
     st.capped = False
     # the allies said wait a minute: the hit 30 s after the wait, if the
     # army is ready by then
@@ -153,20 +155,24 @@ def test_status_says_supply_mass_plan_and_when_the_next_hit_goes(monkeypatch):
                               "wait_seconds": 60, "until_clock": "",
                               "place": "", "said": "@R wait 1"}), 600)
     st.strength_log = [(540.0, 60), (570.0, 90), (600.0, 120)]
-    assert trial.status_line(io, m, st).endswith("| waiting | hit est. 11:30")
+    assert plan() == "Plan: waiting. Next hit est. 11:30."
     # wait 5: the army is ready long before; the wait decides
     st.team.hold_until = 900
-    assert trial.status_line(io, m, st).endswith("| waiting | hit est. 15:30")
+    assert plan() == "Plan: waiting. Next hit est. 15:30."
     # a short wait, but a slow-growing army: the army decides
     st.team.hold_until = 610
     st.strength_log = [(510.0, 105), (600.0, 120)]  # 1 man every 6 s
-    assert trial.status_line(io, m, st).endswith("| waiting | hit est. 12:30")
+    assert plan() == "Plan: waiting. Next hit est. 12:30."
     st.strength_log = [(540.0, 120), (600.0, 120)]  # not growing
-    assert trial.status_line(io, m, st).endswith("| waiting | hit est. ?")
+    assert plan() == "Plan: waiting. Next hit est. unknown."
     # an announced hit: its time
     st.team.hold_until = None
     st.team.gate(600, True, "balks")
-    assert trial.status_line(io, m, st).endswith("| gone balks | hit est. 10:30")
+    assert plan() == "Plan: gone balks. Next hit est. 10:30."
+    # massing elsewhere
+    w = trial.place(m, "Warsaw 200")
+    monkeypatch.setattr(trial, "MASS", (w["x"], w["y"]))
+    assert trial.status_lines(io, m, st)[0] == "Pop 185/200. Mass: Warsaw."
 
 
 def test_reset_drops_every_order_and_masses_at_smolensk(monkeypatch):
