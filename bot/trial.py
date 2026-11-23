@@ -101,7 +101,8 @@ MARGIN = 100                   # screen pixels added round a group for the box
 GROUP = (8, 4)                 # a group is at most this many minimap pixels wide, tall
 CELLS = (8, 3)                 # the view is cut into this many boxes at the mass
 GROUND_KEYS = list("12345678")
-AIR_KEYS = list("90")           # the fleet keys
+AIR_KEYS = list("9087")         # the fleet keys: 9 and 0, then 8 and 7 are
+                               # taken from the ground keys if needed
 # The repository owner: Russia's air is kept apart from the spawns, on
 # its own number keys, as one fleet: up to eleven Scouts ("Light
 # Fighter" in the game) and one Heavy Artillery ("Heavy Defensive
@@ -182,6 +183,8 @@ class State:
         self.hits_sent = 0
         self.fleet = []            # the fleet keys: key, Scouts on it, its artillery
         self.fleet_moved = False
+        self.scout_round = -1      # the last tax whose new Scouts were fetched
+        self.moscow_done = set()   # the Moscow air spawns already fetched
         self.old_mass = None       # the massing place just left: its army moves
         self.strength_log = []     # (game clock, men for the next hit)
         self.box_px = None         # minimap pixels that make a box of twelve
@@ -441,24 +444,43 @@ def click_unit(io, x, y, movable=True):
     return False
 
 
+def free_ground_keys(st):
+    """The number keys the ground groups may use: 1 to 8, less any the
+    fleet has taken."""
+    return [k for k in GROUND_KEYS if k not in st.air_keys]
+
+
+def fleet_room(st):
+    return FLEET_SIZE - st.fleet[-1]["scouts"] if st.fleet else 0
+
+
+def open_fleet_key(io, st):
+    """Start the next fleet key with its own Heavy Artillery (click it,
+    Ctrl + key). False if there is no key or artillery left."""
+    if len(st.fleet) >= len(AIR_KEYS) or len(st.fleet) >= len(HEAVY_ARTILLERY):
+        return False
+    key = AIR_KEYS[len(st.fleet)]
+    ha = sorted(HEAVY_ARTILLERY, key=lambda p: (p[0] - HOME_MASS[0]) ** 2
+                + (p[1] - HOME_MASS[1]) ** 2)[len(st.fleet)]
+    if not click_unit(io, *ha, movable=False):
+        io.log(f"fleet: the Heavy Artillery at {ha} was not found")
+        return False
+    io.combo("ctrl", key)                # the Heavy Artillery starts the key
+    io.sleep(0.04)
+    st.fleet.append({"key": key, "scouts": 0, "ha": ha})
+    st.air_keys.append(key)
+    if key in st.ground_keys:           # 8 or 7: no longer a ground key
+        st.ground_keys.remove(key)
+    io.log(f"fleet: key {key} started")
+    return True
+
+
 def add_to_fleet(io, st, x, y, kind="Scout"):
     """Select the Scout at a map point and add it to the fleet key with
     room (Shift + key); a full key starts the next, with its own Heavy
     Artillery. False if every fleet key is full."""
-    if not st.fleet or st.fleet[-1]["scouts"] >= FLEET_SIZE:
-        if len(st.fleet) >= len(AIR_KEYS) or \
-                len(st.fleet) >= len(HEAVY_ARTILLERY):
-            return False
-        key = AIR_KEYS[len(st.fleet)]
-        ha = sorted(HEAVY_ARTILLERY, key=lambda p: (p[0] - MASS[0]) ** 2
-                    + (p[1] - MASS[1]) ** 2)[len(st.fleet)]
-        if not click_unit(io, *ha, movable=False):
-            io.log(f"fleet: the Heavy Artillery at {ha} was not found")
-            return False
-        io.combo("ctrl", key)            # the Heavy Artillery starts the key
-        io.sleep(0.04)
-        st.fleet.append({"key": key, "scouts": 0, "ha": ha})
-        st.air_keys.append(key)
+    if fleet_room(st) <= 0 and not open_fleet_key(io, st):
+        return False
     entry = st.fleet[-1]
     if not click_unit(io, x, y):
         return False
@@ -466,6 +488,144 @@ def add_to_fleet(io, st, x, y, kind="Scout"):
     io.sleep(0.04)
     entry["scouts"] += 1
     return True
+
+
+def trim_selection(io, keep):
+    """Drop units from the selection (Shift + click on their pictures in
+    the bottom panel, the last first) until `keep` are left. Returns how
+    many are selected in the end."""
+    n = live.selected_count(io.shot("trim", keep=False))
+    frames = [(live.SLOT_ORIGIN[0] + col * live.SLOT_STEP[0] + live.SLOT_SIZE // 2,
+               live.SLOT_ORIGIN[1] + row * live.SLOT_STEP[1] + live.SLOT_SIZE // 2)
+              for row in range(2) for col in range(6)]
+    for _ in range(12):
+        if n <= keep:
+            break
+        io.click_with("shift", *frames[min(n, 12) - 1])
+        io.sleep(0.08)
+        n = live.selected_count(io.shot("trim", keep=False))
+    return n
+
+
+def add_selected_scouts(io, st, reselect):
+    """Put the Scouts that `reselect()` selects onto the fleet: on the key
+    with room, or a new one; as many as fit (the rest are picked up on a
+    later look). They then fly to the fleet. Returns how many."""
+    n = reselect()
+    if n == 0:
+        return 0
+    if fleet_room(st) < min(n, FLEET_SIZE):
+        # not room for them all: a new key, rather than split them (the
+        # one left over would stay behind and be swept into the mass)
+        if open_fleet_key(io, st):
+            n = reselect()              # starting the key changed the selection
+            if n == 0:
+                return 0
+    room = fleet_room(st)
+    if room <= 0:
+        io.log("fleet: every fleet key is full")
+        return 0
+    if n > room:
+        n = trim_selection(io, room)
+        if n == 0 or n > room:
+            return 0
+    io.combo("shift", st.fleet[-1]["key"])
+    io.sleep(0.04)
+    st.fleet[-1]["scouts"] += n
+    attack_move(io, *fleet_spot())      # off to the fleet, out of the mass
+    return n
+
+
+SCOUT_FACTORIES = ["Factory 1", "Factory 2", "Factory 3"]  # Russia's industry:
+                               # each makes 2 Scouts (with 2 Heavy Tanks and 2
+                               # Veteran Infantry) at every tax, if Russia holds it
+TAX_MARK = 180                 # game seconds into a round: the countdown at 2:00
+MOSCOW_AIR = (1800, 2800)      # game seconds: 12 Scouts at "ZMoscow Air"
+SCOUT_WAIT = 3                 # game seconds after a spawn before looking
+SCOUT_HOLD = 30                # game seconds the spawn spots are kept from the mass
+MOSCOW_GONE = 3                # real seconds for added Scouts to leave the spawn spot
+
+
+def scouts_on_top(io, x, y):
+    """Scouts made at a factory hover over its building, where nothing on
+    the ground can stand: a unit picked by a click on the factory's middle
+    is one of them. Ctrl + click then picks every Scout on screen.
+    Returns how many are selected."""
+    if not click_unit(io, x, y):
+        return 0
+    cam = look_at(io, x, y, wait=0.05)
+    io.click_with("ctrl", *live.on_screen(x, y, cam))
+    io.sleep(0.08)
+    return live.selected_count(io.shot("scouts", keep=False))
+
+
+def box_at(io, area):
+    """Box everything inside a map location, and say how many units the
+    game selected."""
+    cam = look_at(io, area["x"], area["y"], wait=0.15)
+    x0, y0 = live.on_screen(area["x"] - area["w"] / 2 - 32,
+                            area["y"] - area["h"] / 2 - 32, cam)
+    x1, y1 = live.on_screen(area["x"] + area["w"] / 2 + 32,
+                            area["y"] + area["h"] / 2 + 32, cam)
+    l, t, r, b = live.GAME_AREA
+    io.drag(max(l + 4, x0), max(t + 4, y0), min(r - 4, x1), min(b - 4, y1))
+    io.sleep(0.05)
+    return live.selected_count(io.shot("scouts", keep=False))
+
+
+def collect_new_scouts(io, watch, mapdata, st):
+    """New Scouts go onto the fleet keys, never into the mass: those the
+    factories make at every tax, and the two flights of twelve at Moscow.
+    Returns how many were added."""
+    if st.clock is None or not st.fleet:
+        return 0
+    g = st.clock.time() * COUNTDOWN_RATE
+    added = 0
+    k = int((g - TAX_MARK - SCOUT_WAIT) // 300)
+    if k >= 0 and k > st.scout_round:
+        st.scout_round = k
+        for name in SCOUT_FACTORIES:
+            f = place(mapdata, name)
+            n = add_selected_scouts(io, st, lambda: scouts_on_top(
+                io, f["x"], f["y"]))
+            if n:
+                added += n
+                io.log(f"fleet: {n} new Scouts from {name} added to key "
+                       f"{st.fleet[-1]['key']}")
+    for t in MOSCOW_AIR:
+        if g >= t + SCOUT_WAIT and t not in st.moscow_done:
+            m = place(mapdata, "ZMoscow Air")
+            n, got = 0, 0
+            for _ in range(3):          # twelve may need two keys
+                n = add_selected_scouts(io, st, lambda: box_at(io, m))
+                got += n
+                if n == 0:
+                    break
+                io.sleep(MOSCOW_GONE)   # those added fly off before the next box
+            if got:
+                added += got
+                io.log(f"fleet: {got} new Scouts from Moscow added")
+            if n == 0:
+                st.moscow_done.add(t)
+    return added
+
+
+def scout_spots(io, mapdata, st, pixels):
+    """Our pixels at the spots where new Scouts appear, while they are
+    being put on the fleet keys: kept out of the mass."""
+    if st.clock is None:
+        return set()
+    g = st.clock.time() * COUNTDOWN_RATE
+    out = set()
+    if (g - TAX_MARK) % 300 < SCOUT_HOLD:
+        for name in SCOUT_FACTORIES:
+            f = place(mapdata, name)
+            out |= near(pixels, (f["x"], f["y"]), 3)
+    for t in MOSCOW_AIR:
+        if g >= t and t not in st.moscow_done:
+            m = place(mapdata, "ZMoscow Air")
+            out |= near(pixels, (m["x"], m["y"]), 5)
+    return out
 
 
 def build_fleet(io, mapdata, st):
@@ -529,8 +689,9 @@ def first_orders(io, watch, mapdata, st, t0):
             continue
         attack_move(io, *MASS)
         orders += 1
-        if len(st.ground_keys) < len(GROUND_KEYS):
-            key = GROUND_KEYS[len(st.ground_keys)]
+        free = free_ground_keys(st)
+        if len(st.ground_keys) < len(free):
+            key = free[len(st.ground_keys)]
             io.combo("ctrl", key)
             io.sleep(0.04)
             st.ground_keys.append(key)
@@ -789,10 +950,11 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None):
                 continue
             attack_move(io, *front_point(mapdata, st, target))
             orders += 1
-            if st.rekey < len(GROUND_KEYS):
+            free = free_ground_keys(st)
+            if st.rekey < len(free):
                 # the newest groups take over the number keys, so
                 # they can be recalled and given orders
-                io.combo("ctrl", GROUND_KEYS[st.rekey])
+                io.combo("ctrl", free[st.rekey])
                 io.sleep(0.04)
                 st.rekey += 1
     return orders, len(there)
@@ -808,7 +970,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
             attack_move(io, *front_point(mapdata, st, target))
             orders += 1
         io.sleep(1.5)                   # let them step off
-    st.rekey = len(GROUND_KEYS) if use_keys else 0
+    st.rekey = len(free_ground_keys(st)) if use_keys else 0
     if not use_keys:
         # bodies behind the mass set off first, so they are not left
         # trailing after it
@@ -1519,6 +1681,7 @@ def gather_idle(io, watch, mapdata, st, tried):
     idle -= in_battle(st, mapdata, idle)
     idle -= guarding(st, mapdata, idle, io.now())
     idle -= near(idle, fleet_spot(), 6)  # the fleet waits there: not a body
+    idle -= scout_spots(io, mapdata, st, idle)   # new Scouts: for the fleet
     hostile = watch.others(b_picture, HOSTILE)
     mc, mr = live.to_drawn(*MASS)
     # A small body standing exactly where something of ours stood at the
@@ -1961,6 +2124,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     capped, told = False, -99
     while io.now() - t0 < TRIAL_SECONDS:
         relocate_mass(io, watch, mapdata, st)
+        collect_new_scouts(io, watch, mapdata, st)
         orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
         st.blind = 0 if live.minimap_showing(picture) else st.blind + 1

@@ -133,6 +133,9 @@ class FakeGame:
             if abs(x - px) < 130 and abs(y - py) < 95:
                 self.selected = "starport"
 
+    def click_with(self, held, x, y):
+        self.click(x, y)
+
     def drag(self, x0, y0, x1, y1):
         self.inputs += 1
         self.time += 0.33
@@ -699,6 +702,9 @@ class StubIO:
     """Records what the bot presses; time stands still unless moved."""
     def __init__(self):
         self.t, self.keys, self.clicks, self.lines = 100.0, [], [], []
+        self.combos = []
+    def combo(self, held, name): self.combos.append((held, name))
+    def click_with(self, held, x, y): self.clicks.append((x, y, held))
     def now(self): return self.t
     def sleep(self, s): pass
     def key(self, name): self.keys.append(name)
@@ -919,3 +925,86 @@ def test_the_fleet_is_scouts_and_one_heavy_artillery_on_its_own_key():
     assert trial.add_to_fleet(g, st, s["x"], s["y"])
     assert st.air_keys == ["9", "0"] and st.fleet[1]["scouts"] == 1
     assert st.fleet[1]["ha"] != ha
+
+
+def fleet_state(scouts=6):
+    st = trial.State()
+    st.fleet = [{"key": "9", "scouts": scouts, "ha": trial.HEAVY_ARTILLERY[0]}]
+    st.air_keys = ["9"]
+    st.ground_keys = list("12345678")
+    return st
+
+
+def fake_new_keys(monkeypatch):
+    def open_key(io, st):
+        if len(st.fleet) >= len(trial.AIR_KEYS):
+            return False
+        key = trial.AIR_KEYS[len(st.fleet)]
+        st.fleet.append({"key": key, "scouts": 0, "ha": None})
+        st.air_keys.append(key)
+        if key in st.ground_keys:
+            st.ground_keys.remove(key)
+        return True
+    monkeypatch.setattr(trial, "open_fleet_key", open_key)
+
+
+def test_new_scouts_from_the_factories_go_on_the_fleet_keys(monkeypatch):
+    from bot import team
+    m = trial.load_map()
+    fake_new_keys(monkeypatch)
+    io = StubIO()
+    st = fleet_state(6)
+    st.clock = team.GameClock(io.now)
+    looked = []
+    monkeypatch.setattr(trial, "scouts_on_top",
+                        lambda io_, x, y: looked.append((x, y)) or 2)
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: 1 / 0)
+    # just before the first tax: nothing
+    st.clock.value = (trial.TAX_MARK + 1) / trial.COUNTDOWN_RATE
+    assert trial.collect_new_scouts(io, None, m, st) == 0
+    # just after it: two from each factory; a pair that does not fit
+    # starts the next key rather than being split
+    st.clock.value = (trial.TAX_MARK + 5) / trial.COUNTDOWN_RATE
+    assert trial.collect_new_scouts(io, None, m, st) == 6
+    # each factory once, the third again after starting the new key
+    assert len(looked) == 4 and len(set(looked)) == 3
+    assert [f["scouts"] for f in st.fleet] == [10, 2]
+    assert st.air_keys == ["9", "0"]
+    assert ("shift", "9") in io.combos and ("shift", "0") in io.combos
+    # not again in the same round; again in the next
+    assert trial.collect_new_scouts(io, None, m, st) == 0
+    st.clock.value = (trial.TAX_MARK + 305) / trial.COUNTDOWN_RATE
+    assert trial.collect_new_scouts(io, None, m, st) == 6
+
+
+def test_twelve_scouts_at_moscow_fill_a_key_and_start_another(monkeypatch):
+    from bot import team
+    m = trial.load_map()
+    fake_new_keys(monkeypatch)
+    io = StubIO()
+    st = fleet_state(6)
+    st.scout_round = 99                             # no factory round now
+    st.clock = team.GameClock(io.now)
+    st.clock.value = (trial.MOSCOW_AIR[0] + 5) / trial.COUNTDOWN_RATE
+    boxes = iter([12, 12, 1, 1, 0])                 # what each box picks up
+    monkeypatch.setattr(trial, "box_at", lambda io_, area: next(boxes))
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
+    assert trial.collect_new_scouts(io, None, m, st) == 12
+    assert [f["scouts"] for f in st.fleet] == [6, 11, 1]
+    assert st.air_keys == ["9", "0", "8"] and "8" not in st.ground_keys
+    assert "8" not in trial.free_ground_keys(st)
+    assert trial.MOSCOW_AIR[0] in st.moscow_done
+
+
+def test_new_scouts_are_kept_out_of_the_mass_while_they_are_fetched():
+    from bot import team
+    m = trial.load_map()
+    io = StubIO()
+    st = fleet_state()
+    st.clock = team.GameClock(io.now)
+    f = trial.place(m, "Factory 1")
+    there = blob((f["x"], f["y"]), 2)
+    st.clock.value = (trial.TAX_MARK + 10) / trial.COUNTDOWN_RATE
+    assert trial.scout_spots(io, m, st, there) == there
+    st.clock.value = (trial.TAX_MARK + 100) / trial.COUNTDOWN_RATE
+    assert trial.scout_spots(io, m, st, there) == set()

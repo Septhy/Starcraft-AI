@@ -936,5 +936,20 @@ The repository owner's rules:
   16 tiles east, 4 north of the mass, out of the mass sweeps and the
   idle pickup. Recall and retreat send it there; hits and fight() as
   before.
-- Not done: Scouts that arrive later are not added yet (needs the
-  selection panel's unit pictures from the user's screenshots).
+- New Scouts (from the map's triggers): each factory Russia holds
+  (Factory 1 @167,55, Factory 2 @226,91, Factory 3 @203,43; "Heavy
+  Industry" buildings) makes 2 Scouts, 2 Heavy Tanks and 2 Veteran
+  Infantry at every tax (countdown 2:00); 12 Scouts appear at "ZMoscow
+  Air" (201,41) at 1800 and 2800 game seconds (about 20:10 and 31:20 on
+  the clock). A Wraith built is swapped for a Scout (bot builds none).
+- collect_new_scouts: 3 game s after each tax, click each factory's
+  middle (Scouts hover over the building, where ground units cannot
+  stand; a click that shows the Move button is a Scout), Ctrl+click
+  (every Scout on screen), Shift+fleet key, then fly them to the fleet.
+  Moscow: box the location, trim to the room (Shift+click on panel
+  pictures), two passes, 3 s apart. A pair that does not fit starts the
+  next key instead of being split. Keys 9, 0, then 8 and 7 (taken from
+  the ground keys). The spawn spots are kept out of the idle pickup for
+  30 game s (Moscow until fetched).
+- Untested in a real game: whether the click on the factory middle
+  picks a Scout, and Ctrl+click selecting only Scouts.

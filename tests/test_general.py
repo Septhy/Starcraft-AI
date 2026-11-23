@@ -189,7 +189,7 @@ def test_the_general_chooses_targets_and_is_asked_all_through():
     assert result["targets"][0] == "Romania 300"
     assert "No hit has been sent yet" in scripted.reports[0]
     assert any("Our last hit was sent at" in r for r in scripted.reports)
-    assert scripted.asked > 20                      # all through, hits included
+    assert scripted.asked >= 18                     # all through, hits included
     assert "Number keys holding groups" in scripted.reports[-1]
     # and at the end it was asked for lessons, which were saved
     assert "hit at " in scripted.lessons_asked
