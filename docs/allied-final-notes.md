@@ -1211,3 +1211,7 @@ second hit (the demo only shows how).
   with it -> alternately left and right. Groups 4 tiles apart. From
   Smolensk, Berlin and Romania are both "top right" (line on the left);
   Konigsberg is level (both sides).
+- Rally points (the repository owner, all versions): each barracks
+  rallies to its own spot round the mass point, on a 3 x 3 grid 8 tiles
+  apart (an area 16 tiles across; RALLY_SPOTS, rally_spot), instead of
+  all to the one point. Set at every round of marines as before.

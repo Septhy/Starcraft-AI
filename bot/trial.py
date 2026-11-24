@@ -429,10 +429,26 @@ def room_for_marines(io):
     return max(0, supply[1] - supply[0])
 
 
+RALLY_SPOTS = [(dx, dy) for dy in (0, -8, 8) for dx in (0, -8, 8)]
+                               # tiles from the mass point: each barracks its
+                               # own, within an area 16 tiles across (the
+                               # repository owner), so new marines arrive
+                               # spread out, not in one clump
+
+
+def rally_spot(mapdata, b):
+    """The rally point (map pixels) of one barracks: its own spot round
+    the mass point, by its place in the list of barracks."""
+    tiles = [(x["x"] // 32, x["y"] // 32) for x in barracks_of(mapdata)]
+    k = tiles.index((b["x"] // 32, b["y"] // 32)) \
+        if (b["x"] // 32, b["y"] // 32) in tiles else 0
+    dx, dy = RALLY_SPOTS[k % len(RALLY_SPOTS)]
+    return MASS[0] + dx * 32, MASS[1] + dy * 32
+
+
 def train_everywhere(io, mapdata, st, check_supply=True):
     """Queue marines at the barracks, but only as many as the supply
     limit has room for. At the limit, nothing is queued at all."""
-    gx, gy = live.minimap_point(*MASS)
     room = room_for_marines(io) if check_supply else None
     if room is not None and room < 3:
         if not st.capped:
@@ -444,8 +460,8 @@ def train_everywhere(io, mapdata, st, check_supply=True):
     def one(b):
         if not select_barracks(io, b):
             return False
-        io.click(gx, gy, button="right")                  # rally point
-        io.sleep(0.06)
+        io.click(*live.minimap_point(*rally_spot(mapdata, b)), button="right")
+        io.sleep(0.06)                  # its own rally point by the mass
         for _ in range(MARINES_PER_BARRACKS):
             io.key("m")
             io.sleep(0.03)

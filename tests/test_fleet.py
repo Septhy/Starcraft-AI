@@ -364,3 +364,27 @@ def test_rel_version_keys_the_mass_into_its_side_line(monkeypatch):
     # Berlin: the mass is to its top right, so the line is on the left
     assert all(spot[0] < trial.MASS[0] for _, spot in st.keyed)
     assert trial.keys_style()
+
+
+def test_each_barracks_rallies_to_its_own_spot_by_the_mass():
+    """The repository owner: each barracks its own rally point, within
+    an area 16 tiles across round the massing place."""
+    m = trial.load_map()
+    spots = [trial.rally_spot(m, b) for b in trial.barracks_of(m)]
+    assert len(set(spots)) == len(spots)            # all different
+    for x, y in spots:
+        assert abs(x - trial.MASS[0]) <= 8 * 32 and abs(y - trial.MASS[1]) <= 8 * 32
+        p = live.to_drawn(x, y)
+        assert trial.at_mass({(int(p[0]), int(p[1]))})   # still the mass
+    # and training clicks each barracks' own spot
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    st = trial.State()
+    trial_select = trial.select_barracks
+    try:
+        trial.select_barracks = lambda io_, b: True
+        trial.train_everywhere(io, m, st, check_supply=False)
+    finally:
+        trial.select_barracks = trial_select
+    rallies = {c[:2] for c in io.clicks if c[2] == "right"}
+    assert len(rallies) == len(trial.barracks_of(m))
