@@ -1,9 +1,9 @@
 """Screen recorder for building the StarCraft screen reader.
 
 Run it, start StarCraft, press F9 to start and F9 again to stop. Every
-three seconds it keeps the minimap and the top strip of the screen,
-and every thirty seconds the whole screen, with the mouse position,
-for up to 45 minutes. It packs them into zip files on the Desktop.
+two seconds it keeps the whole screen, with the mouse position, for up
+to 45 minutes (fast enough to see how air is handled). It packs them
+into zip files on the Desktop.
 
 It only takes pictures. It does not touch the game, the mouse or the
 keyboard.
@@ -14,16 +14,16 @@ import sys
 import time
 import zipfile
 
-INTERVAL = 3.0          # seconds between looks
-MAX_FRAMES = 900        # stop by itself after this many looks (45 minutes)
-FULL_EVERY = 10         # every n-th look keeps the whole screen (JPEG)
-PNG_EVERY = 100         # every n-th look also keeps it exact (PNG)
-# Every look keeps these small parts of the screen exactly: the minimap,
-# and the strip along the top with the timer, money and supply. They are
-# what the bot reads, and they are small enough to keep for a whole game.
+INTERVAL = 2.0          # seconds between looks
+MAX_FRAMES = 1350       # stop by itself after this many looks (45 minutes)
+FULL_EVERY = 1          # every n-th look keeps the whole screen (JPEG)
+PNG_EVERY = 150         # every n-th look also keeps it exact (PNG)
+# A look without the whole screen keeps these small parts of it exactly:
+# the minimap, and the strip along the top with the timer, money and
+# supply. (With the whole screen every look, they are not needed.)
 MINIMAP_PART = (0, 780, 330, 1080)
 TOP_PART = (0, 0, 1920, 40)
-JPEG_QUALITY = 88
+JPEG_QUALITY = 75       # every two seconds for 45 minutes: kept smaller
 PART_BYTES = 18 * 1024 * 1024   # zip parts are kept under this size
 HOTKEY = 0x78           # F9
 
@@ -51,7 +51,7 @@ class Recorder:
         img = self.grab().convert("RGB")
         n = len(self.frames)
         files = []
-        if img.size == (1920, 1080):
+        if img.size == (1920, 1080) and n % self.full_every != 0:
             for tag, part in (("map", MINIMAP_PART), ("top", TOP_PART)):
                 name = f"{tag}{n:04d}.png"
                 img.crop(part).save(os.path.join(self.out_dir, name))

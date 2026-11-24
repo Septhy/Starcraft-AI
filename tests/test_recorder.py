@@ -46,13 +46,24 @@ def test_records_packs_and_cleans_up(tmp_path):
 
 
 def test_a_whole_game_keeps_the_small_parts_every_look(tmp_path):
-    """On a full-size screen every look keeps the minimap and the top
-    strip exactly, and only now and then the whole screen."""
+    """On a full-size screen a look without the whole screen keeps the
+    minimap and the top strip exactly."""
     rec = run(tmp_path, (1920, 1080), max_frames=12, png_every=100,
               full_every=10)
     names, info = read(rec.finish())
-    assert sum(n.startswith("map") for n in names) == 12
-    assert sum(n.startswith("top") for n in names) == 12
+    assert sum(n.startswith("map") for n in names) == 10
+    assert sum(n.startswith("top") for n in names) == 10
     assert sorted(n for n in names if n.endswith(".jpg")) == \
         ["frame0000.jpg", "frame0010.jpg"]
     assert info["frames"][5]["files"] == ["map0005.png", "top0005.png"]
+
+
+def test_by_default_the_whole_screen_every_two_seconds(tmp_path):
+    from recorder import recorder
+    assert recorder.INTERVAL == 2.0 and recorder.FULL_EVERY == 1
+    assert recorder.MAX_FRAMES * recorder.INTERVAL == 45 * 60
+    rec = run(tmp_path, (1920, 1080), max_frames=3, png_every=100)
+    names, _ = read(rec.finish())
+    assert sorted(n for n in names if n.endswith(".jpg")) == \
+        ["frame0000.jpg", "frame0001.jpg", "frame0002.jpg"]
+    assert not any(n.startswith(("map", "top")) for n in names)
