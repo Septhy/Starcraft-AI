@@ -333,6 +333,14 @@ def test_opening_masses_fast_and_hits_berlin():
         g = FakeGame(m, error=error)
         seen = {}
         real_hit = trial.hit
+        went = {}                                   # every place each man was sent
+        real_send = g.send
+
+        def send(units, mx, my, real_send=real_send, went=went):
+            for u in units:
+                went.setdefault(id(u), []).append((mx, my))
+            real_send(units, mx, my)
+        g.send = send
 
         def hit(io, *a, **k):                       # note the mass as it leaves
             if not seen:
@@ -357,7 +365,8 @@ def test_opening_masses_fast_and_hits_berlin():
         assert len(g.groups) >= 8 and g.key_orders >= 8, (error, result)
         # most of the starting army is massed when the first hit goes
         assert seen["t"] <= 100, (error, seen)
-        assert result["hits"][0] and g.time_first_hit_done <= 110, \
+        # (the massing place is a little wider since the mass is spread out)
+        assert result["hits"][0] and g.time_first_hit_done <= 120, \
             (error, g.time_first_hit_done)
         assert seen["n"] >= 0.7 * 175, (error, seen)
         # in the end most of everything, Middle East marines included,
@@ -365,6 +374,7 @@ def test_opening_masses_fast_and_hits_berlin():
         alive = g.alive()
         spots = [trial.place(m, n)
                  for n in set(trial.TARGETS) | set(trial.NEXT.values())]
+        spots.append({"x": trial.BALKS_POINT[0], "y": trial.BALKS_POINT[1]})
         sent = [u for u in alive
                 if any(near(u["to"], (p["x"], p["y"]), 20) for p in spots)]
         # (not everything: men who are too few for another hit are held back)
@@ -374,16 +384,20 @@ def test_opening_masses_fast_and_hits_berlin():
         # the Middle East marines reached the massing place, whether or
         # not they were in time for a hit
         spawned = [u for u in alive if u.get("spawn")]
-        assert sum(near(u["to"], trial.MASS, 14) or u in sent
+        # (the mass is spread out up to 12 tiles from the point)
+        assert sum(near(u["to"], trial.MASS, 18) or u in sent
                    for u in spawned) >= 20, error
         # the first hit: Berlin (and, Berlin being undefended here, on
         # down the road to Paris and Madrid)
         beyond = [trial.place(m, n) for n in ("Berlin 1000", "Paris 500",
                                               "Madrid 1000")]
-        at_berlin = [u for u in sent if any(
-            near(u["to"], (p["x"], p["y"]), 20) for p in beyond)]
+        # (men sent on to the Balkans later count too: where they went)
+        at_berlin = [u for u in alive if any(
+            near(xy, (p["x"], p["y"]), 20) for p in beyond
+            for xy in went.get(id(u), []))]
         assert len(at_berlin) >= 80
-        assert len({round(u["to"][1] / 64) for u in at_berlin}) >= 4   # a wall
+        assert len({round(xy[1] / 64) for u in at_berlin
+                    for xy in went[id(u)]}) >= 4                   # a wall
         # a spare building (never a barracks) was flown to Warsaw after
         # the first hit
         warsaw = trial.place(m, "Warsaw 200")

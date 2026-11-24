@@ -83,7 +83,8 @@ FRONT = [(4, -5), (4, -1), (4, 3), (6, -3), (6, 1), (6, 5), (2, -3),
          (2, 1), (0, 5), (2, -7)]
 HOME_MASS = (160 * 32, 76 * 32)  # map pixels: where the army masses, west of Smolensk
 MASS = HOME_MASS               # where it masses now: the allies may move it
-MASS_RADIUS = 13               # minimap pixels around it that count as there
+MASS_RADIUS = 15               # minimap pixels around it that count as there
+                               # (the spread mass reaches 12 tiles out)
 MIDDLE_EAST = (219 * 32, 129 * 32)   # bring a unit here for the spawn
 # Buildings to fly to a city: (when, kind of building, its tile, the
 # city). "When" is a hit's number, or a target's name for the first
@@ -1259,6 +1260,10 @@ REINFORCE_FOR = 60             # seconds after a hit when new troops go straight
 SPREAD_BOXES = 6               # boxes spread out over the massing place a round
 SPREAD_SPOTS = [(dx * 4, dy * 4) for dy in (0, -1, 1) for dx in (0, -2, 2, -1, 1)]
                                # tiles from the mass: where the boxes are walked
+                               # (keys version: 4 tiles apart)
+SPREAD_WIDE = [(dx, dy) for dy in (-4, 4, -12, 12) for dx in (-4, 4, -12, 12)]
+                               # the usual version (the repository owner): 8
+                               # tiles apart over an area 24 tiles across
 
 
 def reinforce_target(io, st):
@@ -1273,12 +1278,13 @@ def reinforce_target(io, st):
 
 
 def spread_at_mass(io, watch, mapdata, st):
-    """The keys version: between rounds of marines, the crowd at the
+    """Between rounds of marines, the crowd at the
     massing place is boxed from its thickest part and walked out over a
     wide area round the mass point (the repository owner), so it does
     not stand in one clump. Returns the boxes moved."""
-    if HIT_STYLE != "keys" or busy(st):
+    if busy(st):
         return 0
+    spots = SPREAD_SPOTS if HIT_STYLE == "keys" else SPREAD_WIDE
     a = watch.units(io.shot("watch", keep=False))
     io.sleep(1.0)
     there = at_mass(a) & watch.units(io.shot("watch", keep=False))
@@ -1296,7 +1302,7 @@ def spread_at_mass(io, watch, mapdata, st):
         left -= set(boxed) or {seed}
         if n == 0:
             continue
-        dx, dy = SPREAD_SPOTS[st.spread_next % len(SPREAD_SPOTS)]
+        dx, dy = spots[st.spread_next % len(spots)]
         st.spread_next += 1
         io.click(*live.minimap_point(MASS[0] + dx * 32, MASS[1] + dy * 32),
                  button="right")         # a plain move: out over the ground
@@ -3343,7 +3349,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         if io.now() - last_train >= RETRAIN_EVERY:
             last_train = io.now()
             train_everywhere(io, mapdata, st)
-            spread_at_mass(io, watch, mapdata, st)   # the keys version only
+            spread_at_mass(io, watch, mapdata, st)
         io.sleep(0.5 if general else 1.5)
     io.shot("mass")
     if battle:

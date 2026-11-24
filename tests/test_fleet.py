@@ -302,6 +302,20 @@ def test_the_mass_is_spread_out_between_rounds_of_marines(monkeypatch):
     assert trial.spread_at_mass(io, watch, m, st) == trial.SPREAD_BOXES
     spots = {c[:2] for c in io.clicks if c[2] == "right"}
     assert len(spots) == trial.SPREAD_BOXES         # each group its own spot
-    # not while a hit is announced, nor in the usual version
+    # the usual version spreads it wider: 8 tiles apart, 24 tiles across
     monkeypatch.setattr(trial, "HIT_STYLE", "boxes")
-    assert trial.spread_at_mass(io, watch, m, st) == 0
+    io2 = StubIO()
+    io2.shot = lambda label, keep=True: None
+    st2 = trial.State()
+    assert trial.spread_at_mass(io2, watch, m, st2) == trial.SPREAD_BOXES
+    xs = sorted({dx for dx, dy in trial.SPREAD_WIDE})
+    assert xs == [-12, -4, 4, 12] and max(xs) - min(xs) == 24
+    # all of it still counts as at the mass
+    for dx, dy in trial.SPREAD_WIDE:
+        p = live.to_drawn(trial.MASS[0] + dx * 32, trial.MASS[1] + dy * 32)
+        assert trial.at_mass({(int(p[0]), int(p[1]))})
+    # not while a hit is announced
+    from bot import team
+    st2.team = team.Team(lambda t: None, lambda t: None)
+    st2.team.announced = ("east", 999)
+    assert trial.spread_at_mass(io2, watch, m, st2) == 0

@@ -1188,3 +1188,9 @@ second hit (the demo only shows how).
   - Between rounds of marines the crowd at the mass is boxed from its
     thickest part (up to 6 boxes) and walked to spots 4 tiles apart
     round the mass point (spread_at_mass); not while a hit is announced.
+- The usual version spreads the mass too (the repository owner): after
+  each round of marines, up to 6 boxes from the thickest part are walked
+  to spots 8 tiles apart over an area 24 tiles across round the mass
+  point (SPREAD_WIDE, -12/-4/4/12 tiles each way). MASS_RADIUS is now 15
+  minimap pixels so all of it still counts as the mass (the parked
+  fleet, 21 tiles east, stays outside).
