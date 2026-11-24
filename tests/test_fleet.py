@@ -191,22 +191,24 @@ def test_scouts_are_taken_out_of_a_box_before_it_is_ordered(monkeypatch):
     assert trial.drop_scouts(io2, st) == 0
 
 
-def test_a_hit_goes_by_its_keys_first_with_the_fleet(monkeypatch):
+def test_the_scouts_for_the_middle_east_are_kept_in_their_box(monkeypatch):
+    """Trial 27: the box round the two scouting Scouts was emptied of
+    Scouts as if it were for the ground; no scout went."""
     m = trial.load_map()
     st, io = trial.State(), StubIO()
-    st.air_keys = ["9"]
-    st.mass_keyed = (io.t - 5, list("1234567"), "Berlin 1000")
-    calls = []
-    monkeypatch.setattr(trial, "sweep_mass",
-                        lambda *a, **k: calls.append("sweep") or (0, 0))
-    monkeypatch.setattr(trial, "push_front",
-                        lambda *a, **k: calls.append(k["side"]) or 0)
-    io.shot = lambda label, keep=True: None
-    trial.hit(io, None, m, st, "Berlin 1000", use_keys=False)
-    keys = [k for k in io.keys if k.isdigit()]
-    assert keys[:8] == list("1234567") + ["9"]      # the mass, then the fleet
-    assert calls == ["rear", "sweep", "forward"]   # then the rest
-    assert st.battle.target == "Berlin 1000" and st.mass_keyed is None
+    st.scout_frame = trial._crop(panel("panel_scouts2.png"),
+                                 trial._frame_box(0, 2))
+    io.shot = lambda label, keep=True: panel("panel_scouts2.png")
+    io.drag = lambda *box: None
+    io.card = lambda: None
+    monkeypatch.setattr(trial.live, "units_selected", lambda card: True)
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 2)
+    assert trial.send_scout(io, m, st)
+    me = live.minimap_point(*trial.MIDDLE_EAST)
+    assert (*me, "right") in io.clicks
+    assert not any(c[2] == "shift" for c in io.clicks)   # none taken out
+    # a ground box over the same Scouts is emptied
+    assert not trial.box_and_check(io, (100, 100, 300, 300), st)
 
 
 def test_a_balkans_hit_clears_romania_then_goes_on_toward_serbia():

@@ -186,7 +186,6 @@ class State:
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
-        self.mass_keyed = None     # (when, keys, target): the mass on 1 to 7
         self.empty_skipped = 0     # boxes not drawn: nothing there any more
         self.walking = []          # (when, minimap pixel) bodies sent to the mass
         self.lift_fails = {}       # building tile -> lifts that did not happen
@@ -283,13 +282,14 @@ def centred(x, y):
             y - ((t + b) / 2 - live.CENTRE[1]) / live.ZOOM)
 
 
-def box_and_check(io, box, st):
-    """Drag a box. True if the screen then shows units selected."""
+def box_and_check(io, box, st, air=False):
+    """Drag a box. True if the screen then shows units selected. Scouts
+    are taken out unless `air` (a box meant for the air)."""
     io.drag(*box)
     io.sleep(0.05)
     st.boxes += 1
     if live.units_selected(io.card()):
-        if st.scout_frame is not None and drop_scouts(io, st) == 0:
+        if not air and st.scout_frame is not None and drop_scouts(io, st) == 0:
             return False                # only Scouts: not for the ground
         return True
     st.empty += 1
@@ -299,7 +299,7 @@ def box_and_check(io, box, st):
 FRESH = 2                      # minimap pixels round a group where it may have moved
 
 
-def select_group(io, pixels, st, watch=None, margin=None):
+def select_group(io, pixels, st, watch=None, margin=None, air=False):
     """Look at the units drawn at these minimap pixels and box them."""
     margin = MARGIN if margin is None else margin
     cols = [p[0] for p in pixels]
@@ -329,7 +329,7 @@ def select_group(io, pixels, st, watch=None, margin=None):
            min(r - 4, sx1 + margin), min(b - 4, sy1 + margin))
     if box[2] - box[0] < 40 or box[3] - box[1] < 40:
         return False
-    if box_and_check(io, box, st):
+    if box_and_check(io, box, st, air=air):
         return True
     if watch:
         watch.forget(pixels)            # nothing there: not units
@@ -386,7 +386,10 @@ def send_scout(io, mapdata, st):
     pair = sorted(air, key=d)[:2]
     if not pair:
         return False
-    if not select_group(io, [live.to_drawn(a["x"], a["y"]) for a in pair], st):
+    if not select_group(io, [live.to_drawn(a["x"], a["y"]) for a in pair], st,
+                        air=True):
+        # (trial 27: the box was emptied of its Scouts as if it were for
+        # the ground, and the Middle East was never visited)
         io.log("scout: not found")
         return False
     io.click(*live.minimap_point(*MIDDLE_EAST), button="right")
@@ -1230,61 +1233,6 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
     return orders, len(there)
 
 
-MASS_KEYS = list("1234567")     # the mass is put on these before a hit (the
-                               # repository owner): 1 attack, 2 attack ... 7
-KEY_REFRESH = 30               # seconds: the keys are set again this often
-KEY_FRESH = 60                 # seconds: keys older than this are not used
-
-
-def mass_keys(st):
-    return [k for k in MASS_KEYS if k not in st.air_keys]
-
-
-def key_mass(io, watch, mapdata, st, target):
-    """Put the mass on the number keys 1 to 7, a dozen men to a key, the
-    back of the mass first, Scouts left out: at "go" a few key presses
-    send most of the hit at once (the repository owner, trial 26: boxing
-    the whole mass a dozen at a time took over a minute, and the hit
-    arrived in pieces). Returns how many keys were set."""
-    keys = mass_keys(st)
-    w = place(mapdata, target)
-    a = watch.units(io.shot("watch", keep=False))
-    io.sleep(1.0)
-    there = at_mass(a) & watch.units(io.shot("watch", keep=False))
-    st.mass_keyed = (io.now(), [], target)
-    if len(there) < 12 or not keys:
-        return 0
-    used = []
-    views = back_to_front(live.clusters(there, 20, 8), (w["x"], w["y"]),
-                          lambda g: live.from_drawn(*g[0]))
-    for view in views:
-        if len(used) >= len(keys):
-            break
-        cols = [p[0] for p in view]
-        rows = [p[1] for p in view]
-        cam = look_at(io, *centred(*live.from_drawn(
-            (min(cols) + max(cols)) / 2, (min(rows) + max(rows)) / 2)))
-        left = set(view)
-        while left and len(used) < len(keys):
-            seed = back_to_front(list(left), (w["x"], w["y"]),
-                                 lambda p: live.from_drawn(*p))[0]
-            boxed, n = select_full(io, st, seed, left, cam)
-            # (all of the box counts as done: the men keyed stay where
-            # they are, and another box there would take them again)
-            left -= set(boxed) or {seed}
-            if n == 0:
-                continue
-            key = keys[len(used)]
-            io.combo("ctrl", key)
-            io.sleep(0.04)
-            used.append(key)
-            if key not in st.ground_keys:
-                st.ground_keys.append(key)
-    st.mass_keyed = (io.now(), used, target)
-    io.log(f"the mass put on keys {''.join(used) or 'none'} for {target}")
-    return len(used)
-
-
 def send_fleet_with_hit(io, mapdata, st, target):
     """The fleet goes with the hit at once, as one stack, to a point
     just ahead of the mass over the army's back; from there it is kept
@@ -1303,9 +1251,9 @@ def send_fleet_with_hit(io, mapdata, st, target):
 
 
 def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
-    """Send the mass at the target as a wall: the keyed mass first (1
-    attack, 2 attack ... 7), the fleet with it, then the rest of the
-    mass box by box, and everyone behind and forward of it."""
+    """Send the mass at the target as a wall, the fleet with it. (Keying
+    the mass on 1 to 7 first was tried in trial 27 and made it worse:
+    taken out again at the repository owner's word.)"""
     orders = 0
     if team_rules.front_of(target) == "balks":
         # the last hit's troops still in the choke go on first, so the
@@ -1315,31 +1263,20 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
         pic = io.shot("watch", keep=False)
         orders += clear_choke(io, watch, mapdata, st, a & watch.units(pic),
                               pic, force=True)
-    keyed = st.mass_keyed if st.mass_keyed and st.mass_keyed[1] and \
-        io.now() - st.mass_keyed[0] < KEY_FRESH else None
-    if keyed:
-        point = front_point(mapdata, st, target)
-        for key in keyed[1]:            # most of the hit in a few seconds
-            io.key(key)
-            io.sleep(0.035)
-            send_at(io, mapdata, st, target, point)
-            orders += 1
-    elif use_keys:
+    if use_keys:
         for key in st.ground_keys:      # all the key groups in a few seconds
             io.key(key)
             io.sleep(0.035)
             send_at(io, mapdata, st, target)
             orders += 1
-    st.mass_keyed = None
     # the fleet goes with it, and is looked after from now on
     orders += send_fleet_with_hit(io, mapdata, st, target)
     st.battle = Battle(target, io.now())
-    if keyed or use_keys:
+    if use_keys:
         io.sleep(1.5)                   # let them step off
-    # the keys hold the hit now; with none set, the sweeps take them over
-    st.rekey = len(free_ground_keys(st)) if (use_keys or keyed) else 0
-    if not use_keys or keyed:
-        # bodies behind the mass set off next, so they are not left
+    st.rekey = len(free_ground_keys(st)) if use_keys else 0
+    if not use_keys:
+        # bodies behind the mass set off first, so they are not left
         # trailing after it
         orders += push_front(io, watch, mapdata, st, target, side="rear")
     start = None
@@ -1351,15 +1288,14 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
         if n == 0 or found < 0.1 * start:
             break
         io.sleep(1.5)
-    if not use_keys or keyed:           # nothing is forward before the first hit
+    if not use_keys:                    # nothing is forward before the first hit
         orders += push_front(io, watch, mapdata, st, target, side="forward")
     st.hit_sent = io.now()
     st.hits_sent += 1
     st.go_pending = False
     per_box = st.selected / max(st.selections, 1)
-    io.log(f"hit: {orders} groups sent at {target}"
-           + (f" (keys {''.join(keyed[1])} first)" if keyed else "")
-           + f"; its boxes have held {per_box:.1f} units each on average so far")
+    io.log(f"hit: {orders} groups sent at {target}; its boxes have held "
+           f"{per_box:.1f} units each on average so far")
     return orders
 
 
@@ -3161,12 +3097,6 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         target = st.planned_target
         if ready and target is None:
             target = choose_target(io, watch, st, mapdata, battle)
-        # while the hit is ready or announced, the mass is kept on keys
-        # 1 to 7, so it can go in a few key presses
-        announced = st.team is not None and st.team.announced is not None
-        if (ready or announced) and (st.mass_keyed is None or
-                                     io.now() - st.mass_keyed[0] >= KEY_REFRESH):
-            key_mass(io, watch, mapdata, st, target or TARGETS[0])
         # the allies have the last word on when, and where
         if team_gate(io, watch, mapdata, st, ready,
                      target or TARGETS[0]) == "go":
