@@ -229,3 +229,34 @@ def test_east_is_always_berlin_and_the_balkans_always_romania():
         assert trial.road_start(st, name) == "Berlin 1000"
     for name in ("Factory 7", "Hungary 200", "Romania 300"):
         assert trial.road_start(st, name) == "Romania 300"
+
+
+def test_the_keys_version_spreads_the_mass_in_a_line_and_attacks_by_keys(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    st.mass_keyed = (io.t, list("1234567"), "Berlin 1000")
+    trial.spread_mass(io, m, st, "Berlin 1000")
+    moves = [c for c in io.clicks if c[2] == "right"]
+    assert io.keys == list("1234567") and len(moves) == 7
+    # a line across the way to Berlin: spread wide, not one spot
+    xs = [c[0] for c in moves]
+    ys = [c[1] for c in moves]
+    assert max(xs) - min(xs) + max(ys) - min(ys) >= 6
+    # at "go": each key attacks its own place along the line
+    monkeypatch.setattr(trial, "HIT_STYLE", "keys")
+    monkeypatch.setattr(trial, "sweep_mass", lambda *a, **k: (0, 0))
+    monkeypatch.setattr(trial, "push_front", lambda *a, **k: 0)
+    io2 = StubIO()
+    io2.shot = lambda label, keep=True: None
+    st.mass_keyed = (io2.t - 20, list("1234567"), "Berlin 1000")
+    trial.hit(io2, None, m, st, "Berlin 1000", use_keys=False)
+    assert [k for k in io2.keys if k.isdigit()][:7] == list("1234567")
+    points = {c[:2] for c in io2.clicks}
+    assert len(points) >= 5                         # not all the same point
+    # the usual version never uses the keyed line
+    monkeypatch.setattr(trial, "HIT_STYLE", "boxes")
+    io3 = StubIO()
+    io3.shot = lambda label, keep=True: None
+    st.mass_keyed = (io3.t - 20, list("1234567"), "Berlin 1000")
+    trial.hit(io3, None, m, st, "Berlin 1000", use_keys=False)
+    assert not any(k in "1234567" for k in io3.keys if k.isdigit())

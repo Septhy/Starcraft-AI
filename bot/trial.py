@@ -186,6 +186,7 @@ class State:
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
+        self.mass_keyed = None     # the keys version: (when, keys, target)
         self.empty_skipped = 0     # boxes not drawn: nothing there any more
         self.walking = []          # (when, minimap pixel) bodies sent to the mass
         self.lift_fails = {}       # building tile -> lifts that did not happen
@@ -1233,6 +1234,111 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
     return orders, len(there)
 
 
+# The keys version (StarcraftTrialKeys, the repository owner's choice to
+# try): when a hit is announced the mass is put on keys 1 to 7 and spread
+# out in a wide line facing the target; at "go" each key attacks, keeping
+# its place in the line; the rest is boxed as usual. The usual version
+# boxes the whole mass (keying it made trial 27 worse).
+HIT_STYLE = "boxes"            # "keys" in the keys version
+MASS_KEYS = list("1234567")     # the mass is put on these before a hit
+KEY_FRESH = 60                 # seconds: keys older than this are not used
+
+
+def mass_keys(st):
+    return [k for k in MASS_KEYS if k not in st.air_keys]
+
+
+def key_mass(io, watch, mapdata, st, target):
+    """Put the mass on the number keys 1 to 7, a dozen men to a key, the
+    back of the mass first, Scouts left out: at "go" a few key presses
+    send most of the hit at once (the repository owner, trial 26: boxing
+    the whole mass a dozen at a time took over a minute, and the hit
+    arrived in pieces). Returns how many keys were set."""
+    keys = mass_keys(st)
+    w = place(mapdata, target)
+    a = watch.units(io.shot("watch", keep=False))
+    io.sleep(1.0)
+    there = at_mass(a) & watch.units(io.shot("watch", keep=False))
+    st.mass_keyed = (io.now(), [], target)
+    if len(there) < 12 or not keys:
+        return 0
+    used = []
+    views = back_to_front(live.clusters(there, 20, 8), (w["x"], w["y"]),
+                          lambda g: live.from_drawn(*g[0]))
+    for view in views:
+        if len(used) >= len(keys):
+            break
+        cols = [p[0] for p in view]
+        rows = [p[1] for p in view]
+        cam = look_at(io, *centred(*live.from_drawn(
+            (min(cols) + max(cols)) / 2, (min(rows) + max(rows)) / 2)))
+        left = set(view)
+        while left and len(used) < len(keys):
+            seed = back_to_front(list(left), (w["x"], w["y"]),
+                                 lambda p: live.from_drawn(*p))[0]
+            boxed, n = select_full(io, st, seed, left, cam)
+            # (all of the box counts as done: the men keyed stay where
+            # they are, and another box there would take them again)
+            left -= set(boxed) or {seed}
+            if n == 0:
+                continue
+            key = keys[len(used)]
+            io.combo("ctrl", key)
+            io.sleep(0.04)
+            used.append(key)
+            if key not in st.ground_keys:
+                st.ground_keys.append(key)
+    st.mass_keyed = (io.now(), used, target)
+    io.log(f"the mass put on keys {''.join(used) or 'none'} for {target}")
+    return len(used)
+
+
+SPREAD_AHEAD = 7               # tiles ahead of the mass where the line forms
+SPREAD_GAP = 4                 # tiles between the keys along the line
+
+
+def line_offsets(n, mass, target):
+    """Map-pixel offsets of n groups along a line across the way from
+    the mass to the target (left to right), SPREAD_GAP tiles apart."""
+    dx, dy = target[0] - mass[0], target[1] - mass[1]
+    d = (dx * dx + dy * dy) ** 0.5 or 1.0
+    px, py = -dy / d, dx / d            # across the way
+    return [((k - (n - 1) / 2) * SPREAD_GAP * 32 * px,
+             (k - (n - 1) / 2) * SPREAD_GAP * 32 * py) for k in range(n)]
+
+
+def spread_mass(io, mapdata, st, target):
+    """Walk the keyed groups out into a wide line a little ahead of the
+    mass, facing the target, so the hit goes in as a broad front."""
+    keys = st.mass_keyed[1] if st.mass_keyed else []
+    if not keys:
+        return 0
+    w = place(mapdata, target)
+    centre = toward(MASS, (w["x"], w["y"]), SPREAD_AHEAD)
+    for key, (ox, oy) in zip(keys, line_offsets(len(keys), MASS,
+                                                (w["x"], w["y"]))):
+        io.key(key)
+        io.sleep(0.035)
+        io.click(*live.minimap_point(centre[0] + ox, centre[1] + oy),
+                 button="right")         # a plain move: into the line
+        io.sleep(0.035)
+    io.log(f"the keyed mass spread out in a line toward {target}")
+    return len(keys)
+
+
+def keyed_attack(io, mapdata, st, target, keys):
+    """Each key attacks, keeping its place in the line: its own point
+    across the target's front."""
+    w = place(mapdata, target)
+    offsets = line_offsets(len(keys), MASS, (w["x"], w["y"]))
+    for key, (ox, oy) in zip(keys, offsets):
+        x, y = front_point(mapdata, st, target)
+        io.key(key)
+        io.sleep(0.035)
+        send_at(io, mapdata, st, target, (x + ox, y + oy))
+    return len(keys)
+
+
 def send_fleet_with_hit(io, mapdata, st, target):
     """The fleet goes with the hit at once, as one stack, to a point
     just ahead of the mass over the army's back; from there it is kept
@@ -1251,9 +1357,8 @@ def send_fleet_with_hit(io, mapdata, st, target):
 
 
 def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
-    """Send the mass at the target as a wall, the fleet with it. (Keying
-    the mass on 1 to 7 first was tried in trial 27 and made it worse:
-    taken out again at the repository owner's word.)"""
+    """Send the mass at the target as a wall, the fleet with it. In the
+    keys version the keyed line goes first."""
     orders = 0
     if team_rules.front_of(target) == "balks":
         # the last hit's troops still in the choke go on first, so the
@@ -1263,7 +1368,12 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
         pic = io.shot("watch", keep=False)
         orders += clear_choke(io, watch, mapdata, st, a & watch.units(pic),
                               pic, force=True)
-    if use_keys:
+    keyed = st.mass_keyed if HIT_STYLE == "keys" and st.mass_keyed and \
+        st.mass_keyed[1] and io.now() - st.mass_keyed[0] < KEY_FRESH else None
+    st.mass_keyed = None
+    if keyed:                           # the keys version: the line first
+        orders += keyed_attack(io, mapdata, st, target, keyed[1])
+    elif use_keys:
         for key in st.ground_keys:      # all the key groups in a few seconds
             io.key(key)
             io.sleep(0.035)
@@ -1272,9 +1382,9 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     # the fleet goes with it, and is looked after from now on
     orders += send_fleet_with_hit(io, mapdata, st, target)
     st.battle = Battle(target, io.now())
-    if use_keys:
+    if use_keys or keyed:
         io.sleep(1.5)                   # let them step off
-    st.rekey = len(free_ground_keys(st)) if use_keys else 0
+    st.rekey = len(free_ground_keys(st)) if (use_keys or keyed) else 0
     if not use_keys:
         # bodies behind the mass set off first, so they are not left
         # trailing after it
@@ -3139,6 +3249,14 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         target = st.planned_target
         if ready and target is None:
             target = choose_target(io, watch, st, mapdata, battle)
+        # the keys version: once a hit is announced, the mass goes on
+        # keys 1 to 7 and spreads out into a line
+        if HIT_STYLE == "keys" and st.team is not None and \
+                st.team.announced is not None and (
+                    st.mass_keyed is None or
+                    io.now() - st.mass_keyed[0] >= KEY_FRESH):
+            if key_mass(io, watch, mapdata, st, target or TARGETS[0]):
+                spread_mass(io, mapdata, st, target or TARGETS[0])
         # the allies have the last word on when, and where
         if team_gate(io, watch, mapdata, st, ready,
                      target or TARGETS[0]) == "go":

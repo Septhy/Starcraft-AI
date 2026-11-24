@@ -1166,3 +1166,14 @@ second hit (the demo only shows how).
   - Balkans hits go on past Romania to (150, 146).
   - Unchanged: barracks never moved; no Hold Position; one fleet over
     the army avoiding marines; no hotkey hits for now.
+
+## The keys version (StarcraftTrialKeys.exe)
+
+- A second app for the user to try: trial.HIT_STYLE = "keys". When a
+  hit is announced, the mass is put on keys 1-7 (twelve a key, Scouts
+  left out) and walked out into a wide line 7 tiles ahead of the mass,
+  across the way to the target, 4 tiles between keys (spread_mass). At
+  "go" each key attacks its own point along the target's front, keeping
+  its place in the line (keyed_attack); the fleet goes with it; the rest
+  of the mass is boxed as usual. Keys older than 60 s are set again.
+- StarcraftTrial.exe is unchanged: it boxes the whole mass.

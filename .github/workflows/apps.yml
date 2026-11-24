@@ -27,6 +27,7 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --name StarcraftRecorder recorder/recorder.py
           pyinstaller --onefile --windowed --name StarcraftTrial --paths . --add-data "data;data" --collect-submodules anthropic bot/app.py
+          pyinstaller --onefile --windowed --name StarcraftTrialKeys --paths . --add-data "data;data" --collect-submodules anthropic bot/app_keys.py
       - name: Check the trial app has everything packed in
         shell: bash
         run: |
@@ -34,6 +35,9 @@ jobs:
           for i in 1 2 3 4 5 6 7 8 9 10; do [ -f selftest.txt ] && break; sleep 2; done
           cat selftest.txt
           grep -q "^ok" selftest.txt
+          ./dist/StarcraftTrialKeys.exe --selftest selftest2.txt
+          for i in 1 2 3 4 5 6 7 8 9 10; do [ -f selftest2.txt ] && break; sleep 2; done
+          grep -q "^ok" selftest2.txt
       - name: Check the apps start
         shell: bash
         run: |
@@ -53,10 +57,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="Recorder: takes screenshots. Trial: the first bot test. Built from commit $GITHUB_SHA."
+          notes="Recorder: takes screenshots. Trial: the bot. TrialKeys: the bot, hitting with the mass on keys 1-7 in a line. Built from commit $GITHUB_SHA."
           if gh release view recorder >/dev/null 2>&1; then
-            gh release upload recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe --clobber
+            gh release upload recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialKeys.exe --clobber
             gh release edit recorder --title "StarCraft apps" --notes "$notes"
           else
-            gh release create recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe --title "StarCraft apps" --notes "$notes" --target "$GITHUB_SHA"
+            gh release create recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialKeys.exe --title "StarCraft apps" --notes "$notes" --target "$GITHUB_SHA"
           fi
