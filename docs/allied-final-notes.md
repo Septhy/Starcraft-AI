@@ -1075,3 +1075,44 @@ second hit (the demo only shows how).
   recognised by the blue ring of its first choice and its dark blue
   inside. After that, chat lines go with plain Enter; if the window
   could not be set (picture "messaging-failed"), Ctrl+Enter as before.
+
+## Trials 24 and 25 (the user's two recordings after the demo changes)
+
+- Tax: pressing "L" never lifted a building (pictures "flight-Krakow",
+  "flight-Romania": still on the ground, Lift Off showing). Now the
+  Lift Off button (bottom right of the card, 1862, 1022) is clicked; a
+  building in the air shows Move as its first button, like units: that
+  is the check (pictures from the user's demo and trial 24 in
+  tests/data/card_lifted.png, card_grounded.png). Not lifted: not sent,
+  picture "lift-failed", tried again later (twice per building).
+- Scouts refused: the framed pictures are laid out by how many are
+  selected (two one above the other, three as two and one, seven as
+  four and three; live.frame_box). The check looked in the 12-unit
+  places, so the second Scout was an empty slot. It now also compares
+  outlines (bright green/yellow/red: health colour does not matter),
+  not colours. Factory spawn spots are kept from ground boxes until
+  that round's Scouts are on a key.
+- The general (Claude) no longer orders the fleet keys ("9 move mass"
+  a dozen times in trial 24 undid the parking and fight orders).
+- Blood: a bright red patch in a spread of darker red with no grey
+  metal round it is blood, not an enemy (trails of blood counted 57).
+- "@R bring air": a place that cannot be counted is never taken (trial
+  25 went to a place with 0 Wraiths); while following, their air is
+  counted again every third check (about 24 s).
+- Choke: the head of the column is ordered first (user); on the Balkan
+  road advance_front orders front to back too.
+- Gathering: bodies sent to the mass in the last 60 s, standing on
+  their way there, are left to walk (crowds look still a second apart);
+  crowds of 12+ minimap pixels are boxed all over at once (sweep with a
+  7-pixel reach); a fresh look before each box, and no box where the
+  troops have gone.
+- Supply unreadable: the last reading is used, however old.
+- Forward troops count toward the next hit only if it goes the same
+  way (trial 25: a Balkans hit with 28 men).
+- No troops forward, or too few at the front: the front is cleared and
+  the fleet parks, instead of hanging over empty ground.
+- Looked at and left: the sweeps already centre on the troops (the
+  "sweep" picture is taken before the view moves, which misled); an
+  enemy picked by a click gets no order, as every pick is checked.
+- The Messaging button over the minimap was missing in trial 24 and
+  there in trial 25: it depends on the kind of game.

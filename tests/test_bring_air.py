@@ -249,3 +249,33 @@ def test_the_allys_air_mass_is_found_by_counting_their_air(colour, kind, mass):
     st.ears = CountingEars([])
     assert trial.find_ally_air(io, watch, colour, st,
                                last=live.from_drawn(*b)) is not None
+
+
+def test_a_place_that_could_not_be_counted_is_never_taken():
+    """Trial 25: one place counted 0, the next could not be counted, and
+    the fleet went to the biggest patch of orange anyway."""
+    a, b = two_places()
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    watch = Watch(by_slot={4: square(*a, n=5) | square(*b)})
+    st = trial.State()
+    st.ears = CountingEars([0, None])
+    assert trial.find_ally_air(io, watch, "orange", st) is None
+
+
+def test_while_following_their_air_is_counted_again_now_and_then(monkeypatch):
+    m = trial.load_map()
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    st = trial.State()
+    st.air_keys = ["9"]
+    st.fleet_task = {"colour": "teal", "spot": (40 * 32, 60 * 32),
+                     "since": io.t, "checked": io.t}
+    asked = []
+    monkeypatch.setattr(trial, "find_ally_air",
+                        lambda *a, **k: asked.append(k["recount"]) or
+                        (40 * 32, 60 * 32))
+    for _ in range(6):
+        io.t += trial.ALLY_AIR_CHECK
+        trial.follow_ally_air(io, Watch(), m, st)
+    assert asked == [False, False, True, False, False, True]

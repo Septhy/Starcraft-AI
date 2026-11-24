@@ -189,7 +189,7 @@ def test_the_general_chooses_targets_and_is_asked_all_through():
     assert result["targets"][0] == "Romania 300"
     assert "No hit has been sent yet" in scripted.reports[0]
     assert any("Our last hit was sent at" in r for r in scripted.reports)
-    assert scripted.asked >= 18                     # all through, hits included
+    assert scripted.asked >= 15                     # all through, hits included
     assert "Number keys holding groups" in scripted.reports[-1]
     # and at the end it was asked for lessons, which were saved
     assert "hit at " in scripted.lessons_asked
@@ -237,16 +237,13 @@ def test_group_orders_are_carried_out():
                for u in g.units[0:3])
     assert not any(near(u["to"], (warsaw["x"], warsaw["y"]), 12)
                    for u in g.units[3:6])
-    # "air" means the air keys; move goes without fighting; air may be
-    # sent to a city
-    assert trial.carry_out(g, m, st, order(group="air", order="move",
-                                           place="Krakow"), None)
-    krakow = trial.place(m, "Krakow 200")
-    assert all(near(u["to"], (krakow["x"], krakow["y"]), 12)
-               for u in g.units[6:8])
-    assert trial.carry_out(g, m, st, order(group="air", order="move",
-                                           place="mass"), None)
-    assert all(near(u["to"], trial.MASS, 12) for u in g.units[6:8])
+    # the fleet is not the general's: its own rules steer it (trial 24:
+    # "9 move mass" every few seconds undid them)
+    assert not trial.carry_out(g, m, st, order(group="air", order="move",
+                                               place="Krakow"), None)
+    assert not trial.carry_out(g, m, st, order(group="9", order="move",
+                                               place="mass"), None)
+    assert not any(near(u["to"], trial.MASS, 12) for u in g.units[6:8])
     # hold
     assert trial.carry_out(g, m, st, order(group="2", order="hold"), None)
     assert all(u.get("held") for u in g.units[3:6])
@@ -255,7 +252,7 @@ def test_group_orders_are_carried_out():
     assert trial.carry_out(g, m, st, order(order="attack_point",
                                            x=640, y=300), cam)
     assert g.point_orders[-1] == ("attack", 960, 450)
-    assert trial.carry_out(g, m, st, order(group="9", order="yamato_point",
+    assert trial.carry_out(g, m, st, order(group="1", order="yamato_point",
                                            x=400, y=200), cam)
     assert g.point_orders[-1] == ("yamato", 600, 300)
     # refused: a point on the panels, no camera, or a key with no group
@@ -281,7 +278,7 @@ def test_the_generals_orders_reach_the_groups_in_a_game():
     m = trial.load_map()
     g = FakeGame(m)
     scripted = Scripted(group_orders=[
-        {"group": "air", "order": "move", "place": "mass", "x": 0, "y": 0}],
+        {"group": "ground", "order": "move", "place": "mass", "x": 0, "y": 0}],
         chat="massing for Berlin")
     logs = []
     g.log = lambda text, quiet=False: logs.append(text)

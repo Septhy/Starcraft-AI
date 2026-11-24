@@ -182,6 +182,9 @@ class State:
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
+        self.empty_skipped = 0     # boxes not drawn: nothing there any more
+        self.walking = []          # (when, minimap pixel) bodies sent to the mass
+        self.lift_fails = {}       # building tile -> lifts that did not happen
         self.allied_chat = False   # the Messaging window was set to allies     # when the Odessa-Romania choke was last cleared
         self.hits_sent = 0
         self.fleet = []            # the fleet keys: key, Scouts on it, its artillery
@@ -270,6 +273,9 @@ def box_and_check(io, box, st):
     return False
 
 
+FRESH = 2                      # minimap pixels round a group where it may have moved
+
+
 def select_group(io, pixels, st, watch=None, margin=None):
     """Look at the units drawn at these minimap pixels and box them."""
     margin = MARGIN if margin is None else margin
@@ -279,6 +285,21 @@ def select_group(io, pixels, st, watch=None, margin=None):
     x1, y1 = live.from_drawn(max(cols) + 0.5, max(rows) + 0.5)
     l, t, r, b = live.GAME_AREA
     cam = look_at(io, *centred((x0 + x1) / 2, (y0 + y1) / 2))
+    if watch is not None:
+        # a fresh look: the box goes round where the troops are now, not
+        # where they stood a moment ago; none there, no box (trials 24,
+        # 25: boxes on empty ground picked up depots and factories)
+        now = watch.units(io.shot("box-look", keep=False))
+        c0, c1, r0, r1 = min(cols), max(cols), min(rows), max(rows)
+        here = [p for p in now if c0 - FRESH <= p[0] <= c1 + FRESH
+                and r0 - FRESH <= p[1] <= r1 + FRESH]
+        if not here:
+            st.empty_skipped += 1
+            return False
+        cols = [p[0] for p in here]
+        rows = [p[1] for p in here]
+        x0, y0 = live.from_drawn(min(cols) - 0.5, min(rows) - 0.5)
+        x1, y1 = live.from_drawn(max(cols) + 0.5, max(rows) + 0.5)
     sx0, sy0 = live.on_screen(x0, y0, cam)
     sx1, sy1 = live.on_screen(x1, y1, cam)
     box = (max(l + 4, sx0 - margin), max(t + 4, sy0 - margin),
@@ -508,13 +529,11 @@ def trim_selection(io, keep):
     the bottom panel, the last first) until `keep` are left. Returns how
     many are selected in the end."""
     n = live.selected_count(io.shot("trim", keep=False))
-    frames = [(live.SLOT_ORIGIN[0] + col * live.SLOT_STEP[0] + live.SLOT_SIZE // 2,
-               live.SLOT_ORIGIN[1] + row * live.SLOT_STEP[1] + live.SLOT_SIZE // 2)
-              for row in range(2) for col in range(6)]
     for _ in range(12):
         if n <= keep:
             break
-        io.click_with("shift", *frames[min(n, 12) - 1])
+        x0, y0, x1, y1 = _frame_box(min(n, 12) - 1, min(n, 12))
+        io.click_with("shift", (x0 + x1) // 2, (y0 + y1) // 2)
         io.sleep(0.08)
         n = live.selected_count(io.shot("trim", keep=False))
     return n
@@ -576,6 +595,7 @@ TAX_MARK = 180                 # game seconds into a round: the countdown at 2:0
 MOSCOW_AIR = (1800, 2800)      # game seconds: 12 Scouts at "ZMoscow Air"
 SCOUT_WAIT = 3                 # game seconds after a spawn before looking
 SCOUT_HOLD = 30                # game seconds the spawn spots are kept from the mass
+SCOUT_LOOKING = 90             # game seconds after a tax the factories are looked at
 MOSCOW_GONE = 3                # real seconds for added Scouts to leave the spawn spot
 
 
@@ -613,7 +633,7 @@ def collect_new_scouts(io, watch, mapdata, st):
     g = st.clock.time() * COUNTDOWN_RATE
     added = 0
     k = int((g - TAX_MARK - SCOUT_WAIT) // 300)
-    window = k >= 0 and (g - TAX_MARK) % 300 < SCOUT_HOLD - 5
+    window = k >= 0 and (g - TAX_MARK) % 300 < SCOUT_LOOKING
     for name in SCOUT_FACTORIES if window else []:
         job = (k, name)
         if job in st.scouts_done:
@@ -657,8 +677,12 @@ def scout_spots(io, mapdata, st, pixels):
         return set()
     g = st.clock.time() * COUNTDOWN_RATE
     out = set()
-    if (g - TAX_MARK) % 300 < SCOUT_HOLD:
-        for name in SCOUT_FACTORIES:
+    k = int((g - TAX_MARK - SCOUT_WAIT) // 300)
+    for name in SCOUT_FACTORIES:
+        # until this round's Scouts there are on the keys (trial 25:
+        # boxes took Scouts in with the tanks and marines made with them)
+        if (g - TAX_MARK) % 300 < SCOUT_HOLD or \
+                (k >= 0 and (k, name) not in st.scouts_done):
             f = place(mapdata, name)
             out |= near(pixels, (f["x"], f["y"]), 3)
     for t in MOSCOW_AIR:
@@ -669,7 +693,6 @@ def scout_spots(io, mapdata, st, pixels):
 
 
 PANEL_ONE = (600, 875, 1140, 1045)  # bottom panel for one unit: its picture and name
-SAME = 22                      # mean colour difference: the same kind of unit
 
 
 def _crop(picture, box):
@@ -677,11 +700,26 @@ def _crop(picture, box):
     return np.asarray(picture.convert("RGB").crop(box)).astype(int)
 
 
-def _frame_box(i):
-    col, row = i % 6, i // 6
-    x = live.SLOT_ORIGIN[0] + col * live.SLOT_STEP[0]
-    y = live.SLOT_ORIGIN[1] + row * live.SLOT_STEP[1]
-    return (x, y, x + live.SLOT_SIZE, y + live.SLOT_SIZE)
+def _frame_box(i, n=12):
+    return live.frame_box(i, n)
+
+
+SHAPE_SAME = 0.6               # outlines this alike (shared / joined): the same kind
+SHAPE_LEAST = 50               # bright pixels a learnt picture needs to be of use
+
+
+def _shape(a, trim=8):
+    """A unit picture's outline: where it is bright green, yellow or red
+    (its colour shows its health, so colour itself is not compared)."""
+    if trim:
+        a = a[trim:-trim, trim:-trim]
+    return a[..., :2].max(axis=2) > 100
+
+
+def alike(a, b, trim=8):
+    """How alike two unit pictures are in outline: 0 to 1."""
+    x, y = _shape(a, trim), _shape(b, trim)
+    return float((x & y).sum()) / max(1, float((x | y).sum()))
 
 
 def _apart(things, others):
@@ -709,17 +747,24 @@ def learn_scout(io, st, mapdata):
     if not p:
         return False
     st.scout_one = _crop(io.shot("scout-one", keep=False), PANEL_ONE)
+    if _shape(st.scout_one, trim=0).sum() < SHAPE_LEAST:
+        st.scout_one = None             # nothing to see there: cannot tell
     io.click_with("ctrl", *p)            # every Scout on screen
     io.sleep(0.08)
     pic = io.shot("scout-group", keep=False)
-    if live.selected_count(pic) >= 2:
-        st.scout_frame = _crop(pic, _frame_box(0))
+    n = live.selected_count(pic)
+    if n >= 2:
+        st.scout_frame = _crop(pic, _frame_box(0, n))
+        if _shape(st.scout_frame).sum() < SHAPE_LEAST:
+            st.scout_frame = None
     if ships:
         import numpy as np
         _, ship = max(_apart(ships, scouts), key=lambda d: d[0])
         if click_unit(io, ship["x"], ship["y"]):
             one = _crop(io.shot("ship-one", keep=False), PANEL_ONE)
-            if float(np.abs(one - st.scout_one).mean()) >= SAME:
+            if st.scout_one is not None and \
+                    _shape(one, trim=0).sum() >= SHAPE_LEAST and \
+                    alike(one, st.scout_one, trim=0) < SHAPE_SAME:
                 st.ship_one = one       # not the Scout again: a Battlecruiser
     io.log("fleet: learnt what a Scout looks like"
            + ("" if st.scout_frame is not None else " (alone only)")
@@ -734,20 +779,20 @@ def picked_are_scouts(io, st, n):
     Battlecruiser, a tank or infantry picked by mistake) is not added
     to the fleet."""
     pic = io.shot("check", keep=False)
-    import numpy as np
     if n <= 1:
         if st.scout_one is None:
             return True                 # nothing learnt: cannot tell
         one = _crop(pic, PANEL_ONE)
-        d = float(np.abs(one - st.scout_one).mean())
-        if st.ship_one is not None and \
-                float(np.abs(one - st.ship_one).mean()) <= d:
+        d = alike(one, st.scout_one, trim=0)
+        if st.ship_one is not None and alike(one, st.ship_one, trim=0) >= d:
             return False                # a Battlecruiser
-        return d < SAME
+        return d >= SHAPE_SAME
     if st.scout_frame is None:
         return True
     for i in range(min(n, 12)):
-        if float(np.abs(_crop(pic, _frame_box(i)) - st.scout_frame).mean()) >= SAME:
+        # (the pictures are laid out by how many there are: trials 24
+        # and 25 looked in the wrong places and refused real Scouts)
+        if alike(_crop(pic, _frame_box(i, n)), st.scout_frame) < SHAPE_SAME:
             return False
     return True
 
@@ -992,6 +1037,13 @@ def back_to_front(items, target_xy, where):
     return sorted(items, key=far)
 
 
+def front_to_back(items, target_xy, where):
+    """The nearest the target first: where the way is narrow (the
+    Odessa-Romania choke), the head of the column must move before the
+    rest can (the repository owner, trial 24)."""
+    return list(reversed(back_to_front(items, target_xy, where)))
+
+
 FULL = 12                      # the most units one selection holds
 GOOD_BOX = 9                   # a box with at least this many is good enough
 
@@ -1054,7 +1106,8 @@ def select_full(io, st, seed, pool, cam):
     return chosen, n
 
 
-def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None):
+def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
+               radius=MASS_RADIUS, least=12):
     """One pass over the massing place (or the ground round `centre`):
     every part of it where the minimap shows units standing still is
     boxed, back to front, each box drawn to hold as near to twelve units
@@ -1066,9 +1119,9 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None):
         w = place(mapdata, target)
     a = watch.units(io.shot("sweep"))
     io.sleep(1.2)                       # only those still standing there
-    area = near(a, centre, MASS_RADIUS) if centre else at_mass(a)
+    area = near(a, centre, radius) if centre else at_mass(a)
     there = area & watch.units(io.shot("watch", keep=False))
-    if len(there) < 12:
+    if len(there) < least:
         return 0, len(there)
     orders = 0
     # the mass is often wider than one view: take it a view at a time
@@ -1226,6 +1279,10 @@ def until_tax(clock_seconds):
     return ((180 - into) % 300) / COUNTDOWN_RATE
 
 
+LIFT_BUTTON = (1862, 1022)     # screen: the bottom-right command button
+LIFT_TRIES = 2                 # failed lifts of one building before giving it up
+
+
 def fly_building(io, mapdata, st, kind, tile, city_name):
     """Lift a building and send it to float over a city. Never a
     barracks (they make the marines) or a command centre."""
@@ -1251,10 +1308,24 @@ def fly_building(io, mapdata, st, kind, tile, city_name):
     else:
         io.log(f"flight: the {kind} was not found")
         return False
-    io.key("l")                         # lift off
-    # a building takes a couple of seconds to leave the ground, and
-    # ignores orders until it has; so wait, then say it twice
-    io.sleep(2.6)
+    # Lift Off: the button at the bottom right of the command card (the
+    # "L" key alone did nothing in trials 24 and 25). A building in the
+    # air shows Move as its first button, as units do: that is the check.
+    lifted = False
+    for attempt in range(2):
+        io.click(*LIFT_BUTTON)
+        io.sleep(0.1)
+        if attempt:
+            io.key("l")
+        io.sleep(2.6)                   # it takes a moment to leave the ground
+        if live.units_selected(io.card()):
+            lifted = True
+            break
+    if not lifted:
+        st.lift_fails[tile] = st.lift_fails.get(tile, 0) + 1
+        io.shot("lift-failed")
+        io.log(f"flight: the {kind} did not lift off (picture 'lift-failed')")
+        return False
     city = place(mapdata, city_name)
     for _ in range(2):
         io.click(*live.minimap_point(city["x"], city["y"]), button="right")
@@ -1535,6 +1606,8 @@ def float_to(io, watch, mapdata, st, name, ours, to_arrive=None):
     tile = (b["x"] // 32, b["y"] // 32)
     st.flights_done.add(tile)
     if not fly_building(io, mapdata, st, b["type"], tile, name):
+        if st.lift_fails.get(tile, 0) < LIFT_TRIES:
+            st.flights_done.discard(tile)   # still on the ground: again later
         return 0
     st.tax_sent[name] = (io.now(), tile, io.now() + float_time(b, city))
     st.tax_tries[name] = st.tax_tries.get(name, 0) + 1
@@ -1803,6 +1876,9 @@ class Battle:
         if len(near(watch.units(picture), (w["x"], w["y"]), ARRIVED_WITHIN)) >= 10:
             self.arrived = True
         if found is None:
+            # nothing of ours forward any more: no front (trial 25: the
+            # air and the next orders went to an old front, empty ground)
+            self.front = None
             self.samples.append((io.now() - self.sent_at, 0, 0, None))
             return
         x, y, ours, axis = found
@@ -1943,7 +2019,7 @@ def clear_choke(io, watch, mapdata, st, still, picture, force=False):
         return 0
     dest = beyond_choke(st, mapdata, hostile, watch.units(picture))
     d = place(mapdata, dest)
-    groups = back_to_front([g for g in live.clusters(idle, 4, 4)
+    groups = front_to_back([g for g in live.clusters(idle, 4, 4)
                             if len(g) >= CHOKE_LEAST
                             and not in_contact(g, hostile)],
                            (d["x"], d["y"]), lambda g: live.from_drawn(*g[0]))
@@ -1956,6 +2032,29 @@ def clear_choke(io, watch, mapdata, st, still, picture, force=False):
         io.log(f"  choke: {orders} groups standing between Odessa and "
                f"Romania sent on to {dest}")
     return orders
+
+
+WALKING = 60                   # seconds a body sent to the mass is left to walk
+WALK_LANE = 5                  # minimap pixels either side of its way to the mass
+CROWD_BODY = 12                # minimap pixels: a crowd, boxed all over at once
+CROWD_REACH = 7                # minimap pixels round a crowd that its boxes cover
+
+
+def on_the_way(st, spot, mass):
+    """True if a body stands on the way from where a body was sent to
+    the mass lately, to the mass: troops walking there in a crowd look
+    as if standing still, a second apart (trial 24: ordered again every
+    ten seconds)."""
+    (c, r), (mc, mr) = spot, mass
+    for when, (oc, orow) in st.walking:
+        dc, dr = mc - oc, mr - orow
+        length2 = float(dc * dc + dr * dr) or 1.0
+        f = ((c - oc) * dc + (r - orow) * dr) / length2
+        if -0.1 <= f <= 1.0:
+            pc, pr = oc + f * dc, orow + f * dr
+            if (c - pc) ** 2 + (r - pr) ** 2 <= WALK_LANE ** 2:
+                return True
+    return False
 
 
 def gather_idle(io, watch, mapdata, st, tried):
@@ -1988,11 +2087,29 @@ def gather_idle(io, watch, mapdata, st, tried):
     # the farthest first: they take longest to arrive
     bodies.sort(key=lambda g: -((g[0][0] - mc) ** 2 + (g[0][1] - mr) ** 2))
     orders = 0
+    now = io.now()
+    st.walking = [w for w in st.walking if now - w[0] < WALKING]
+    swept = set()
     for group in bodies:
         if orders >= GATHER_PER_PASS:
             break
         cx = sum(p[0] for p in group) // len(group)
         cy = sum(p[1] for p in group) // len(group)
+        if (cx, cy) in swept or on_the_way(st, (cx, cy), (mc, mr)):
+            continue                    # sent lately and walking to the mass
+        if len(group) >= CROWD_BODY:
+            # a crowd (trial 24: seventy Siberians, seven a box): boxed
+            # all over in one go, a dozen at a time
+            x, y = live.from_drawn(cx, cy)
+            n, found = sweep_mass(io, watch, mapdata, st, None,
+                                  centre=(x, y), dest=MASS,
+                                  radius=CROWD_REACH, least=GATHER_LEAST)
+            if n:
+                orders += n
+                st.walking.append((io.now(), (cx, cy)))
+                swept |= {(c, r) for c in range(cx - CROWD_REACH, cx + CROWD_REACH + 1)
+                          for r in range(cy - CROWD_REACH, cy + CROWD_REACH + 1)}
+            continue
         key = (cx // 4, cy // 4)
         # a place is tried again after a while: new troops appear at
         # the same spots all game
@@ -2011,6 +2128,7 @@ def gather_idle(io, watch, mapdata, st, tried):
         if select_group(io, group, st, watch, margin=60):
             attack_move(io, *MASS)
             orders += 1
+            st.walking.append((io.now(), (cx, cy)))
             if st.idle_orders[key] == STUCK_AFTER:
                 # it has not moved for two orders: keep a picture of it
                 # (to learn what it is) and leave it be from now on
@@ -2095,8 +2213,12 @@ def advance_front(io, watch, mapdata, st, still, picture):
     o = place(mapdata, objective)
     idle -= near(idle, (o["x"], o["y"]), 6)        # already at the objective
     orders = 0
-    groups = back_to_front(live.clusters(idle, 4, 4), (o["x"], o["y"]),
-                           lambda g: live.from_drawn(*g[0]))
+    # on the Balkan road the front moves first: the choke behind it
+    # stays blocked until it does (trial 24)
+    order = front_to_back if team_rules.front_of(objective) == "balks" \
+        else back_to_front
+    groups = order(live.clusters(idle, 4, 4), (o["x"], o["y"]),
+                   lambda g: live.from_drawn(*g[0]))
     for group in groups[:24]:
         if len(group) < 4 or fighting(group):
             continue
@@ -2180,6 +2302,9 @@ def fight(io, watch, mapdata, st, picture):
     nearest our front, not on a fixed spot."""
     battle = st.battle
     if battle is None or not battle.front:
+        if battle is not None and st.air_keys and not st.air_home and \
+                st.fleet_task is None:
+            park_fleet(io, st, "no troops of ours are forward any more")
         return 0
     orders = 0
     if battle.verdict()[0] == "losing" and not battle.retreated:
@@ -2255,13 +2380,37 @@ def enemy_on_screen(picture, cx, cy, radius, skip=()):
     for x, y, r in skip:                # our own buildings: their red lamps
         y0, x0 = max(0, int(y - t - r)), max(0, int(x - l - r))
         m[y0:int(y - t + r), x0:int(x - l + r)] = False
+    import numpy as np
+    a = np.asarray(picture.convert("RGB")).astype(int)
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    grey = (np.abs(R - G) < 25) & (np.abs(G - B) < 25) & (R > 110)
+    dark_red = (R > 70) & (R < 200) & (G < 50) & (B < 50) & (R > 2 * G + 30)
     n = 0
     for pixels, x, y in patches(m):
         if pixels < CELL_LEAST:
             continue
-        if (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2:
-            n += max(1, round(pixels / MAN_COLOUR))
+        if (x - cx) ** 2 + (y - cy) ** 2 > radius ** 2:
+            continue
+        if is_blood(grey, dark_red, x, y):
+            continue
+        n += max(1, round(pixels / MAN_COLOUR))
     return n
+
+
+BLOOD_WINDOW = 24              # screen pixels round a red patch that are looked at
+BLOOD_DARK = 300               # dark red pixels there: a splash of blood
+BLOOD_GREY = 25                # but fewer metal-grey pixels than this (units have them)
+
+
+def is_blood(grey, dark_red, x, y):
+    """True if a bright red patch is blood on the ground, not an enemy:
+    blood lies in a spread of darker red with no grey metal round it;
+    units and their machines show grey (trials 24, 25: a trail of blood
+    was counted as 57 enemy and the fleet held back)."""
+    x, y, w = int(x), int(y), BLOOD_WINDOW
+    box = (slice(max(0, y - w), y + w), slice(max(0, x - w), x + w))
+    return int(dark_red[box].sum()) > BLOOD_DARK and \
+        int(grey[box].sum()) < BLOOD_GREY
 
 
 def patches(m, k=4):
@@ -2354,6 +2503,19 @@ def enemy_men_near(hostile, xy, radius=AIR_DANGER):
     return len(near(hostile, xy, radius)) * SPREAD_MEN
 
 
+def park_fleet(io, st, why):
+    """The fleet, as one, back to its spot by the mass, to wait for the
+    next hit."""
+    park = live.minimap_point(*fleet_spot())
+    for key in own_fleet_keys(st):
+        io.key(key)
+        io.sleep(0.05)
+        io.click(*park, button="right")
+        io.sleep(0.04)
+    st.air_home = True
+    io.log(f"{why}: the fleet pulled back to wait for the next hit")
+
+
 def steer_fleet(io, watch, mapdata, st, picture):
     """Keep the fleet, as one stack, over our own army at the front.
 
@@ -2366,19 +2528,14 @@ def steer_fleet(io, watch, mapdata, st, picture):
     ours_now = battle.samples[-1][1] if battle.samples else 0
     peak = max((s[1] for s in battle.samples), default=0)
     if peak >= 20 and ours_now < AIR_FADE * peak:
-        park = live.minimap_point(*fleet_spot())
-        for key in st.air_keys:
-            io.key(key)
-            io.sleep(0.05)
-            io.click(*park, button="right")
-            io.sleep(0.04)
-        st.air_home = True
-        io.log(f"the hit at {battle.target} is fading: the fleet pulled "
-               f"back to wait for the next hit")
+        park_fleet(io, st, f"the hit at {battle.target} is fading")
         return "parked"
     army = near(forward_units(watch.units(picture), mapdata), battle.front, 14)
     if len(army) < 4:
-        return None                     # nothing of ours there to cover
+        # nothing of ours there to cover: back to its spot, not left
+        # hanging over empty ground
+        park_fleet(io, st, "too few of our troops at the front to cover")
+        return "parked"
     spot = middle(army)
     limit = AIR_ODDS * fleet_scouts(st)
     # count the enemy on the game screen round where the fleet would go;
@@ -2488,14 +2645,13 @@ def own_fleet_keys(st):
 
 
 def keys_for(st, group):
-    fleet = own_fleet_keys(st)
-    if group == "ground":
+    """The keys the general's orders may use: the ground groups only.
+    The fleet is steered by its own rules (parking, stacking over the
+    army, "@R bring air"): in trial 24 the general's "9 move mass",
+    every few seconds, undid them."""
+    if group in ("ground", "all"):
         return list(st.ground_keys)
-    if group == "air":
-        return fleet
-    if group == "all":
-        return st.ground_keys + fleet
-    return [group] if group in st.ground_keys + fleet else []
+    return [group] if group in st.ground_keys else []
 
 
 def carry_out(io, mapdata, st, order, camera):
@@ -2718,8 +2874,10 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         supply = numbers.read_supply(picture)
         if supply:
             st.supply_seen = (supply, io.now())
-        elif st.supply_seen and io.now() - st.supply_seen[1] <= 30:
-            supply = st.supply_seen[0]  # unreadable this look: the last one
+        elif st.supply_seen:
+            # unreadable this look: the last one, however old (trial 25:
+            # with none, the count jumped from 101 to 272 men)
+            supply = st.supply_seen[0]
         capped = bool(supply) and supply[0] >= supply[1] - SUPPLY_SLACK
         st.capped = capped
         # How many are there is judged at a glance, with no boxes drawn.
@@ -2729,7 +2887,12 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
             massed = max(massed, MIN_HIT)   # full supply: this is the army
         if rough >= 20:
             st.men_per_pixel = min(6.0, max(0.3, massed / rough))
-        strength = st.strength = int(massed + st.reserve * SPREAD_MEN)
+        # troops forward count toward the next hit only if it goes the
+        # same way (trial 25: troops fighting near Konigsberg were counted
+        # for a Balkans hit, which went with 28 men)
+        reserve = st.reserve if battle and same_front(st, battle, io, t0) \
+            else 0
+        strength = st.strength = int(massed + reserve * SPREAD_MEN)
         if st.clock:
             st.strength_log.append((st.clock.time(), strength))
             del st.strength_log[:-120]
@@ -2813,6 +2976,19 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
            f"{io.now() - began:.0f} s; {gathered} idle groups brought in; "
            f"wanted {need}")
     return strength, went
+
+
+def next_front(st, io, t0):
+    """Which way the next hit is likely to go: where it is planned, else
+    Russia's plan for this point of the game."""
+    if st.planned_target:
+        return team_rules.front_of(st.planned_target)
+    seconds = st.clock.time() if st.clock else io.now() - t0
+    return "balks" if planned_front(seconds) == "south" else "east"
+
+
+def same_front(st, battle, io, t0):
+    return team_rules.front_of(battle.target) == next_front(st, io, t0)
 
 
 def close_battle(st, mapdata):
@@ -3030,7 +3206,7 @@ def count_ally_air(io, st, picture, colour):
     return ears.count_air(picture, colour, kind)
 
 
-def find_ally_air(io, watch, colour, st=None, last=None):
+def find_ally_air(io, watch, colour, st=None, last=None, recount=False):
     """Where an ally's air is thickest: (map x, map y) or None. Places
     where their colour is over water or moving are looked at on the game
     screen, and their Wraiths (orange, teal) or Scouts (purple) counted
@@ -3043,7 +3219,13 @@ def find_ally_air(io, watch, colour, st=None, last=None):
         return None
     kind, mass = ALLY_AIR[colour]
     groups = air_places(io, watch, slot)
-    if last is not None:
+    can_count = st is not None and st.ears is not None and \
+        hasattr(st.ears, "count_air") and \
+        not getattr(st.ears, "dead", lambda: False)()
+    if not can_count:
+        # no way to count (no API key): their biggest group
+        return middle(groups[0]) if groups else None
+    if last is not None and not recount:
         lc, lr = live.to_drawn(*last)
         for g in groups:
             c, r = live.to_drawn(*middle(g))
@@ -3056,8 +3238,8 @@ def find_ally_air(io, watch, colour, st=None, last=None):
         pic = io.shot("ally-air")        # what was taken for their air
         n = count_ally_air(io, st, pic, colour)
         if n is None:
-            # no way to count: their biggest group, as before
-            return middle(groups[0])
+            continue                    # not counted: never taken on trust
+                                        # (trial 25: a place with none)
         counted = True
         io.log(f"bring air: {n} {colour} {kind}s near "
                f"{place_name(load_map(), x, y)}")
@@ -3065,7 +3247,7 @@ def find_ally_air(io, watch, colour, st=None, last=None):
             return x, y
         if n > best_n:
             best, best_n = (x, y), n
-    if counted and best is not None:
+    if counted and best is not None and best_n > 0:
         io.log(f"bring air: no {colour} air mass ({mass} {kind}s) found; "
                f"going to the most, {best_n}")
     return best
@@ -3149,6 +3331,7 @@ def send_fleet(io, watch, st, start, goal):
 
 ALLY_AIR_CHECK = 8             # seconds between check-ups on the fleet with an ally
 ALLY_AIR_MOVED = 6             # minimap pixels the ally's air must move to re-route
+ALLY_AIR_RECOUNT = 3           # every third check-up their air is counted again
 
 
 def follow_ally_air(io, watch, mapdata, st):
@@ -3160,7 +3343,9 @@ def follow_ally_air(io, watch, mapdata, st):
     if task is None or io.now() - task["checked"] < ALLY_AIR_CHECK:
         return False
     task["checked"] = io.now()
-    where = find_ally_air(io, watch, task["colour"], st, last=task["spot"])
+    task["checks"] = task.get("checks", 0) + 1
+    where = find_ally_air(io, watch, task["colour"], st, last=task["spot"],
+                          recount=task["checks"] % ALLY_AIR_RECOUNT == 0)
     if where is None:
         task["lost"] = task.get("lost", 0) + 1
         if task["lost"] == 3:

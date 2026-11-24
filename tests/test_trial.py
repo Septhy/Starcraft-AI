@@ -119,6 +119,9 @@ class FakeGame:
                  round(x), round(y))]
             self.yamato = False
             return
+        if (x, y) == trial.LIFT_BUTTON and self.selected == "starport":
+            self.lifted = True                  # Lift Off clicked
+            return
         if getattr(self, "messaging", False):     # the Messaging window
             if (x, y) == trial.ACCEPT_BUTTON:
                 self.messaging, self.allied = False, True
@@ -211,6 +214,8 @@ class FakeGame:
 
     def card(self):
         self.time += 0.01
+        if self.selected == "starport" and self.lifted:   # in the air: Move
+            return live.card_cell(screen("units"))
         if self.selected == "starport":              # some other button
             return Image.new("RGB", (92, 90), (200, 190, 40))
         card = "barracks" if self.selected == "barracks" else \
@@ -1026,22 +1031,26 @@ def test_scouts_are_told_from_other_units_by_their_panel_pictures():
     st = trial.State()
     scout = Image.new("RGB", (1920, 1080), (10, 10, 10))
     for i in range(3):                              # three framed Scouts
-        x0, y0, x1, y1 = trial._frame_box(i)
-        scout.paste((40, 200, 40), (x0 + 10, y0 + 10, x1 - 10, y1 - 10))
-    st.scout_frame = trial._crop(scout, trial._frame_box(0))
+        x0, y0, x1, y1 = trial._frame_box(i, 3)
+        scout.paste((40, 200, 40), (x0 + 10, y0 + 10, x1 - 10, y1 - 30))
+    st.scout_frame = trial._crop(scout, trial._frame_box(0, 3))
     io = StubIO()
     io.shot = lambda label, keep=True: scout
     assert trial.picked_are_scouts(io, st, 3)
     mixed = scout.copy()                            # the third is something else
-    x0, y0, x1, y1 = trial._frame_box(2)
-    mixed.paste((200, 200, 200), (x0 + 4, y0 + 4, x1 - 4, y1 - 4))
+    x0, y0, x1, y1 = trial._frame_box(2, 3)
+    mixed.paste((10, 10, 10), (x0 + 4, y0 + 4, x1 - 4, y1 - 4))
+    mixed.paste((200, 200, 200), (x0 + 30, y0 + 10, x1 - 10, y1 - 10))
     io.shot = lambda label, keep=True: mixed
     assert not trial.picked_are_scouts(io, st, 3)
     # one alone: the big picture and name
-    st.scout_one = trial._crop(scout, trial.PANEL_ONE)
-    io.shot = lambda label, keep=True: scout
+    one = Image.new("RGB", (1920, 1080), (10, 10, 10))
+    one.paste((40, 200, 40), (620, 890, 760, 1000))
+    st.scout_one = trial._crop(one, trial.PANEL_ONE)
+    io.shot = lambda label, keep=True: one
     assert trial.picked_are_scouts(io, st, 1)
-    other = Image.new("RGB", (1920, 1080), (120, 60, 60))
+    other = Image.new("RGB", (1920, 1080), (10, 10, 10))
+    other.paste((120, 60, 60), (800, 890, 1100, 1040))
     io.shot = lambda label, keep=True: other
     assert not trial.picked_are_scouts(io, st, 1)
 
@@ -1077,7 +1086,10 @@ def test_new_scouts_are_kept_out_of_the_mass_while_they_are_fetched():
     there = blob((f["x"], f["y"]), 2)
     st.clock.value = (trial.TAX_MARK + 10) / trial.COUNTDOWN_RATE
     assert trial.scout_spots(io, m, st, there) == there
+    # later in the round: still kept while its Scouts are not on a key
     st.clock.value = (trial.TAX_MARK + 100) / trial.COUNTDOWN_RATE
+    assert trial.scout_spots(io, m, st, there) == there
+    st.scouts_done.add((0, "Factory 1"))
     assert trial.scout_spots(io, m, st, there) == set()
 
 

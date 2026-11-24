@@ -211,6 +211,18 @@ SLOT_STEP = (81, 83)            # from one frame to the next: across, down
 SLOT_SIZE = 72
 
 
+def frame_box(i, n=12):
+    """The screen box of the i-th framed picture when n units are
+    selected. The game fills two rows, half the units in each (the top
+    row takes the odd one): two units stand one above the other, seven
+    are four and three (trials 24, 25)."""
+    per_row = min(6, max(1, -(-n // 2)))
+    col, row = i % per_row, i // per_row
+    x = SLOT_ORIGIN[0] + col * SLOT_STEP[0]
+    y = SLOT_ORIGIN[1] + row * SLOT_STEP[1]
+    return (x, y, x + SLOT_SIZE, y + SLOT_SIZE)
+
+
 def selected_count(screen):
     """How many units the game shows as selected, read from the framed
     pictures in the bottom panel: 0 to 12. One unit alone is shown

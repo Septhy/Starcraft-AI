@@ -249,9 +249,8 @@ def test_a_big_crowd_that_leaves_a_dozen_at_a_time_is_not_stuck(monkeypatch):
     m = trial.load_map()
     st, io = trial.State(), StubIO()
     c, r = (int(v) for v in live.to_drawn(210 * 32, 52 * 32))
-    rows = [list(range(r, r + 6)), list(range(r + 1, r + 5)),
-            [r + 2, r + 3], [r + 2, r + 3], [r + 2, r + 3], [r + 2, r + 3],
-            [r + 2, r + 3]]
+    rows = [list(range(r, r + 5)), list(range(r + 1, r + 4))] + \
+        [[r + 2, r + 3]] * 4
     picked = []
     monkeypatch.setattr(trial, "select_group",
                         lambda io_, pixels, st_, watch_=None, margin=None:
@@ -259,13 +258,13 @@ def test_a_big_crowd_that_leaves_a_dozen_at_a_time_is_not_stuck(monkeypatch):
     monkeypatch.setattr(trial.live, "clusters", live.clusters)
     io.shot = lambda label, keep=True: None
     for k, ys in enumerate(rows):
-        body = {(c + i, y) for i in range(3) for y in ys}
+        body = {(c + i, y) for i in range(2) for y in ys}
         watch = StubWatch(body | blob(trial.MASS, 6), set())
-        io.t += trial.RETRY_IDLE + 1
+        io.t += trial.WALKING + 1
         trial.gather_idle(io, watch, m, st, {})
     # it shrank twice, so it was ordered more than three times; once it
     # stopped shrinking, three more orders and it is left alone
-    assert picked == [18, 12, 6, 6, 6]
+    assert picked == [10, 6, 4, 4, 4]
 
 
 def choke_setup(monkeypatch, ours, axis=()):
@@ -341,3 +340,74 @@ def test_a_new_balkans_hit_clears_the_choke_first(monkeypatch):
     calls.clear()
     trial.hit(io, watch, m, st, "Berlin 1000", use_keys=False)
     assert calls == []
+
+
+def test_in_the_choke_the_head_of_the_column_moves_first(monkeypatch):
+    m = trial.load_map()
+    back = blob(between(m, 0.2), 3)
+    head = blob(between(m, 0.8), 3)
+    m, st, io, watch, sent = choke_setup(monkeypatch, back | head)
+    trial.clear_choke(io, watch, m, st, back | head, None)
+    boxes = [p for p in sent if isinstance(p, set)]
+    assert boxes[0] & head and boxes[-1] & back
+
+
+def test_a_body_walking_to_the_mass_is_not_ordered_again(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    picked = []
+    monkeypatch.setattr(trial, "select_group",
+                        lambda io_, pixels, st_, watch_=None, margin=None:
+                        picked.append(set(pixels)) or True)
+    monkeypatch.setattr(trial.live, "clusters", live.clusters)
+    io.shot = lambda label, keep=True: None
+    c, r = (int(v) for v in live.to_drawn(210 * 32, 52 * 32))
+    mc, mr = (int(v) for v in live.to_drawn(*trial.MASS))
+    body = {(c + i, r + j) for i in range(2) for j in range(3)}
+    trial.gather_idle(io, StubWatch(body, set()), m, st, {})
+    assert len(picked) == 1
+    # ten seconds on it has walked a third of the way, in a crowd that
+    # looks still: left to walk
+    f = 1 / 3
+    moved = {(int(c + f * (mc - c)) + i, int(r + f * (mr - r)) + j)
+             for i in range(2) for j in range(3)}
+    io.t += 10
+    trial.gather_idle(io, StubWatch(moved, set()), m, st, {})
+    assert len(picked) == 1
+    # a minute later, still there: ordered again
+    io.t += trial.WALKING
+    trial.gather_idle(io, StubWatch(moved, set()), m, st, {})
+    assert len(picked) == 2
+
+
+def test_a_crowd_is_boxed_all_over_in_one_go(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    swept = []
+    monkeypatch.setattr(trial, "sweep_mass",
+                        lambda *a, **k: swept.append(k) or (6, 70))
+    monkeypatch.setattr(trial, "select_group", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr(trial.live, "clusters", live.clusters)
+    io.shot = lambda label, keep=True: None
+    crowd = blob((215 * 32, 40 * 32), 6)            # seventy Siberians
+    orders, _, _ = trial.gather_idle(io, StubWatch(crowd, set()), m, st, {})
+    assert len(swept) == 1 and orders == 6
+    assert swept[0]["dest"] == trial.MASS
+
+
+def test_no_box_is_drawn_where_the_troops_have_gone(monkeypatch):
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (4000, 1600))
+    group = blob((150 * 32, 60 * 32), 3)
+    gone = StubWatch(blob((170 * 32, 80 * 32), 3), set())   # walked on
+    assert not trial.select_group(io, group, st, gone)
+    assert st.empty_skipped == 1 and not hasattr(io, "dragged")
+    # still there, a little moved: the box goes round where they are now
+    drags = []
+    io.drag = lambda *box: drags.append(box)
+    io.card = lambda: None
+    monkeypatch.setattr(trial.live, "units_selected", lambda card: True)
+    moved = {(c + 1, r) for c, r in group}
+    assert trial.select_group(io, group, st, StubWatch(moved, set()))
+    assert len(drags) == 1
