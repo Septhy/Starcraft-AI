@@ -398,7 +398,6 @@ def test_a_crowd_is_boxed_all_over_in_one_go(monkeypatch):
 def test_no_box_is_drawn_where_the_troops_have_gone(monkeypatch):
     st, io = trial.State(), StubIO()
     io.shot = lambda label, keep=True: None
-    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (4000, 1600))
     group = blob((150 * 32, 60 * 32), 3)
     gone = StubWatch(blob((170 * 32, 80 * 32), 3), set())   # walked on
     assert not trial.select_group(io, group, st, gone)
