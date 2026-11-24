@@ -28,6 +28,7 @@ jobs:
           pyinstaller --onefile --windowed --name StarcraftRecorder recorder/recorder.py
           pyinstaller --onefile --windowed --name StarcraftTrial --paths . --add-data "data;data" --collect-submodules anthropic bot/app.py
           pyinstaller --onefile --windowed --name StarcraftTrialKeys --paths . --add-data "data;data" --collect-submodules anthropic bot/app_keys.py
+          pyinstaller --onefile --windowed --name StarcraftTrialRel --paths . --add-data "data;data" --collect-submodules anthropic bot/app_rel.py
       - name: Check the trial app has everything packed in
         shell: bash
         run: |
@@ -38,6 +39,9 @@ jobs:
           ./dist/StarcraftTrialKeys.exe --selftest selftest2.txt
           for i in 1 2 3 4 5 6 7 8 9 10; do [ -f selftest2.txt ] && break; sleep 2; done
           grep -q "^ok" selftest2.txt
+          ./dist/StarcraftTrialRel.exe --selftest selftest3.txt
+          for i in 1 2 3 4 5 6 7 8 9 10; do [ -f selftest3.txt ] && break; sleep 2; done
+          grep -q "^ok" selftest3.txt
       - name: Check the apps start
         shell: bash
         run: |
@@ -57,10 +61,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="Recorder: takes screenshots. Trial: the bot. TrialKeys: the bot, hitting with the mass on keys 1-7 in a line. Built from commit $GITHUB_SHA."
+          notes="Recorder: takes screenshots. Trial: the bot. TrialKeys: the bot, hitting with the mass on keys 1-7 in a line. TrialRel: as TrialKeys, the line placed by where the mass stands from the target. Built from commit $GITHUB_SHA."
           if gh release view recorder >/dev/null 2>&1; then
-            gh release upload recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialKeys.exe --clobber
+            gh release upload recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialKeys.exe dist/StarcraftTrialRel.exe --clobber
             gh release edit recorder --title "StarCraft apps" --notes "$notes"
           else
-            gh release create recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialKeys.exe --title "StarCraft apps" --notes "$notes" --target "$GITHUB_SHA"
+            gh release create recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialKeys.exe dist/StarcraftTrialRel.exe --title "StarCraft apps" --notes "$notes" --target "$GITHUB_SHA"
           fi

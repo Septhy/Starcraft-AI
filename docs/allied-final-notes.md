@@ -1203,3 +1203,11 @@ second hit (the demo only shows how).
   mass is boxed back to front (no far bodies; they come on as
   reinforcements). The keys version no longer spreads between rounds of
   marines: it spreads as it keys. The quick 5-box tail is gone.
+- The rel version (StarcraftTrialRel.exe, HIT_STYLE "rel"): the keys
+  version, but each keyed group's place is set by where the mass stands
+  from the target (the repository owner): mass to the top right of the
+  target (more than 8 tiles higher) -> an up-and-down line 8 tiles to
+  the mass's left; to the bottom right -> 8 tiles to its right; level
+  with it -> alternately left and right. Groups 4 tiles apart. From
+  Smolensk, Berlin and Romania are both "top right" (line on the left);
+  Konigsberg is level (both sides).

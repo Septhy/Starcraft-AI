@@ -323,3 +323,44 @@ def test_the_mass_is_spread_out_between_rounds_of_marines(monkeypatch):
     st2.team = team.Team(lambda t: None, lambda t: None)
     st2.team.announced = ("east", 999)
     assert trial.spread_at_mass(io2, watch, m, st2) == 0
+
+
+def test_rel_version_lines_up_by_where_the_mass_is_from_the_target():
+    """The repository owner: the mass top right of the target, a line on
+    its left; bottom right, on its right; level with it, both sides."""
+    mass = trial.MASS
+    t = 32
+    top_right = (mass[0] - 60 * t, mass[1] + 13 * t)     # like Berlin
+    bottom_right = (mass[0] - 40 * t, mass[1] - 30 * t)
+    level = (mass[0] - 42 * t, mass[1] + 4 * t)          # like Konigsberg
+    assert trial.rel_side(mass, top_right) == "left"
+    assert trial.rel_side(mass, bottom_right) == "right"
+    assert trial.rel_side(mass, level) == "both"
+    left = [trial.rel_spot(k, 7, mass, top_right) for k in range(7)]
+    assert all(x == mass[0] - trial.REL_SIDE * t for x, y in left)
+    assert len({y for x, y in left}) == 7                 # one up-and-down line
+    right = [trial.rel_spot(k, 7, mass, bottom_right) for k in range(7)]
+    assert all(x == mass[0] + trial.REL_SIDE * t for x, y in right)
+    both = [trial.rel_spot(k, 7, mass, level) for k in range(7)]
+    lefts = [p for p in both if p[0] < mass[0]]
+    rights = [p for p in both if p[0] > mass[0]]
+    assert len(lefts) == 4 and len(rights) == 3          # as equal as seven goes
+    assert len({p for p in both}) == 7
+
+
+def test_rel_version_keys_the_mass_into_its_side_line(monkeypatch):
+    from tests.test_trial import StubWatch, blob
+    m = trial.load_map()
+    monkeypatch.setattr(trial, "HIT_STYLE", "rel")
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    monkeypatch.setattr(trial, "select_full",
+                        lambda io_, st_, seed, pool, cam: ([seed], 12))
+    watch = StubWatch(blob(trial.MASS, 9), set())
+    for _ in range(3):
+        io.t += trial.KEY_EVERY
+        trial.key_step(io, watch, m, st, "Berlin 1000")
+    # Berlin: the mass is to its top right, so the line is on the left
+    assert all(spot[0] < trial.MASS[0] for _, spot in st.keyed)
+    assert trial.keys_style()
