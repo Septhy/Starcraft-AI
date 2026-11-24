@@ -1194,3 +1194,12 @@ second hit (the demo only shows how).
   point (SPREAD_WIDE, -12/-4/4/12 tiles each way). MASS_RADIUS is now 15
   minimap pixels so all of it still counts as the mass (the parked
   fleet, 21 tiles east, stays outside).
+- Keys version revised after the user's own recording (from 0:46 on
+  the game clock): while massing, every 6 s a dozen from the left of
+  the mass go on the next key (1-7) and are moved aside into their place
+  in a line across the way to the next target (key_step). At the hit:
+  3 boxes from the back of the mass first (keyed groups left out), then
+  every key attacks, keeping its place in the line, then the rest of the
+  mass is boxed back to front (no far bodies; they come on as
+  reinforcements). The keys version no longer spreads between rounds of
+  marines: it spreads as it keys. The quick 5-box tail is gone.

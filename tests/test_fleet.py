@@ -231,52 +231,57 @@ def test_east_is_always_berlin_and_the_balkans_always_romania():
         assert trial.road_start(st, name) == "Romania 300"
 
 
-def test_the_keys_version_spreads_the_mass_in_a_line_and_attacks_by_keys(monkeypatch):
+def test_the_keys_version_keys_the_mass_left_to_right_and_moves_it_aside(monkeypatch):
+    """The repository owner's way: a dozen at a time from the left of
+    the mass onto the next key, each moved aside into a line."""
+    from tests.test_trial import StubWatch, blob
     m = trial.load_map()
     st, io = trial.State(), StubIO()
-    st.mass_keyed = (io.t, list("1234567"), "Berlin 1000")
-    trial.spread_mass(io, m, st, "Berlin 1000")
-    moves = [c for c in io.clicks if c[2] == "right"]
-    assert io.keys == list("1234567") and len(moves) == 7
-    # a line across the way to Berlin: spread wide, not one spot
-    xs = [c[0] for c in moves]
-    ys = [c[1] for c in moves]
-    assert max(xs) - min(xs) + max(ys) - min(ys) >= 6
-    # at "go": each key attacks its own place along the line
-    monkeypatch.setattr(trial, "HIT_STYLE", "keys")
-    monkeypatch.setattr(trial, "sweep_mass", lambda *a, **k: (0, 0))
-    monkeypatch.setattr(trial, "push_front", lambda *a, **k: 0)
-    io2 = StubIO()
-    io2.shot = lambda label, keep=True: None
-    st.mass_keyed = (io2.t - 20, list("1234567"), "Berlin 1000")
-    trial.hit(io2, None, m, st, "Berlin 1000", use_keys=False)
-    assert [k for k in io2.keys if k.isdigit()][:7] == list("1234567")
-    points = {c[:2] for c in io2.clicks}
-    assert len(points) >= 5                         # not all the same point
-    # the usual version never uses the keyed line
-    monkeypatch.setattr(trial, "HIT_STYLE", "boxes")
-    io3 = StubIO()
-    io3.shot = lambda label, keep=True: None
-    st.mass_keyed = (io3.t - 20, list("1234567"), "Berlin 1000")
-    trial.hit(io3, None, m, st, "Berlin 1000", use_keys=False)
-    assert not any(k in "1234567" for k in io3.keys if k.isdigit())
+    io.shot = lambda label, keep=True: None
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    seeds = []
+    monkeypatch.setattr(trial, "select_full",
+                        lambda io_, st_, seed, pool, cam: seeds.append(seed)
+                        or ([seed], 12))
+    watch = StubWatch(blob(trial.MASS, 9), set())
+    for _ in range(9):
+        io.t += trial.KEY_EVERY
+        trial.key_step(io, watch, m, st, "Berlin 1000")
+    assert [k for k, _ in st.keyed] == list("1234567")   # then full
+    assert [c for h, c in io.combos] == list("1234567")
+    # from the left: each seed is the leftmost of what was left
+    assert seeds[0][0] == min(c for c, r in blob(trial.MASS, 9))
+    # moved aside, each to its own place in a line
+    spots = {c[:2] for c in io.clicks if c[2] == "right"}
+    assert len(spots) == 7
 
 
-def test_the_keys_version_sends_a_quick_tail_not_a_full_sweep(monkeypatch):
+def test_the_keys_version_hit_boxes_the_back_then_the_keys_then_the_rest(monkeypatch):
     m = trial.load_map()
     monkeypatch.setattr(trial, "HIT_STYLE", "keys")
     st, io = trial.State(), StubIO()
     io.shot = lambda label, keep=True: None
+    st.keyed = [(k, (trial.MASS[0] + 200 * i, trial.MASS[1]))
+                for i, k in enumerate("1234567")]
     st.mass_keyed = (io.t - 20, list("1234567"), "Berlin 1000")
-    sweeps, pushes = [], []
-    monkeypatch.setattr(trial, "sweep_mass",
-                        lambda *a, **k: sweeps.append(k) or (5, 60))
-    monkeypatch.setattr(trial, "push_front",
-                        lambda *a, **k: pushes.append(k) or 0)
-    trial.hit(io, None, m, st, "Berlin 1000", use_keys=False)
-    assert len(sweeps) == 1 and sweeps[0]["max_boxes"] == trial.TAIL_BOXES
-    assert sweeps[0]["front_first"] and not sweeps[0]["steer"]
-    assert pushes == []                             # far bodies: reinforcements
+    calls = []
+
+    def sweep(*a, **k):
+        calls.append(("sweep", k.get("max_boxes")))
+        return (3, 60)
+
+    def attack(io_, mapdata, st_, target, keys):
+        calls.append(("keys", tuple(keys)))
+        return len(keys)
+    monkeypatch.setattr(trial, "sweep_mass", sweep)
+    monkeypatch.setattr(trial, "keyed_attack", attack)
+    monkeypatch.setattr(trial, "push_front", lambda *a, **k: 1 / 0)
+    from tests.test_trial import StubWatch
+    trial.hit(io, StubWatch(set(), set()), m, st, "Berlin 1000", use_keys=False)
+    assert calls[0] == ("sweep", trial.BACK_BOXES)   # the back first
+    assert calls[1] == ("keys", tuple("1234567"))    # then every key
+    assert calls[2][0] == "sweep" and calls[2][1] is None   # then the rest
+    assert st.keyed == [] and st.mass_keyed is None
 
 
 def test_after_a_hit_new_troops_go_straight_to_it_in_the_keys_version(monkeypatch):
@@ -299,10 +304,9 @@ def test_the_mass_is_spread_out_between_rounds_of_marines(monkeypatch):
     monkeypatch.setattr(trial, "select_full",
                         lambda io_, st_, seed, pool, cam: ([seed], 12))
     watch = StubWatch(blob(trial.MASS, 8), set())
-    assert trial.spread_at_mass(io, watch, m, st) == trial.SPREAD_BOXES
-    spots = {c[:2] for c in io.clicks if c[2] == "right"}
-    assert len(spots) == trial.SPREAD_BOXES         # each group its own spot
-    # the usual version spreads it wider: 8 tiles apart, 24 tiles across
+    # the keys version spreads as it keys, not here
+    assert trial.spread_at_mass(io, watch, m, st) == 0
+    # the usual version spreads it: 8 tiles apart, 24 tiles across
     monkeypatch.setattr(trial, "HIT_STYLE", "boxes")
     io2 = StubIO()
     io2.shot = lambda label, keep=True: None
