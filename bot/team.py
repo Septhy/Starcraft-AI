@@ -413,6 +413,22 @@ def chat_signature(picture):
     return frozenset(zip(*np.nonzero(cells >= 4)))
 
 
+AIR_SYSTEM = (
+    "You look at a screenshot of the game view of StarCraft: Brood War "
+    "(Remastered graphics) and count one player's air units of one kind, "
+    "told apart by their team colour. Count only flying units of that "
+    "kind in that colour. Do not count dropships or other transports, "
+    "ground units, buildings, or units of other colours. If none are "
+    "shown, the count is 0. Answer only with the JSON asked for.")
+AIR_SCHEMA = {"type": "object", "additionalProperties": False,
+              "required": ["count"],
+              "properties": {"count": {"type": "integer"}}}
+AIR_LOOKS = {"Wraith": "small, fast Terran fighter planes; not the bulky "
+                       "dropships",
+             "Scout": "Protoss fighters with two forward prongs; on this "
+                      "map they are called Light Fighters"}
+
+
 class ChatEars:
     """Listen to the chat. listen(picture, clock) offers the newest
     screenshot; orders(now) returns allies' orders heard since the last
@@ -529,6 +545,52 @@ class ChatEars:
                                        "PermissionDeniedError"):
                     self.failures = 99
 
+    def _charge(self, response):
+        self.calls += 1
+        from bot.general import PRICES
+        p_in, p_out, p_read, p_write = PRICES.get(self.model,
+                                                  PRICES["claude-opus-5-5"])
+        u = response.usage
+        tok = lambda n: getattr(u, n, 0) or 0
+        self.spent += (tok("input_tokens") * p_in + tok("output_tokens") * p_out
+                       + tok("cache_read_input_tokens") * p_read
+                       + tok("cache_creation_input_tokens") * p_write) / 1e6
+
+    def count_air(self, picture, colour, kind):
+        """How many of an ally's air units of one kind (Wraith or Scout)
+        the game view shows, counted by the model from the picture; None
+        if it cannot be asked."""
+        if self.dead():
+            return None
+        try:
+            view = picture.convert("RGB").crop((0, 40, 1920, 760)) \
+                .resize((1280, 480))
+            out = _io.BytesIO()
+            view.save(out, format="PNG")
+            data = base64.standard_b64encode(out.getvalue()).decode("ascii")
+            response = self.client.messages.create(
+                model=self.model, max_tokens=200,
+                system=AIR_SYSTEM,
+                output_config={"format": {"type": "json_schema",
+                                          "schema": AIR_SCHEMA}},
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png",
+                        "data": data}},
+                    {"type": "text", "text": (
+                        f"Count the {colour} player's {kind}s "
+                        f"({AIR_LOOKS[kind]}).")}]}])
+            self._charge(response)
+            if response.stop_reason != "end_turn":
+                return None
+            body = next((b.text for b in response.content
+                         if b.type == "text"), "")
+            return max(0, int(json.loads(body)["count"]))
+        except Exception as e:          # never let a bad call stop the bot
+            self.failures += 1
+            self.last_error = type(e).__name__
+            return None
+
     def _ask(self, crop, game_clock):
         out = _io.BytesIO()
         crop.save(out, format="PNG")
@@ -549,15 +611,7 @@ class ChatEars:
                     "type": "base64", "media_type": "image/png",
                     "data": picture}},
                 {"type": "text", "text": text}]}])
-        self.calls += 1
-        from bot.general import PRICES
-        p_in, p_out, p_read, p_write = PRICES.get(self.model,
-                                                  PRICES["claude-opus-5-5"])
-        u = response.usage
-        tok = lambda n: getattr(u, n, 0) or 0
-        self.spent += (tok("input_tokens") * p_in + tok("output_tokens") * p_out
-                       + tok("cache_read_input_tokens") * p_read
-                       + tok("cache_creation_input_tokens") * p_write) / 1e6
+        self._charge(response)
         if response.stop_reason != "end_turn":
             self.last_error = f"stopped: {response.stop_reason}"
             return None

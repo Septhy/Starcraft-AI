@@ -1,5 +1,6 @@
 """\"@R bring air\": find the ally's air and take the fleet there safely."""
 import numpy as np
+import pytest
 
 from bot import trial
 from eyes import live
@@ -69,7 +70,7 @@ def test_bring_air_attack_moves_the_whole_fleet_along_the_way(monkeypatch):
     monkeypatch.setattr(trial, "say", lambda io, st, text, force=False:
                         said.append(text))
     monkeypatch.setattr(trial, "find_ally_air",
-                        lambda io, watch, colour: (40 * 32, 60 * 32))
+                        lambda *a, **k: (40 * 32, 60 * 32))
     io = StubIO()
     io.shot = lambda label, keep=True: None
     st = trial.State()
@@ -97,7 +98,7 @@ def test_no_air_found_is_said(monkeypatch):
     said = []
     monkeypatch.setattr(trial, "say", lambda io, st, text, force=False:
                         said.append(text))
-    monkeypatch.setattr(trial, "find_ally_air", lambda io, watch, colour: None)
+    monkeypatch.setattr(trial, "find_ally_air", lambda *a, **k: None)
     st = trial.State()
     st.air_keys = ["9"]
     assert not trial.bring_air(StubIO(), Watch(), m, st, "purple")
@@ -166,7 +167,7 @@ def test_the_fleet_follows_the_allys_air_every_eight_seconds(monkeypatch):
     st.fleet_task = {"colour": "teal", "spot": (40 * 32, 60 * 32),
                      "since": io.t, "checked": io.t}
     seen = iter([(40 * 32, 60 * 32), (70 * 32, 40 * 32), None])
-    monkeypatch.setattr(trial, "find_ally_air", lambda io_, w, c: next(seen))
+    monkeypatch.setattr(trial, "find_ally_air", lambda *a, **k: next(seen))
     # not before 8 seconds
     io.t += 5
     assert not trial.follow_ally_air(io, Watch(), m, st)
@@ -200,3 +201,51 @@ def test_the_massing_goes_on_while_the_fleet_is_away(monkeypatch):
     assert "follow_ally_air(" in src and "gather_idle(" in src \
         and "train_everywhere(" in src
     assert "follow_ally_air(" in inspect.getsource(trial.wait_for_mass)
+
+
+class CountingEars:
+    def __init__(self, counts):
+        self.counts, self.asked = list(counts), []
+
+    def count_air(self, picture, colour, kind):
+        self.asked.append((colour, kind))
+        return self.counts.pop(0)
+
+
+def two_places():
+    land = trial._land()
+    seas = [(c, r) for r in range(60, 140, 3) for c in range(40, 140, 3)
+            if not land[r:r + 4, c:c + 4].any()]
+    a = seas[0]
+    b = next(p for p in seas if abs(p[0] - a[0]) + abs(p[1] - a[1]) > 40)
+    return a, b
+
+
+@pytest.mark.parametrize("colour, kind, mass", [
+    ("orange", "Wraith", 8), ("purple", "Scout", 11), ("teal", "Wraith", 22)])
+def test_the_allys_air_mass_is_found_by_counting_their_air(colour, kind, mass):
+    a, b = two_places()
+    slot = trial.ALLY_SLOTS[colour]
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    # the bigger patch is a dropship and some ground (none of their
+    # air there); the smaller has their air mass
+    watch = Watch(by_slot={slot: square(*a, n=5) | square(*b)})
+    st = trial.State()
+    st.ears = CountingEars([0, mass])
+    x, y = trial.find_ally_air(io, watch, colour, st)
+    c, r = live.to_drawn(x, y)
+    assert abs(c - (b[0] + 1)) <= 1 and abs(r - (b[1] + 1)) <= 1
+    assert st.ears.asked == [(colour, kind)] * 2
+    # below their mass everywhere: the place with the most of their air
+    st.ears = CountingEars([mass - 3, 2])
+    x, y = trial.find_ally_air(io, watch, colour, st)
+    c, r = live.to_drawn(x, y)
+    assert abs(c - (a[0] + 2)) <= 1 and abs(r - (a[1] + 2)) <= 1
+    # none of their air anywhere: not found
+    st.ears = CountingEars([0, 0])
+    assert trial.find_ally_air(io, watch, colour, st) is None
+    # following: near where their air last was, no need to count again
+    st.ears = CountingEars([])
+    assert trial.find_ally_air(io, watch, colour, st,
+                               last=live.from_drawn(*b)) is not None

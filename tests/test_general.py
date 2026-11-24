@@ -287,7 +287,8 @@ def test_the_generals_orders_reach_the_groups_in_a_game():
     g.log = lambda text, quiet=False: logs.append(text)
     trial.run(g, m, general=scripted)
     assert any("1 of 1 group orders given" in l for l in logs)
-    assert g.typed and g.typed[0] == "massing for Berlin"
+    assert g.typed[0] == "AF Russia AI v0.01"         # the opening line
+    assert g.typed[1] == "massing for Berlin"
     assert len(g.typed) < 15                         # not every few seconds
 
 
@@ -297,7 +298,8 @@ def test_the_bot_defends_when_the_axis_reaches_the_mass():
     for u in g.units[:6]:
         u["to"] = (100 * 32, 89 * 32)             # away at Berlin
     assert trial.recall(g, st, "test")
-    assert all(near(u["to"], trial.MASS, 12) for u in g.units[:8])
+    assert all(near(u["to"], trial.MASS, 12) for u in g.units[:6])
+    assert all(near(u["to"], trial.fleet_spot(), 12) for u in g.units[6:8])
     assert not trial.recall(g, st, "again")       # not twice in a row
 
 

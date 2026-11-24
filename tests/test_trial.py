@@ -9,6 +9,7 @@ from eyes import live
 DATA = os.path.join(os.path.dirname(__file__), "data")
 CARDS = {k: Image.open(os.path.join(DATA, f)) for k, f in
          [("barracks", "card_barracks.png"), ("units", "card_units.png")]}
+MESSAGING = Image.open(os.path.join(DATA, "messaging_open.png")).convert("RGB")
 GREEN = (41, 235, 51)
 SPEED = 95.0          # map pixels a marine walks per second
 
@@ -118,6 +119,13 @@ class FakeGame:
                  round(x), round(y))]
             self.yamato = False
             return
+        if getattr(self, "messaging", False):     # the Messaging window
+            if (x, y) == trial.ACCEPT_BUTTON:
+                self.messaging, self.allied = False, True
+            return
+        if (x, y) == trial.MESSAGING_BUTTON:
+            self.messaging = True
+            return
         self.selected, self.lifted = None, False
         hit = [u for u in self.alive()
                if abs(self._screen(*self.where(u))[0] - x) < 20
@@ -168,7 +176,7 @@ class FakeGame:
             assert isinstance(self.selected, list)   # never A on nothing
             self.attack = True
         if name == "enter":
-            self.chat_open = False
+            self.chat_open = not getattr(self, "chat_open", False)
         if name == "h" and isinstance(self.selected, list):
             for u in self.selected:
                 u["from"] = u["to"] = self.where(u)
@@ -245,6 +253,8 @@ class FakeGame:
             "units" if self.selected else None
         if card:
             s.paste(CARDS[card], (1560, 760))
+        if getattr(self, "messaging", False):
+            s.paste(MESSAGING, (550, 85))
         return s
 
     def log(self, text, quiet=False):
@@ -960,7 +970,7 @@ def test_new_scouts_from_the_factories_go_on_the_fleet_keys(monkeypatch):
     st.clock = team.GameClock(io.now)
     looked = []
     monkeypatch.setattr(trial, "scouts_on_top",
-                        lambda io_, x, y, every=True: looked.append((x, y)) or 2)
+                        lambda io_, st_, x, y, every=True: looked.append((x, y)) or 2)
     monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
     monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: 1 / 0)
     # just before the first tax: nothing
@@ -990,7 +1000,7 @@ def test_a_factory_with_nothing_on_top_is_tried_a_few_times(monkeypatch):
     st.clock = team.GameClock(io.now)
     tries = []
     monkeypatch.setattr(trial, "scouts_on_top",
-                        lambda io_, x, y, every=True: (tries.append(1), 0)[1])
+                        lambda io_, st_, x, y, every=True: (tries.append(1), 0)[1])
     st.clock.value = (trial.TAX_MARK + 5) / trial.COUNTDOWN_RATE
     for _ in range(6):
         trial.collect_new_scouts(io, None, m, st)
@@ -1047,7 +1057,7 @@ def test_twelve_scouts_at_moscow_fill_a_key_and_the_rest_join_another(monkeypatc
     st.scouts_done |= {(k, n) for k in range(20) for n in trial.SCOUT_FACTORIES}
     picks = iter([12, 12, 1, 0])                    # what each look picks up
     monkeypatch.setattr(trial, "scouts_on_top",
-                        lambda io_, x, y, every=True: next(picks))
+                        lambda io_, st_, x, y, every=True: next(picks))
     monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
     monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
     assert trial.collect_new_scouts(io, None, m, st) == 12

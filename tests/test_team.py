@@ -181,7 +181,7 @@ def test_chat_signature_sees_new_text_only():
     assert len(empty) == 0 and len(one) >= 3 and len(two ^ one) >= 3
 
 
-anthropic = pytest.importorskip("anthropic")
+anthropic = pytest.importorskip("anthropic")  # (tests below use the API client)
 httpx2 = pytest.importorskip("httpx2")
 
 
@@ -236,3 +236,58 @@ def test_the_bot_announces_its_first_hit_in_a_game():
     typed = getattr(g, "typed", [])
     assert "gone east in 30 seconds" in typed and "gone east" in typed
     assert typed.index("gone east in 30 seconds") < typed.index("gone east")
+
+
+# ------------------------------------------------------------ the opening
+def test_the_game_starts_with_the_name_then_allied_chat():
+    m = trial.load_map()
+    g = FakeGame(m)
+    lines = []
+    g.log = lambda text, quiet=False: lines.append(text)
+    trial.run(g, m)
+    typed = getattr(g, "typed", [])
+    assert typed[0] == "AF Russia AI v0.01"
+    assert getattr(g, "allied", False)               # Send to allies, accepted
+    assert "chat: set to allies in the Messaging window" in lines
+    # it came first, before any unit was picked
+    first_other = next(i for i, l in enumerate(lines) if "fleet" in l
+                       or "marines" in l)
+    assert lines.index("chat: set to allies in the Messaging window") < first_other
+
+
+def test_the_messaging_window_is_seen_and_allies_chosen():
+    s = Image.new("RGB", (1920, 1080), (40, 70, 40))
+    assert not trial.messaging_open(s) and not trial.allies_chosen(s)
+    s.paste(Image.open(os.path.join(DATA, "messaging_open.png")).convert("RGB"),
+            (550, 85))
+    assert trial.messaging_open(s) and trial.allies_chosen(s)
+
+
+def test_without_the_window_it_falls_back_to_ctrl_enter():
+    from tests.test_trial import StubIO
+    io = StubIO()
+    io.shot = lambda label, keep=True: Image.new("RGB", (1920, 1080))
+    io.type_text = lambda text: io.keys.append("typed:" + text)
+    st = trial.State()
+    assert not trial.opening(io, st)
+    assert "typed:AF Russia AI v0.01" in io.keys and not st.allied_chat
+    st.last_chat = -1e9
+    io.combos.clear()
+    trial.say(io, st, "gone east", force=True)
+    assert ("ctrl", "enter") in io.combos
+    st.allied_chat, st.last_chat = True, -1e9
+    io.combos.clear()
+    trial.say(io, st, "gone east", force=True)
+    assert io.combos == []
+
+
+def test_the_allys_air_is_counted_from_the_picture():
+    seen = []
+    ears = team.ChatEars(chat_client({"count": 9}, seen), background=False)
+    n = ears.count_air(Image.new("RGB", (1920, 1080)), "orange", "Wraith")
+    assert n == 9
+    body = seen[0][2]
+    text = body["messages"][0]["content"][1]["text"]
+    assert "orange" in text and "Wraith" in text
+    assert "dropships" in body["system"]
+    assert ears.calls == 1 and ears.spent > 0

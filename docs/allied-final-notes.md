@@ -1018,3 +1018,60 @@ The repository owner's rules:
   the fleet after it along the safe way; else attack-move on the same
   spot; not seen -> the fleet waits (logged after 3 misses). No checks
   while a hit is being sent (30-60 s).
+
+## After the user's demo game (air, parking, tax only)
+
+The user played Russia to show air control, parking and taxing, and
+said to learn nothing else from that game. The user's answers: the
+Battlecruiser on their air key was there by accident (keys stay Scouts
+plus one Heavy Artillery), and tax efforts still start after the
+second hit (the demo only shows how).
+
+- Battlecruiser misclicks (trial 23): learn_scout learns the Scout's
+  panel picture from the starting Scout farthest from every
+  Battlecruiser, and the Battlecruiser's from the one farthest from
+  every Scout. picked_are_scouts refuses a single unit that looks
+  nearer the Battlecruiser than the Scout. click_scout checks every
+  click; build_fleet uses it.
+- New Scouts by colour: Russia's Scouts are gold on screen.
+  gold_mask/gold_on_screen find gold patches (tuned on the demo's
+  frames; the kills list, the countdown and the yellow buttons over the
+  minimap left out). scouts_on_top clicks the gold near the spawn point
+  first, then the old spots, and checks each pick (trial 23: the
+  factory's middle held Heavy Tanks).
+- Parking: the fleet waits about tile (181, 65), north-east of
+  Smolensk, as in the demo (FLEET_PARK 21, -11 tiles from the mass).
+- Tax: Krakow gets the factory nearest it (165, 49), Romania the
+  starport nearest it (190, 110) (TAX_BUILDING); those two are kept
+  from Warsaw's flight and from Factory 7 (the Engineering Bay at
+  162, 58 still reaches Factory 7 from 1:00). They stay floating over
+  the beacon. A building follows a hit only into a city that is clear
+  or just taken (our troops 3 to 1 against the enemy left there:
+  city_clear); otherwise the tax rounds send it later. Our own troops
+  at a city no longer count as "something there already".
+- "@R bring air": each ally's air mass (ALLY_AIR): orange 8 Wraiths,
+  purple 11 Scouts, teal 22 Wraiths. Places where their colour is over
+  water or moving are looked at on the game screen, and their Wraiths
+  or Scouts counted by the model (ChatEars.count_air, Haiku, told not
+  to count dropships, ground units or buildings). A place with their
+  mass is taken at once, else the one with the most; none: "I can't
+  find your air". While following, near where their air last was, no
+  count. Without an API key: their biggest group, as before.
+- Stuck: a body only counts as stuck if it did not get smaller after an
+  order (SHRANK 2 minimap pixels); a big spawn leaving a dozen at a
+  time is not stuck (trial 23).
+- Balkans choke (recording 10e35650): the way from Odessa into Romania
+  (CHOKE, 7 minimap pixels either side). Troops standing in it or in
+  Romania are never gathered back to the mass; every 10 s clear_choke
+  sends them on to the next stop of the Balkan road past every city
+  taken (Romania itself while the enemy holds it; Romania counts as
+  taken once our troops stand there and see no enemy). Before a new
+  hit to the Balkans, the choke is cleared first. land.png shows no
+  narrowing there (the choke is terrain), so the zone is a line.
+- Opening (user's Messaging screenshots): at the very start, "AF
+  Russia AI v0.01" typed with Enter (to everyone), then the Messaging
+  button over the minimap (225, 748), "Send to allies" (597, 314),
+  checked by its yellow dot, and Accept (778, 590). The window is
+  recognised by the blue ring of its first choice and its dark blue
+  inside. After that, chat lines go with plain Enter; if the window
+  could not be set (picture "messaging-failed"), Ctrl+Enter as before.

@@ -59,16 +59,48 @@ def test_a_lost_building_is_replaced(monkeypatch):
     assert len(set(tiles)) == len(tiles)                    # other buildings
 
 
-def test_a_city_already_held_is_left_alone(monkeypatch):
+def test_our_troops_at_a_city_do_not_stop_its_building(monkeypatch):
     m = trial.load_map()
     m, st, io, watch, flown, _ = setup(
         monkeypatch, countdown_at(150), ours=at(m, "Krakow 200", 3))
     trial.tax_rounds(io, watch, m, st, None)
-    assert [c for _, _, c in flown] == ["Romania 300"]
+    assert [c for _, _, c in flown] == ["Krakow 200", "Romania 300"]
+
+
+def test_krakow_gets_the_factory_and_romania_the_starport(monkeypatch):
+    m, st, io, watch, flown, guards = setup(monkeypatch, countdown_at(150))
+    # a building went to Warsaw after the first hit: not those two
+    trial.flights_after(io, m, st, 1)
+    trial.tax_rounds(io, watch, m, st, None)
+    got = {c: (kind, tile) for kind, tile, c in flown}
+    assert got["Krakow 200"] == ("Factory", (165, 49))
+    assert got["Romania 300"] == ("Starport", (190, 110))
+    assert got["Warsaw 200"][1] not in ((165, 49), (190, 110))
+    # and Factory 7 still has a building that can reach it in time
+    st.clock.value = countdown_at(40)
+    trial.tax_rounds(io, watch, m, st, None)
+    assert [c for _, _, c in flown].count("Factory 7") == 1
+
+
+def test_no_building_floats_into_the_enemy(monkeypatch):
+    m = trial.load_map()
+    many = at(m, "Krakow 200", 9)                   # the hit has not won yet
+    m, st, io, watch, flown, guards = setup(monkeypatch, countdown_at(150),
+                                            axis=many)
+    assert trial.tax_with_hit(io, watch, m, st, "Berlin 1000", object()) == 0
+    assert flown == []
+    # just taken: our troops there far outnumber the enemy left
+    k = trial.place(m, "Krakow 200")
+    watch.axis = blob((k["x"], k["y"]), 2)
+    watch.ours = at(m, "Krakow 200", 9)
+    trial.tax_with_hit(io, watch, m, st, "Berlin 1000", object())
+    assert [c for _, _, c in flown] == ["Krakow 200"]
 
 
 def test_factory_7_sets_off_at_one_minute_and_must_arrive_by_three(monkeypatch):
-    for c, goes in [(150, False), (100, False), (60, True), (20, True),
+    # (at 0:20 only Romania's own starport could still make it in time,
+    # and it has gone to Romania)
+    for c, goes in [(150, False), (100, False), (60, True), (40, True),
                     (250, False), (170, False)]:   # 250: too late to arrive
         m, st, io, watch, flown, _ = setup(monkeypatch, countdown_at(c))
         trial.tax_rounds(io, watch, m, st, None)
@@ -211,3 +243,101 @@ def test_survivors_of_a_lost_hit_are_fetched_back():
     assert trial.in_battle(st, m, near_front)          # still being fought
     st.battle.samples.append((90, 10, 5, 18))          # lost
     assert trial.in_battle(st, m, near_front) == set()
+
+
+def test_a_big_crowd_that_leaves_a_dozen_at_a_time_is_not_stuck(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    c, r = (int(v) for v in live.to_drawn(210 * 32, 52 * 32))
+    rows = [list(range(r, r + 6)), list(range(r + 1, r + 5)),
+            [r + 2, r + 3], [r + 2, r + 3], [r + 2, r + 3], [r + 2, r + 3],
+            [r + 2, r + 3]]
+    picked = []
+    monkeypatch.setattr(trial, "select_group",
+                        lambda io_, pixels, st_, watch_=None, margin=None:
+                        picked.append(len(pixels)) or True)
+    monkeypatch.setattr(trial.live, "clusters", live.clusters)
+    io.shot = lambda label, keep=True: None
+    for k, ys in enumerate(rows):
+        body = {(c + i, y) for i in range(3) for y in ys}
+        watch = StubWatch(body | blob(trial.MASS, 6), set())
+        io.t += trial.RETRY_IDLE + 1
+        trial.gather_idle(io, watch, m, st, {})
+    # it shrank twice, so it was ordered more than three times; once it
+    # stopped shrinking, three more orders and it is left alone
+    assert picked == [18, 12, 6, 6, 6]
+
+
+def choke_setup(monkeypatch, ours, axis=()):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    watch = StubWatch(ours, axis)
+    sent = []
+    monkeypatch.setattr(trial, "select_group",
+                        lambda io_, pixels, st_, watch_=None, margin=None:
+                        sent.append(set(pixels)) or True)
+    monkeypatch.setattr(trial, "attack_move",
+                        lambda io_, x, y: sent.append((x, y)))
+    monkeypatch.setattr(trial.live, "clusters", live.clusters)
+    io.shot = lambda label, keep=True: None
+    return m, st, io, watch, sent
+
+
+def between(m, f):
+    a, b = (trial.place(m, n) for n in trial.CHOKE)
+    return (a["x"] + f * (b["x"] - a["x"]), a["y"] + f * (b["y"] - a["y"]))
+
+
+def test_troops_in_the_balkans_choke_go_on_not_back(monkeypatch):
+    m = trial.load_map()
+    stuck = blob(between(m, 0.5), 4)
+    romania = at(m, "Romania 300", 4)
+    m, st, io, watch, sent, = choke_setup(monkeypatch, stuck | romania)
+    # gathering leaves them alone: they would walk back through the choke
+    picked = []
+    monkeypatch.setattr(trial, "select_group",
+                        lambda io_, pixels, st_, watch_=None, margin=None:
+                        picked.append(set(pixels)) or True)
+    trial.gather_idle(io, watch, m, st, {})
+    assert not any(p & (stuck | romania) for p in picked)
+    # Romania is ours and clear: they go on down the road, to Factory 7
+    monkeypatch.setattr(trial, "select_group",
+                        lambda io_, pixels, st_, watch_=None, margin=None:
+                        sent.append(set(pixels)) or True)
+    assert trial.clear_choke(io, watch, m, st, stuck | romania, None) >= 2
+    f7 = trial.place(m, "Factory 7")
+    points = [p for p in sent if isinstance(p, tuple)]
+    assert points and all(abs(x - f7["x"]) < 12 * 32 and abs(y - f7["y"]) < 12 * 32
+                          for x, y in points)
+    # not again at once; again after a while
+    io.t += 1
+    assert trial.clear_choke(io, watch, m, st, stuck | romania, None) == 0
+
+
+def test_with_romania_still_held_by_the_enemy_they_attack_it(monkeypatch):
+    m = trial.load_map()
+    stuck = blob(between(m, 0.3), 4)
+    enemy = at(m, "Romania 300", 5)
+    m, st, io, watch, sent = choke_setup(monkeypatch, stuck, enemy)
+    trial.clear_choke(io, watch, m, st, stuck, None)
+    r = trial.place(m, "Romania 300")
+    points = [p for p in sent if isinstance(p, tuple)]
+    assert points and all(abs(x - r["x"]) < 12 * 32 and abs(y - r["y"]) < 12 * 32
+                          for x, y in points)
+    assert "Romania 300" not in st.reached
+
+
+def test_a_new_balkans_hit_clears_the_choke_first(monkeypatch):
+    m = trial.load_map()
+    stuck = blob(between(m, 0.5), 4)
+    m, st, io, watch, sent = choke_setup(monkeypatch, stuck)
+    calls = []
+    monkeypatch.setattr(trial, "clear_choke",
+                        lambda *a, **k: calls.append(k.get("force")) or 0)
+    monkeypatch.setattr(trial, "sweep_mass", lambda *a, **k: (0, 0))
+    monkeypatch.setattr(trial, "push_front", lambda *a, **k: 0)
+    trial.hit(io, watch, m, st, "Romania 300", use_keys=False)
+    assert calls == [True]
+    calls.clear()
+    trial.hit(io, watch, m, st, "Berlin 1000", use_keys=False)
+    assert calls == []
