@@ -260,3 +260,48 @@ def test_the_keys_version_spreads_the_mass_in_a_line_and_attacks_by_keys(monkeyp
     st.mass_keyed = (io3.t - 20, list("1234567"), "Berlin 1000")
     trial.hit(io3, None, m, st, "Berlin 1000", use_keys=False)
     assert not any(k in "1234567" for k in io3.keys if k.isdigit())
+
+
+def test_the_keys_version_sends_a_quick_tail_not_a_full_sweep(monkeypatch):
+    m = trial.load_map()
+    monkeypatch.setattr(trial, "HIT_STYLE", "keys")
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    st.mass_keyed = (io.t - 20, list("1234567"), "Berlin 1000")
+    sweeps, pushes = [], []
+    monkeypatch.setattr(trial, "sweep_mass",
+                        lambda *a, **k: sweeps.append(k) or (5, 60))
+    monkeypatch.setattr(trial, "push_front",
+                        lambda *a, **k: pushes.append(k) or 0)
+    trial.hit(io, None, m, st, "Berlin 1000", use_keys=False)
+    assert len(sweeps) == 1 and sweeps[0]["max_boxes"] == trial.TAIL_BOXES
+    assert sweeps[0]["front_first"] and not sweeps[0]["steer"]
+    assert pushes == []                             # far bodies: reinforcements
+
+
+def test_after_a_hit_new_troops_go_straight_to_it_in_the_keys_version(monkeypatch):
+    st, io = trial.State(), StubIO()
+    st.battle = trial.Battle("Berlin 1000", io.t - 10)
+    assert trial.reinforce_target(io, st) is None    # the usual version
+    monkeypatch.setattr(trial, "HIT_STYLE", "keys")
+    assert trial.reinforce_target(io, st) == "Berlin 1000"
+    io.t += trial.REINFORCE_FOR
+    assert trial.reinforce_target(io, st) is None    # a minute on: to the mass
+
+
+def test_the_mass_is_spread_out_between_rounds_of_marines(monkeypatch):
+    from tests.test_trial import StubWatch, blob
+    m = trial.load_map()
+    monkeypatch.setattr(trial, "HIT_STYLE", "keys")
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    monkeypatch.setattr(trial, "select_full",
+                        lambda io_, st_, seed, pool, cam: ([seed], 12))
+    watch = StubWatch(blob(trial.MASS, 8), set())
+    assert trial.spread_at_mass(io, watch, m, st) == trial.SPREAD_BOXES
+    spots = {c[:2] for c in io.clicks if c[2] == "right"}
+    assert len(spots) == trial.SPREAD_BOXES         # each group its own spot
+    # not while a hit is announced, nor in the usual version
+    monkeypatch.setattr(trial, "HIT_STYLE", "boxes")
+    assert trial.spread_at_mass(io, watch, m, st) == 0

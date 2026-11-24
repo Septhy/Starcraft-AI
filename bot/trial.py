@@ -186,6 +186,7 @@ class State:
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
+        self.spread_next = 0       # the next spot the mass is spread to
         self.mass_keyed = None     # the keys version: (when, keys, target)
         self.empty_skipped = 0     # boxes not drawn: nothing there any more
         self.walking = []          # (when, minimap pixel) bodies sent to the mass
@@ -1175,7 +1176,8 @@ def select_full(io, st, seed, pool, cam):
 
 
 def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
-               radius=MASS_RADIUS, least=12):
+               radius=MASS_RADIUS, least=12, max_boxes=None, front_first=False,
+               steer=True):
     """One pass over the massing place (or the ground round `centre`):
     every part of it where the minimap shows units standing still is
     boxed, back to front, each box drawn to hold as near to twelve units
@@ -1193,20 +1195,29 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
         return 0, len(there)
     orders = 0
     # the mass is often wider than one view: take it a view at a time
-    views = back_to_front(live.clusters(there, 20, 8), (w["x"], w["y"]),
-                          lambda g: live.from_drawn(*g[0]))
+    order = front_to_back if front_first else back_to_front
+    views = order(live.clusters(there, 20, 8), (w["x"], w["y"]),
+                  lambda g: live.from_drawn(*g[0]))
+    boxes = 0
     for view in views:
+        if max_boxes is not None and boxes >= max_boxes:
+            break
         cols = [p[0] for p in view]
         rows = [p[1] for p in view]
         cx, cy = live.from_drawn((min(cols) + max(cols)) / 2,
                                  (min(rows) + max(rows)) / 2)
-        fleet_tick(io, watch, mapdata, st)   # the air is looked after meanwhile
+        if steer:
+            fleet_tick(io, watch, mapdata, st)   # the air is looked after meanwhile
         cam = look_at(io, *centred(cx, cy))
         left = set(view)
         while left:
-            # the troops farthest from the target go first
-            seed = back_to_front(list(left), (w["x"], w["y"]),
-                                 lambda p: live.from_drawn(*p))[0]
+            if max_boxes is not None and boxes >= max_boxes:
+                break
+            boxes += 1
+            # the troops farthest from the target go first (or, for a
+            # quick tail, the nearest)
+            seed = order(list(left), (w["x"], w["y"]),
+                         lambda p: live.from_drawn(*p))[0]
             boxed, n = select_full(io, st, seed, left, cam)
             if n >= FULL and len(boxed) > 1:
                 # a full box: more may stand there than were picked, so
@@ -1242,6 +1253,58 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
 HIT_STYLE = "boxes"            # "keys" in the keys version
 MASS_KEYS = list("1234567")     # the mass is put on these before a hit
 KEY_FRESH = 60                 # seconds: keys older than this are not used
+TAIL_BOXES = 5                 # boxes after the keys at a hit (keys version)
+REINFORCE_FOR = 60             # seconds after a hit when new troops go straight
+                               # to its front, not to the mass (keys version)
+SPREAD_BOXES = 6               # boxes spread out over the massing place a round
+SPREAD_SPOTS = [(dx * 4, dy * 4) for dy in (0, -1, 1) for dx in (0, -2, 2, -1, 1)]
+                               # tiles from the mass: where the boxes are walked
+
+
+def reinforce_target(io, st):
+    """The keys version: the target new troops walk straight to, for a
+    minute after a hit that is not being lost; None: to the mass."""
+    b = st.battle
+    if HIT_STYLE != "keys" or b is None or \
+            io.now() - b.sent_at >= REINFORCE_FOR or \
+            b.verdict()[0] == "losing":
+        return None
+    return b.target
+
+
+def spread_at_mass(io, watch, mapdata, st):
+    """The keys version: between rounds of marines, the crowd at the
+    massing place is boxed from its thickest part and walked out over a
+    wide area round the mass point (the repository owner), so it does
+    not stand in one clump. Returns the boxes moved."""
+    if HIT_STYLE != "keys" or busy(st):
+        return 0
+    a = watch.units(io.shot("watch", keep=False))
+    io.sleep(1.0)
+    there = at_mass(a) & watch.units(io.shot("watch", keep=False))
+    if len(there) < 12:
+        return 0
+    moved = 0
+    left = set(there)
+    while left and moved < SPREAD_BOXES:
+        # the thickest part first: the pixel with the most neighbours
+        seed = max(left, key=lambda p: sum((p[0] + i, p[1] + j) in left
+                                           for i in (-2, -1, 0, 1, 2)
+                                           for j in (-2, -1, 0, 1, 2)))
+        cam = look_at(io, *centred(*live.from_drawn(*seed)))
+        boxed, n = select_full(io, st, seed, left, cam)
+        left -= set(boxed) or {seed}
+        if n == 0:
+            continue
+        dx, dy = SPREAD_SPOTS[st.spread_next % len(SPREAD_SPOTS)]
+        st.spread_next += 1
+        io.click(*live.minimap_point(MASS[0] + dx * 32, MASS[1] + dy * 32),
+                 button="right")         # a plain move: out over the ground
+        io.sleep(0.04)
+        moved += 1
+    if moved:
+        io.log(f"  the mass spread out: {moved} groups walked apart")
+    return moved
 
 
 def mass_keys(st):
@@ -1385,21 +1448,29 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     if use_keys or keyed:
         io.sleep(1.5)                   # let them step off
     st.rekey = len(free_ground_keys(st)) if (use_keys or keyed) else 0
-    if not use_keys:
-        # bodies behind the mass set off first, so they are not left
-        # trailing after it
-        orders += push_front(io, watch, mapdata, st, target, side="rear")
-    start = None
-    for sweep in range(sweeps):
-        n, found = sweep_mass(io, watch, mapdata, st, target)
+    if keyed:
+        # the quick tail (keys version): one pass over the front of the
+        # mass, a few boxes, right behind the line; the rest follows as
+        # reinforcements (a full sweep took 60-90 s in trial 28)
+        n, found = sweep_mass(io, watch, mapdata, st, target, max_boxes=TAIL_BOXES,
+                              front_first=True, steer=False)
         orders += n
-        start = start or max(found, 1)
-        # sweep again until the massing place is about empty
-        if n == 0 or found < 0.1 * start:
-            break
-        io.sleep(1.5)
-    if not use_keys:                    # nothing is forward before the first hit
-        orders += push_front(io, watch, mapdata, st, target, side="forward")
+    else:
+        if not use_keys:
+            # bodies behind the mass set off first, so they are not left
+            # trailing after it
+            orders += push_front(io, watch, mapdata, st, target, side="rear")
+        start = None
+        for sweep in range(sweeps):
+            n, found = sweep_mass(io, watch, mapdata, st, target)
+            orders += n
+            start = start or max(found, 1)
+            # sweep again until the massing place is about empty
+            if n == 0 or found < 0.1 * start:
+                break
+            io.sleep(1.5)
+        if not use_keys:                # nothing is forward before the first hit
+            orders += push_front(io, watch, mapdata, st, target, side="forward")
     st.hit_sent = io.now()
     st.hits_sent += 1
     st.go_pending = False
@@ -2361,8 +2432,9 @@ def gather_idle(io, watch, mapdata, st, tried):
             # a crowd (trial 24: seventy Siberians, seven a box): boxed
             # all over in one go, a dozen at a time
             x, y = live.from_drawn(cx, cy)
-            n, found = sweep_mass(io, watch, mapdata, st, None,
-                                  centre=(x, y), dest=MASS,
+            ahead = reinforce_target(io, st)
+            n, found = sweep_mass(io, watch, mapdata, st, ahead,
+                                  centre=(x, y), dest=None if ahead else MASS,
                                   radius=CROWD_REACH, least=GATHER_LEAST)
             if n:
                 orders += n
@@ -2386,7 +2458,11 @@ def gather_idle(io, watch, mapdata, st, tried):
         if st.idle_orders[key] > STUCK_AFTER:
             continue                    # ordered three times and never moved
         if select_group(io, group, st, watch, margin=60):
-            to_mass(io, mapdata, live.from_drawn(cx, cy))
+            ahead = reinforce_target(io, st)
+            if ahead:
+                send_at(io, mapdata, st, ahead)     # straight to the hit
+            else:
+                to_mass(io, mapdata, live.from_drawn(cx, cy))
             orders += 1
             st.walking.append((io.now(), (cx, cy)))
             if st.idle_orders[key] == STUCK_AFTER:
@@ -3267,6 +3343,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         if io.now() - last_train >= RETRAIN_EVERY:
             last_train = io.now()
             train_everywhere(io, mapdata, st)
+            spread_at_mass(io, watch, mapdata, st)   # the keys version only
         io.sleep(0.5 if general else 1.5)
     io.shot("mass")
     if battle:

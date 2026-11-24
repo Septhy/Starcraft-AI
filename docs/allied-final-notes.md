@@ -1177,3 +1177,14 @@ second hit (the demo only shows how).
   its place in the line (keyed_attack); the fleet goes with it; the rest
   of the mass is boxed as usual. Keys older than 60 s are set again.
 - StarcraftTrial.exe is unchanged: it boxes the whole mass.
+- Keys version, after trial 28 (compared with the replays: the strong
+  player's 5-second bursts were 3-11 groups, the bot's 9-10; but the
+  bot's full sweep after the keys took 60-90 s):
+  - Quick tail: after the keys and the fleet, one pass of at most 5
+    boxes over the front of the mass (front first, no air steering in
+    between); no far bodies behind or forward of the mass.
+  - For 60 s after a hit that is not being lost, gathered troops go
+    straight to its front (send_at) instead of to the mass.
+  - Between rounds of marines the crowd at the mass is boxed from its
+    thickest part (up to 6 boxes) and walked to spots 4 tiles apart
+    round the mass point (spread_at_mass); not while a hit is announced.
