@@ -291,3 +291,18 @@ def test_the_allys_air_is_counted_from_the_picture():
     assert "orange" in text and "Wraith" in text
     assert "dropships" in body["system"]
     assert ears.calls == 1 and ears.spent > 0
+
+
+def test_an_announced_hit_no_longer_ready_is_called_off():
+    chat = Chat()
+    t = team.Team(chat.say, chat.log)
+    t.gate(100, True, "east")                       # announced
+    assert t.gate(130, False, "east") == "mass"     # most of it left
+    assert chat.said == ["gone east in 30 seconds", "hold, regrouping"]
+    assert t.announced is None
+    # ready again: announced again
+    assert run_until(t, chat, 140, 200) == 170
+    # an ally's "hit east in 1" still goes, ready or not
+    t2 = team.Team(chat.say, chat.log)
+    t2.heard(order("go", front="east", wait=60, said="@R hit east in 1"), 100)
+    assert run_until(t2, chat, 100, 200, ready=False) == 160

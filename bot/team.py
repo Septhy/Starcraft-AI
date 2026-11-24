@@ -248,6 +248,15 @@ class Team:
                          f"(at {clock_text(go_at)} on the game clock)")
                 return "mass"
         if self.announced:
+            if now >= self.announced[1] and not ready and self.ally_go is None:
+                # Russia's own hit is no longer ready (trial 26: most of
+                # it had just left with the last hit): called off, and
+                # announced again when it is ready
+                self.say("hold, regrouping")
+                self.log(f"called off: gone {self.announced[0]} (not ready "
+                         f"any more)")
+                self.announced = None
+                return "mass"
             if now >= self.announced[1]:
                 self.front = self.announced[0]
                 self.target = self.pending_target

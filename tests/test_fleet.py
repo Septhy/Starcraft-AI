@@ -170,3 +170,60 @@ def test_troops_on_another_front_do_not_count_for_the_next_hit():
     assert not trial.same_front(st, st.battle, io, 0)
     st.planned_target = "Berlin 1000"
     assert trial.same_front(st, st.battle, io, 0)
+
+
+def test_scouts_are_taken_out_of_a_box_before_it_is_ordered(monkeypatch):
+    """Trial 26: boxes at the mass took the fleet into the hits."""
+    st, io = trial.State(), StubIO()
+    st.scout_frame = trial._crop(panel("panel_scouts2.png"),
+                                 trial._frame_box(0, 2))
+    shots = iter([panel("panel_mixed4.png"), panel("panel_marines7.png")])
+    counts = iter([4, 2])
+    io.shot = lambda label, keep=True: next(shots)
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: next(counts))
+    assert trial.drop_scouts(io, st) == 2
+    x0, y0, x1, y1 = trial._frame_box(1, 4)          # the second Scout of four
+    assert io.clicks[0] == ((x0 + x1) // 2, (y0 + y1) // 2, "shift")
+    # all Scouts: nothing left for the ground
+    io2 = StubIO()
+    io2.shot = lambda label, keep=True: panel("panel_scouts3.png")
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 3)
+    assert trial.drop_scouts(io2, st) == 0
+
+
+def test_a_hit_goes_by_its_keys_first_with_the_fleet(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    st.air_keys = ["9"]
+    st.mass_keyed = (io.t - 5, list("1234567"), "Berlin 1000")
+    calls = []
+    monkeypatch.setattr(trial, "sweep_mass",
+                        lambda *a, **k: calls.append("sweep") or (0, 0))
+    monkeypatch.setattr(trial, "push_front",
+                        lambda *a, **k: calls.append(k["side"]) or 0)
+    io.shot = lambda label, keep=True: None
+    trial.hit(io, None, m, st, "Berlin 1000", use_keys=False)
+    keys = [k for k in io.keys if k.isdigit()]
+    assert keys[:8] == list("1234567") + ["9"]      # the mass, then the fleet
+    assert calls == ["rear", "sweep", "forward"]   # then the rest
+    assert st.battle.target == "Berlin 1000" and st.mass_keyed is None
+
+
+def test_a_balkans_hit_clears_romania_then_goes_on_toward_serbia():
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    trial.send_at(io, m, st, "Romania 300")
+    beyond = live.minimap_point(*trial.BALKS_POINT)
+    assert io.keys == ["a", "a"]
+    assert io.clicks[-1] == (*beyond, "shift")      # queued after Romania
+    io2 = StubIO()
+    trial.send_at(io2, m, st, "Berlin 1000")
+    assert io2.keys == ["a"]
+
+
+def test_east_is_always_berlin_and_the_balkans_always_romania():
+    st = trial.State()
+    for name in ("Warsaw 200", "Krakow 200", "Konigsberg 200", "Berlin 1000"):
+        assert trial.road_start(st, name) == "Berlin 1000"
+    for name in ("Factory 7", "Hungary 200", "Romania 300"):
+        assert trial.road_start(st, name) == "Romania 300"

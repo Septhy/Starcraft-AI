@@ -1116,3 +1116,37 @@ second hit (the demo only shows how).
   enemy picked by a click gets no order, as every pick is checked.
 - The Messaging button over the minimap was missing in trial 24 and
   there in trial 25: it depends on the kind of game.
+
+## Trial 26 (backup branch backup/2026-11-24-b before these changes)
+
+- Hits (user): while a hit is ready or announced, the mass is put on
+  keys 1-7 (twelve to a key, back first, Scouts left out, refreshed
+  every 30 s; key_mass). At "go": 1 attack, 2 attack ... 7, the fleet
+  at once, then the rest boxed as before. Boxing the whole mass took
+  60-80 s in trial 26 and hits arrived in pieces.
+- Balkans (user): a hit to Romania attacks Romania, then goes on,
+  queued (Shift), to tile (143, 145) toward Serbia (send_at).
+- Overlapping hits: "supply full: 140 is enough" only with 150+
+  minimap pixels at the mass; no new hit within 90 s of the last unless
+  it was lost or arrived; an announced hit no longer ready is called
+  off ("hold, regrouping"); an ally's order still goes.
+- Idle waits: the hit size wanted is capped at what the supply limit
+  leaves for the mass (0.9 x (limit - men away from the mass)).
+- Targets: the general chooses only the front. East is Berlin, the
+  Balkans Romania (trial 26: "Warsaw" after "gone east"). The "aim at
+  the city nearest a stalled front" rule is gone.
+- Air: Scouts are taken out of every box (outline check, Shift+click
+  their pictures; drop_scouts). The fleet goes with the hit at once, 14
+  tiles ahead of the mass (past its boxes), is steered every 4 s, also
+  while the hit is being sent (fleet_tick in the sweeps), and parks
+  only when no troops are at the front after 60 s, not when the hit
+  merely shrinks. Scouts' way from the factories to the parking spot
+  does not cross the mass (checked), so no detour.
+- Tax: buildings are clicked on their lower half first (Scouts
+  hovering over the Airport were clicked); the building is checked
+  selected before each Lift Off. Factory 7 (user, timing kept): only
+  once Belgrade is cleared; a starport that can arrive in time, else an
+  SCV builds a depot by the Heavy Industry there.
+- Factory spawns walk out 6 tiles toward the mass first (plain move),
+  then attack-move on, queued (tanks "stuck" at Factory 2).
+- A box that picks up a building makes the next box smaller.

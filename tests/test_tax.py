@@ -23,6 +23,7 @@ def setup(monkeypatch, clock_seconds=0.0, ours=(), axis=()):
         st_.guards[name] = io_.now()
         return True
     monkeypatch.setattr(trial, "send_guard", guard)
+    monkeypatch.setattr(trial, "select_building", lambda io_, b: False)
     return m, st, io, StubWatch(ours, axis), flown, guards
 
 
@@ -76,10 +77,10 @@ def test_krakow_gets_the_factory_and_romania_the_starport(monkeypatch):
     assert got["Krakow 200"] == ("Factory", (165, 49))
     assert got["Romania 300"] == ("Starport", (190, 110))
     assert got["Warsaw 200"][1] not in ((165, 49), (190, 110))
-    # and Factory 7 still has a building that can reach it in time
+    # Factory 7: not before Belgrade is cleared
     st.clock.value = countdown_at(40)
     trial.tax_rounds(io, watch, m, st, None)
-    assert [c for _, _, c in flown].count("Factory 7") == 1
+    assert "Factory 7" not in [c for _, _, c in flown]
 
 
 def test_no_building_floats_into_the_enemy(monkeypatch):
@@ -103,6 +104,9 @@ def test_factory_7_sets_off_at_one_minute_and_must_arrive_by_three(monkeypatch):
     for c, goes in [(150, False), (100, False), (60, True), (40, True),
                     (250, False), (170, False)]:   # 250: too late to arrive
         m, st, io, watch, flown, _ = setup(monkeypatch, countdown_at(c))
+        st.reached.add("Factory 7")                 # Belgrade cleared
+        for city in ("Krakow 200", "Romania 300"):  # those seen to already
+            st.tax_tries[city] = trial.TAX_TRIES
         trial.tax_rounds(io, watch, m, st, None)
         sent = [f for f in flown if f[2] == "Factory 7"]
         assert bool(sent) == goes, c
@@ -113,7 +117,7 @@ def test_factory_7_sets_off_at_one_minute_and_must_arrive_by_three(monkeypatch):
             f7 = trial.place(m, "Factory 7")
             left = trial.until_countdown(st.clock.time(), trial.F7_ARRIVE)
             assert trial.float_time(b, f7) <= left, (c, kind, tile)
-            assert kind != "Command Center"
+            assert kind == "Starport"                # a starport goes
 
 
 def test_enemies_get_a_detachment_first_and_many_are_left_to_hits(monkeypatch):
@@ -410,3 +414,17 @@ def test_no_box_is_drawn_where_the_troops_have_gone(monkeypatch):
     moved = {(c + 1, r) for c, r in group}
     assert trial.select_group(io, group, st, StubWatch(moved, set()))
     assert len(drags) == 1
+
+
+def test_factory_7_without_a_starport_in_reach_gets_a_depot(monkeypatch):
+    m, st, io, watch, flown, guards = setup(monkeypatch, countdown_at(40))
+    st.reached.add("Factory 7")
+    for b in trial.spare_buildings(m, st):          # no starport left
+        if b["type"] == "Starport":
+            st.flights_done.add((b["x"] // 32, b["y"] // 32))
+    monkeypatch.setattr(trial, "select_building", lambda io_, b: True)
+    trial.tax_rounds(io, watch, m, st, None)
+    assert "Factory 7" not in [c for _, _, c in flown]
+    assert st.depots["Factory 7"]["stage"] == "walking"
+    f7 = trial.place(m, "Factory 7")
+    assert (*live.minimap_point(f7["x"], f7["y"]), "right") in io.clicks

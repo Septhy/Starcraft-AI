@@ -565,7 +565,9 @@ def test_finds_the_front_on_a_real_minimap():
     g = OneShot(s)
     g.now = lambda: 100
     target = trial.choose_target(g, watch, st, m, b)
-    assert target in trial.EAST_FRONT                   # break the line there
+    # east is always Berlin, the Balkans always Romania (the repository
+    # owner, trial 26: "Warsaw" took the whole army there)
+    assert target in ("Berlin 1000", "Romania 300")
 
 
 def real_start_screen():
@@ -1134,26 +1136,36 @@ def test_enemy_are_counted_on_the_game_screen_near_the_fleet():
     assert trial.enemy_on_screen(pic, 1500, 200, 150) == 0
 
 
-def test_the_fleet_is_parked_when_the_hit_fades():
+def test_the_fleet_stays_over_a_shrinking_hit_and_parks_when_it_is_over(monkeypatch):
+    """Trial 26: parked as soon as the hit shrank, the air sat out the
+    rest of it. It stays while our troops are at the front; it parks
+    once none are, after the hit has had time to get there."""
     m = trial.load_map()
+    monkeypatch.setattr(trial, "enemy_near_fleet", lambda io_, spot: (0, None))
     w = trial.place(m, "Warsaw 200")
     front = (w["x"], w["y"])
     st, io = trial.State(), StubIO()
     st.fleet = [{"key": "9", "scouts": 6, "ha": None}]
     st.air_keys = ["9"]
-    st.battle = trial.Battle("Berlin 1000", 0)
+    st.battle = trial.Battle("Berlin 1000", io.t - 100)
     st.battle.front = front
-    # 45 of a peak of 100 left: fading (the ground is not yet losing)
-    st.battle.samples = [(10, 100, 8, 20), (40, 45, 8, 14)]
-    assert trial.fight(io, StubWatch(blob(front), set()), m, st, None) == 0
+    st.battle.samples = [(10, 100, 8, 20), (40, 45, 8, 14)]   # shrinking
+    trial.fight(io, StubWatch(blob(front), set()), m, st, None)
     park = live.minimap_point(*trial.fleet_spot())
-    assert st.air_home and (*park, "right") in io.clicks
-    assert not st.battle.retreated
-    # and it stays parked until the next hit sends it
+    assert not st.air_home and (*park, "right") not in io.clicks
+    assert "9" in io.keys and "a" in io.keys            # steered over the army
+    # no troops of ours left at the front: parked
     io2 = StubIO()
+    io2.t = io.t + 10
     st.air_moved = -1e9
-    trial.fight(io2, StubWatch(blob(front), set()), m, st, None)
-    assert io2.clicks == []
+    trial.fight(io2, StubWatch(set(), set()), m, st, None)
+    assert st.air_home and (*park, "right") in io2.clicks
+    # just after a hit is sent, before the troops get there: not parked
+    st3, io3 = trial.State(), StubIO()
+    st3.air_keys = ["9"]
+    st3.battle = trial.Battle("Berlin 1000", io3.t - 5)
+    trial.fight(io3, StubWatch(set(), set()), m, st3, None)
+    assert not st3.air_home and io3.clicks == []
 
 
 def test_our_own_buildings_red_lamps_are_not_counted_as_enemy():
@@ -1169,3 +1181,21 @@ def test_our_own_buildings_red_lamps_are_not_counted_as_enemy():
     pic2.paste((150, 10, 10), (800, 400, 830, 430))         # blood
     pic2.paste((230, 200, 40), (900, 400, 930, 430))        # a gold Scout
     assert trial.enemy_on_screen(pic2, 900, 400, 400) == 0
+
+
+def test_the_mass_is_put_on_keys_one_to_seven():
+    """The repository owner: key the mass, then 1 attack, 2 attack ... 7."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    stand_at(g.units[:120], {"x": trial.MASS[0], "y": trial.MASS[1]})
+    for u in g.units[120:]:
+        u["from"] = u["to"] = (40 * 32, 40 * 32)      # out of the way
+    st = trial.State()
+    st.air_keys = ["9"]
+    n = trial.key_mass(g, watch, m, st, "Berlin 1000")
+    assert n == 7 and st.mass_keyed[1] == list("1234567")
+    keyed = [u for k in "1234567" for u in g.groups.get(k, [])]
+    # (a man at the edge of two boxes may be on two keys: both send him)
+    assert len({id(u) for u in keyed}) >= 48
