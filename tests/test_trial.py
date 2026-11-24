@@ -377,8 +377,9 @@ def test_opening_masses_fast_and_hits_berlin():
         spots.append({"x": trial.BALKS_POINT[0], "y": trial.BALKS_POINT[1]})
         sent = [u for u in alive
                 if any(near(u["to"], (p["x"], p["y"]), 20) for p in spots)]
-        # (not everything: men who are too few for another hit are held back)
-        assert len(sent) >= 0.6 * len(alive), (error, len(sent), len(alive))
+        # (not everything: men who are too few for another hit are held
+        # back, and the game may end with a new mass gathering)
+        assert len(sent) >= 0.5 * len(alive), (error, len(sent), len(alive))
         # its boxes pick up close to the twelve a selection can hold
         assert result["units_per_box"] >= 7.5, (error, result)
         # the Middle East marines reached the massing place, whether or

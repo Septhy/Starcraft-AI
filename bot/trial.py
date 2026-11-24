@@ -188,6 +188,7 @@ class State:
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
         self.spread_next = 0       # the next spot the mass is spread to
+        self.spawn_next = 0        # the next spot a group brought in goes to
         self.keyed = []            # keys version: (key, its place in the line)
         self.last_key_step = -1e9
         self.mass_keyed = None     # the keys version: (when, keys, target)
@@ -2313,6 +2314,10 @@ def in_battle(st, mapdata, pixels):
     out = near(pixels, (w["x"], w["y"]), 26)
     if battle.front:
         out |= near(pixels, battle.front, 14)
+    if team_rules.front_of(battle.target) == "balks":
+        # past Romania, where the hit goes on to: still the hit, not
+        # idle men to fetch home (they were walked back to the mass)
+        out |= near(pixels, BALKS_POINT, 14)
     for name in taken_on_the_way(st, battle.target):
         c = place(mapdata, name)
         out |= near(pixels, (c["x"], c["y"]), 12)
@@ -2410,10 +2415,22 @@ CROWD_REACH = 7                # minimap pixels round a crowd that its boxes cov
 FACTORY_EXIT = 6               # tiles from a factory toward the mass: its way out
 
 
-def to_mass(io, mapdata, xy):
-    """Send what is selected to the mass. New units at a factory first
-    walk (no fighting) out from among the buildings, then go on, queued
-    (trial 26: tanks at Factory 2 stood boxed in, called "stuck")."""
+def spawn_spot(st):
+    """Where the next group brought in goes: its own spot on a grid 8
+    tiles apart round the mass point, taking turns (the repository
+    owner: each group its own spot, at least 8 tiles from the others;
+    the grid sits between the barracks' rally spots)."""
+    dx, dy = SPREAD_WIDE[st.spawn_next % len(SPREAD_WIDE)]
+    st.spawn_next += 1
+    return MASS[0] + dx * 32, MASS[1] + dy * 32
+
+
+def to_mass(io, mapdata, xy, st=None):
+    """Send what is selected to the mass: to its own spot there. New
+    units at a factory first walk (no fighting) out from among the
+    buildings, then go on, queued (trial 26: tanks at Factory 2 stood
+    boxed in, called "stuck")."""
+    dest = spawn_spot(st) if st is not None else MASS
     for name in SCOUT_FACTORIES:
         f = place(mapdata, name)
         if abs(xy[0] - f["x"]) <= 5 * 32 and abs(xy[1] - f["y"]) <= 5 * 32:
@@ -2422,10 +2439,10 @@ def to_mass(io, mapdata, xy):
             io.sleep(0.04)
             io.key("a")
             io.sleep(0.04)
-            io.click_with("shift", *live.minimap_point(*MASS))
+            io.click_with("shift", *live.minimap_point(*dest))
             io.sleep(0.04)
             return
-    attack_move(io, *MASS)
+    attack_move(io, *dest)
 
 
 def on_the_way(st, spot, mass):
@@ -2491,7 +2508,8 @@ def gather_idle(io, watch, mapdata, st, tried):
             x, y = live.from_drawn(cx, cy)
             ahead = reinforce_target(io, st)
             n, found = sweep_mass(io, watch, mapdata, st, ahead,
-                                  centre=(x, y), dest=None if ahead else MASS,
+                                  centre=(x, y),
+                                  dest=None if ahead else spawn_spot(st),
                                   radius=CROWD_REACH, least=GATHER_LEAST)
             if n:
                 orders += n
@@ -2519,7 +2537,7 @@ def gather_idle(io, watch, mapdata, st, tried):
             if ahead:
                 send_at(io, mapdata, st, ahead)     # straight to the hit
             else:
-                to_mass(io, mapdata, live.from_drawn(cx, cy))
+                to_mass(io, mapdata, live.from_drawn(cx, cy), st)
             orders += 1
             st.walking.append((io.now(), (cx, cy)))
             if st.idle_orders[key] == STUCK_AFTER:
@@ -2559,6 +2577,8 @@ def advance_front(io, watch, mapdata, st, still, picture):
     mine = near(idle, (w["x"], w["y"]), 26)
     if battle.front:
         mine |= near(idle, battle.front, 14)
+    if team_rules.front_of(battle.target) == "balks":
+        mine |= near(idle, BALKS_POINT, 14)    # gone on past Romania
     for name in taken_on_the_way(st, battle.target):
         c = place(mapdata, name)         # left behind at a city taken earlier
         mine |= near(idle, (c["x"], c["y"]), 12)

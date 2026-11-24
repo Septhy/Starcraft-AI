@@ -1215,3 +1215,11 @@ second hit (the demo only shows how).
   rallies to its own spot round the mass point, on a 3 x 3 grid 8 tiles
   apart (an area 16 tiles across; RALLY_SPOTS, rally_spot), instead of
   all to the one point. Set at every round of marines as before.
+- Groups brought in (spawns, leftovers) go each to its own spot round
+  the mass (the repository owner, all versions): taking turns through a
+  4 x 4 grid 8 tiles apart, 24 tiles across (SPREAD_WIDE, spawn_spot),
+  between the barracks' rally spots (also 8 tiles apart). A crowd swept
+  in goes to one spot.
+- Fixed: troops that went on past Romania to (150, 146) counted as idle
+  and were walked back to the mass; that area now belongs to a Balkans
+  hit (in_battle, advance_front).

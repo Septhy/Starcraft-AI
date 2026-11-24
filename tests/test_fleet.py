@@ -388,3 +388,32 @@ def test_each_barracks_rallies_to_its_own_spot_by_the_mass():
         trial.select_barracks = trial_select
     rallies = {c[:2] for c in io.clicks if c[2] == "right"}
     assert len(rallies) == len(trial.barracks_of(m))
+
+
+def _apart_tiles(spots):
+    return min(max(abs(a[0] - b[0]), abs(a[1] - b[1])) / 32
+               for i, a in enumerate(spots) for b in spots[i + 1:])
+
+
+def test_rally_spots_and_spawn_spots_are_at_least_8_tiles_apart():
+    """The repository owner: each barracks' rally spot, and each group
+    brought in, its own spot at least 8 tiles from the others."""
+    m = trial.load_map()
+    rallies = [trial.rally_spot(m, b) for b in trial.barracks_of(m)]
+    assert _apart_tiles(rallies) >= 8
+    st = trial.State()
+    spawns = [trial.spawn_spot(st) for _ in range(len(trial.SPREAD_WIDE))]
+    assert len(set(spawns)) == len(spawns) and _apart_tiles(spawns) >= 8
+    for x, y in spawns:                              # all still the mass
+        p = live.to_drawn(x, y)
+        assert trial.at_mass({(int(p[0]), int(p[1]))})
+
+
+def test_groups_brought_in_go_each_to_its_own_spot():
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    far = (240 * 32, 50 * 32)                        # Siberia
+    trial.to_mass(io, m, far, st)
+    trial.to_mass(io, m, far, st)
+    clicks = [c[:2] for c in io.clicks]
+    assert len(set(clicks)) == 2                     # two different spots

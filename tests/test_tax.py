@@ -398,7 +398,8 @@ def test_a_crowd_is_boxed_all_over_in_one_go(monkeypatch):
     crowd = blob((215 * 32, 40 * 32), 6)            # seventy Siberians
     orders, _, _ = trial.gather_idle(io, StubWatch(crowd, set()), m, st, {})
     assert len(swept) == 1 and orders == 6
-    assert swept[0]["dest"] == trial.MASS
+    dx, dy = trial.SPREAD_WIDE[0]                   # its own spot by the mass
+    assert swept[0]["dest"] == (trial.MASS[0] + dx * 32, trial.MASS[1] + dy * 32)
 
 
 def test_no_box_is_drawn_where_the_troops_have_gone(monkeypatch):
@@ -466,3 +467,11 @@ def test_no_tax_while_a_hit_is_about_to_go(monkeypatch):
     st.team = team.Team(chat.append, chat.append)
     st.team.announced = ("east", 999)
     assert trial.tax_rounds(io, watch, m, st, None) == 0 and flown == []
+
+
+def test_troops_gone_on_past_romania_are_not_fetched_home(monkeypatch):
+    m = trial.load_map()
+    st = trial.State()
+    st.battle = trial.Battle("Factory 7", 0)
+    past = blob(trial.BALKS_POINT, 3)
+    assert trial.in_battle(st, m, past) == past
