@@ -1272,9 +1272,11 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
 # sent first; while it sets off every key attacks, keeping its place in
 # the line; then the rest is boxed, back to front. The usual version
 # boxes the whole mass.
-HIT_STYLE = "boxes"            # "keys" in the keys version, "rel" in the rel
-                               # version (keys, the line placed by where the
-                               # mass stands from the target)
+HIT_STYLE = "boxes"            # "keys" in the line ahead version
+                               # (StarcraftTrialLineAhead), "rel" in the line
+                               # beside version (StarcraftTrialLineBeside;
+                               # the line placed by where the mass stands
+                               # from the target)
 
 
 def keys_style():

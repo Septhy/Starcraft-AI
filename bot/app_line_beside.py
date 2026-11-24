@@ -1,4 +1,5 @@
-"""The rel version of the trial app: as the keys version, but the keyed
+"""The "line beside" version of the trial app (StarcraftTrialLineBeside):
+as the line ahead version, but the keyed
 groups line up by where the mass stands from the target: to the top
 right of it, a line on the mass's left; to the bottom right, on its
 right; level with it, half on each side."""

@@ -1223,3 +1223,8 @@ second hit (the demo only shows how).
 - Fixed: troops that went on past Romania to (150, 146) counted as idle
   and were walked back to the mass; that area now belongs to a Balkans
   hit (in_battle, advance_front).
+- The two trial versions are renamed for what they do: the keys version
+  is StarcraftTrialLineAhead.exe (bot/app_line_ahead.py), the rel
+  version StarcraftTrialLineBeside.exe (bot/app_line_beside.py). The
+  old StarcraftTrialKeys.exe and StarcraftTrialRel.exe are removed from
+  the release. Inside the code they are still HIT_STYLE "keys" and "rel".

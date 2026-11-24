@@ -1,4 +1,4 @@
-"""The keys version of the trial app: before each hit the mass is put
+"""The "line ahead" version of the trial app (StarcraftTrialLineAhead): before each hit the mass is put
 on keys 1 to 7 and spread out in a line, then each key attacks, and the
 rest is boxed as usual. Everything else is the same as StarcraftTrial."""
 import sys

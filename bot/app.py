@@ -38,8 +38,8 @@ def main(keys_version=False, rel_version=False):
         trial.HIT_STYLE = "rel"         # the line placed by where the mass is
     root = tk.Tk()
     root.title("StarCraft bot: first trial"
-               + (" (keys version)" if keys_version else "")
-               + (" (rel version)" if rel_version else ""))
+               + (" (line ahead)" if keys_version else "")
+               + (" (line beside)" if rel_version else ""))
     root.attributes("-topmost", True)
     root.resizable(False, False)
     status = tk.StringVar(value="Get into a game as Russia, then press F9.\n"
