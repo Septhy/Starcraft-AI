@@ -250,7 +250,7 @@ def front_point(mapdata, st, target):
     return w["x"] + dx * 32, w["y"] + dy * 32
 
 
-BALKS_POINT = (143 * 32, 145 * 32)   # the repository owner: a hit to the
+BALKS_POINT = (150 * 32, 146 * 32)   # the repository owner: a hit to the
                                # Balkans attacks on to here, past Romania
 
 
@@ -1419,13 +1419,26 @@ def fly_building(io, mapdata, st, kind, tile, city_name):
         io.log(f"flight: the {kind} did not lift off (picture 'lift-failed')")
         return False
     city = place(mapdata, city_name)
-    for _ in range(2):
-        io.click(*live.minimap_point(city["x"], city["y"]), button="right")
-        io.sleep(0.8)
+    land = TAX_LAND.get(city_name)
+    if land:
+        # land it at its spot by the city (the repository owner, from a
+        # replay: a building landed by Krakow), with the Land
+        # button and a click on the ground there
+        lx, ly = land[0] * 32 + 64, land[1] * 32 + 48   # the footprint's middle
+        cam = look_at(io, *centred(lx, ly), wait=0.25)
+        io.click(*LIFT_BUTTON)          # in the air it is the Land button
+        io.sleep(0.2)
+        io.click(*live.on_screen(lx, ly, cam))
+        io.sleep(0.3)
+    else:
+        for _ in range(2):
+            io.click(*live.minimap_point(city["x"], city["y"]), button="right")
+            io.sleep(0.8)
     io.shot("flight-" + city_name.split()[0])
     if kind == "Barracks":
         st.flown.add(tile)
-    io.log(f"flight: {kind} lifted and sent to {city_name}")
+    io.log(f"flight: {kind} lifted and sent to "
+           + (f"land by {city_name} at {land}" if land else city_name))
     return True
 
 
@@ -1440,7 +1453,9 @@ def fly_building(io, mapdata, st, kind, tile, city_name):
 # 3:00.
 TAX_CITIES = ["Krakow 200", "Romania 300", "Factory 7"]
 TAX_EVERY = 45                 # seconds between looks at the tax cities
-TAX_AFTER_HITS = 2             # no tax efforts before the second hit has gone
+TAX_AFTER_HITS = 1             # tax efforts from the first hit on, when there
+                               # is time (the repository owner, after
+                               # a replay: Krakow by 1:49)
 TAX_ENEMY = 6                  # minimap pixels from a city: enemies "nearby"
 TAX_ENEMY_LEAST = 4            # enemy pixels there that count as enemies
 TAX_HEAVY = 20                 # more than this: too strong for a detachment
@@ -1462,6 +1477,9 @@ TAX_TRIES = 3                  # buildings sent to one city in a game at most
 # over the beacon. The nearest of that kind is kept for its city.
 TAX_BUILDING = {"Krakow 200": "Factory", "Romania 300": "Starport"}
 TAKEN_ODDS = 3                 # our pixels to one enemy pixel at a city: just taken
+TAX_LAND = {"Krakow 200": (134, 94)}   # tiles: where a strong Russia lands his
+                               # buildings by Krakow (the repository owner)
+FACTORY_REACH = 120            # seconds of flight: a factory this near is "nearby"
 
 
 def countdown_left(clock_seconds):
@@ -1589,6 +1607,8 @@ def depot_at(io, watch, mapdata, st, name, ours):
     order."""
     city = place(mapdata, name)
     cx, cy = city["x"], city["y"]
+    if name in TAX_LAND:                # by the landing spot
+        cx, cy = TAX_LAND[name][0] * 32 + 32, TAX_LAND[name][1] * 32 + 32
     job = st.depots.get(name)
     now = io.now()
     if job is None:
@@ -1671,7 +1691,13 @@ def float_to(io, watch, mapdata, st, name, ours, to_arrive=None):
         choices = not_kept(mapdata, st, choices)
     elif own:
         # Krakow's factory, Romania's starport: the nearest of its kind
-        choices = [min(own, key=lambda b: float_time(b, city))]
+        b = min(own, key=lambda b: float_time(b, city))
+        if name in TAX_LAND and float_time(b, city) > FACTORY_REACH:
+            return depot_at(io, watch, mapdata, st, name, ours)
+        choices = [b]
+    elif name in TAX_LAND:
+        # no factory left for Krakow: an SCV builds a depot there
+        return depot_at(io, watch, mapdata, st, name, ours)
     elif "Factory 7" not in st.tax_sent:
         # keep the buildings that can reach Factory 7 in its window
         # for Factory 7, while there are others
@@ -1720,7 +1746,7 @@ def tax_with_hit(io, watch, mapdata, st, target, picture):
     flight = st.tax_sent.get(name)
     if flight and io.now() < flight[2] + FLOAT_SLACK:
         return 0                        # one is on its way
-    if flight and near(ours, (city["x"], city["y"]), TAX_HERE):
+    if flight and near(ours, tax_spot(mapdata, name), TAX_HERE):
         return 0                        # and it is there
     if st.tax_tries.get(name, 0) >= TAX_TRIES:
         return 0
@@ -1734,12 +1760,28 @@ def tax_with_hit(io, watch, mapdata, st, target, picture):
     return float_to(io, watch, mapdata, st, name, ours)
 
 
+def tax_spot(mapdata, name):
+    """Where a tax city's building stands: its landing spot, or over the
+    beacon."""
+    if name in TAX_LAND:
+        return TAX_LAND[name][0] * 32 + 64, TAX_LAND[name][1] * 32 + 48
+    c = place(mapdata, name)
+    return c["x"], c["y"]
+
+
+def busy(st):
+    """No time for tax: a hit has been announced and goes soon."""
+    return st.team is not None and st.team.announced is not None
+
+
 def tax_rounds(io, watch, mapdata, st, picture):
     """Look after the tax cities: float a building over each that has
     none, if no enemies are near; send a detachment first if there are
     a few; leave it to the hits if there are many."""
     if st.clock is None or st.hits_sent < TAX_AFTER_HITS:
         return 0
+    if busy(st):
+        return 0                        # a hit is about to go: no time
     # Krakow and Romania now and then; Factory 7 on every pass, because
     # its moment (1:00 to 0:00 on the countdown) lasts only about 40
     # real seconds and must not be missed
@@ -1763,7 +1805,7 @@ def tax_rounds(io, watch, mapdata, st, picture):
         flight = st.tax_sent.get(name)
         if flight and io.now() < flight[2] + FLOAT_SLACK:
             continue                    # on its way
-        if flight and near(ours, (cx, cy), TAX_HERE):
+        if flight and near(ours, tax_spot(mapdata, name), TAX_HERE):
             continue                    # arrived and still there
         if st.tax_tries.get(name, 0) >= TAX_TRIES:
             continue                    # lost twice: no more buildings there

@@ -137,7 +137,7 @@ def test_a_building_that_does_not_lift_is_not_sent_and_is_tried_again(monkeypatc
     io.shot = lambda label, keep=True: grounded
     monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (4000, 1600))
     monkeypatch.setattr(trial.live, "on_screen", lambda x, y, cam: (900, 400))
-    assert not trial.fly_building(io, m, st, "Factory", (165, 49), "Krakow 200")
+    assert not trial.fly_building(io, m, st, "Factory", (165, 49), "Warsaw 200")
     assert (*trial.LIFT_BUTTON, "left") in io.clicks
     assert not any(c[2] == "right" for c in io.clicks)   # not sent anywhere
     assert st.lift_fails[(165, 49)] == 1
@@ -147,7 +147,7 @@ def test_a_building_that_does_not_lift_is_not_sent_and_is_tried_again(monkeypatc
     io.clicks.clear()
     io.card = lambda: lifted if (*trial.LIFT_BUTTON, "left") in io.clicks \
         else grounded
-    assert trial.fly_building(io, m, st, "Factory", (165, 49), "Krakow 200")
+    assert trial.fly_building(io, m, st, "Factory", (165, 49), "Warsaw 200")
     assert sum(1 for c in io.clicks if c[2] == "right") == 2
 
 

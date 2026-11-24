@@ -1150,3 +1150,19 @@ second hit (the demo only shows how).
 - Factory spawns walk out 6 tiles toward the mass first (plain move),
   then attack-move on, queued (tanks "stuck" at Factory 2).
 - A box that picks up a building makes the next box smaller.
+
+## Trial 27 and the user's latest replays
+
+- Keying the mass on 1-7 before a hit made it worse (trial 27): taken
+  out; hits box the mass as before. The fleet still goes with the hit.
+- The Middle East scouts' box keeps its Scouts (select_group air=True):
+  trial 27 emptied it and no scout went.
+- From the one replay with a strong player as Russia, the user chose:
+  - Krakow: the factory lands at tile (134, 94) (Land button, then a
+    click on the ground there); no factory within 120 s of flight: an
+    SCV builds a depot there (TAX_LAND).
+  - Tax from the first hit on, when there is time (not while a hit is
+    announced).
+  - Balkans hits go on past Romania to (150, 146).
+  - Unchanged: barracks never moved; no Hold Position; one fleet over
+    the army avoiding marines; no hotkey hits for now.
