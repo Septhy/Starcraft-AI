@@ -224,40 +224,123 @@ def test_return_air_and_reset_are_told_apart():
     assert not team.addressed("@Re go")
 
 
-def test_the_fleet_follows_the_allys_air_every_eight_seconds(monkeypatch):
+def record_task(io, xy=(40 * 32, 60 * 32), n=10):
+    groups = [{"owner": "teal", "kind": "Wraith", "count": n}]
+    return {"colour": "teal", "spot": xy, "since": io.t, "checked": io.t,
+            "mode": "follow", "from": (100 * 32, 60 * 32),
+            "record": {"time": "10:00", "groups": groups, "xy": xy,
+                       "place": "Sea", "at": io.t}}
+
+
+def wraiths(n):
+    return [{"owner": "teal", "kind": "Wraith", "count": n}]
+
+
+def test_the_fleet_follows_the_record_every_eight_seconds(monkeypatch):
+    """The repository owner: every 8 seconds, their air near the last
+    record, roughly the same (within 30%): follow 4 to 6 tiles behind,
+    and a new record is written."""
     m = trial.load_map()
     io = StubIO()
     io.shot = lambda label, keep=True: None
     st = trial.State()
     st.air_keys = ["9"]
-    st.fleet_task = {"colour": "teal", "spot": (40 * 32, 60 * 32),
-                     "since": io.t, "checked": io.t}
-    seen = iter([(40 * 32, 60 * 32), (70 * 32, 40 * 32), None])
-    monkeypatch.setattr(trial, "find_ally_air", lambda *a, **k: next(seen))
+    st.fleet_task = record_task(io)
     monkeypatch.setattr(trial, "fleet_left", lambda io_, st_: 6)
-    # not before 8 seconds
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    monkeypatch.setattr(trial, "ally_groups_near", lambda *a: [])
+    reads = iter([wraiths(8), wraiths(4)])
+    monkeypatch.setattr(trial, "read_fleet", lambda io_, st_, pic: next(reads))
+    searched = []
+    monkeypatch.setattr(trial, "search_fleet",
+                        lambda *a: searched.append(1) or False)
     io.t += 5
-    assert not trial.follow_ally_air(io, Watch(), m, st)
-    # 8 s on, their air has not moved: the fleet stays on it
+    assert not trial.follow_ally_air(io, Watch(), m, st)   # not before 8 s
     io.t += 4
-    assert trial.follow_ally_air(io, Watch(), m, st)
+    assert trial.follow_ally_air(io, Watch(), m, st)       # 8 of 10: a match
     assert io.keys == ["9", "a"]
-    # 8 s later it has moved: the fleet follows along the safe way
-    io.keys.clear()
+    rec = st.fleet_task["record"]
+    assert trial.fleet_total(rec["groups"]) == 8
+    assert any(line.startswith("FLEET RECORD") for line in io.lines)
+    x, y = st.fleet_task["spot"]                           # 5 tiles behind
+    d = ((x - 40 * 32) ** 2 + (y - 60 * 32) ** 2) ** 0.5 / 32
+    assert 4 <= d <= 6
     io.t += 8
-    assert trial.follow_ally_air(io, Watch(), m, st)
-    assert st.fleet_task["spot"] == (70 * 32, 40 * 32)
-    assert io.keys.count("a") >= 1
-    assert any("the fleet follows" in line for line in io.lines)
-    # their air not seen: the fleet waits where it is
-    io.keys.clear()
-    io.t += 8
-    assert not trial.follow_ally_air(io, Watch(), m, st)
-    assert io.keys == []
-    # back home: no more check-ups
-    st.fleet_task = None
-    io.t += 8
-    assert not trial.follow_ally_air(io, Watch(), m, st)
+    trial.follow_ally_air(io, Watch(), m, st)              # 4 of 8: not it
+    assert searched == [1]
+
+
+def test_a_missing_fleet_is_searched_at_once_and_found(monkeypatch):
+    """Not where it was: searched at once round the last record, our air
+    kept still until found; found, the air goes there, a new record."""
+    m = trial.load_map()
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    st = trial.State()
+    st.air_keys = ["9"]
+    st.fleet_task = record_task(io)
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    far = (60 * 32, 70 * 32)
+    monkeypatch.setattr(trial, "ally_groups_near",
+                        lambda io_, w, xy, reach: [far])
+    looked = []
+
+    def read(io_, st_, pic):
+        io.t += 2                       # each look takes a while
+        return wraiths(9) if len(looked) else wraiths(0)
+    monkeypatch.setattr(trial, "look_fleet",
+                        lambda io_, st_, xy: looked.append(xy) or read(io_, st_, None))
+    sent = []
+    monkeypatch.setattr(trial, "send_fleet",
+                        lambda io_, w, st_, a, b: sent.append(b) or [b])
+    assert trial.search_fleet(io, Watch(), m, st, st.fleet_task)
+    assert looked == [far]
+    assert st.fleet_task["record"]["xy"] == far and sent
+
+
+def test_a_fleet_not_found_in_30_seconds_is_lost(monkeypatch):
+    m = trial.load_map()
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    st = trial.State()
+    st.air_keys = ["9"]
+    st.fleet_task = record_task(io)
+    said = []
+    monkeypatch.setattr(trial, "say", lambda io_, st_, text, force=False:
+                        said.append(text))
+    monkeypatch.setattr(trial, "ally_groups_near", lambda *a: [])
+    looked = []
+
+    def look(io_, st_, xy):
+        looked.append(xy)
+        io.t += 3
+        return []
+    monkeypatch.setattr(trial, "look_fleet", look)
+    monkeypatch.setattr(trial, "send_fleet", lambda *a: pytest.fail("moved"))
+    assert not trial.search_fleet(io, Watch(), m, st, st.fleet_task)
+    assert said == ["Lost the fleet"] and st.fleet_task is None
+    assert st.air_home and len(looked) >= 8          # the camera swept round
+    assert any(k == "right" for *_, k in io.clicks)  # back to its parking
+
+
+def test_a_fleet_record_says_time_units_and_position():
+    m = trial.load_map()
+    io = StubIO()
+    io.shot = lambda label, keep=True: None
+    st = trial.State()
+    groups = [{"owner": "teal", "kind": "Wraith", "count": 14},
+              {"owner": "purple", "kind": "Scout", "count": 3}]
+    rec = trial.write_record(io, st, m, groups, (40 * 32, 60 * 32))
+    text = [l for l in io.lines if l.startswith("FLEET RECORD")][0]
+    assert "* Time:" in text and "* Units: 17 in all: 14 Wraiths (teal), " \
+        "3 Scouts (purple)" in text and "* Position: minimap" in text
+    assert rec["place"] in text
+    assert trial.fleet_matches(rec, [{"owner": "teal", "kind": "Wraith",
+                                      "count": 12}])
+    assert not trial.fleet_matches(rec, [{"owner": "teal", "kind": "Wraith",
+                                          "count": 9}])
+    assert not trial.fleet_matches(rec, [{"owner": "orange", "kind": "Wraith",
+                                          "count": 17}])
 
 
 def test_the_massing_goes_on_while_the_fleet_is_away(monkeypatch):
@@ -328,24 +411,6 @@ def test_a_place_that_could_not_be_counted_is_never_taken():
     st = trial.State()
     st.ears = CountingEars([0, None])
     assert trial.find_ally_air(io, watch, "orange", st) is None
-
-
-def test_while_following_their_air_is_counted_again_now_and_then(monkeypatch):
-    m = trial.load_map()
-    io = StubIO()
-    io.shot = lambda label, keep=True: None
-    st = trial.State()
-    st.air_keys = ["9"]
-    st.fleet_task = {"colour": "teal", "spot": (40 * 32, 60 * 32),
-                     "since": io.t, "checked": io.t}
-    asked = []
-    monkeypatch.setattr(trial, "find_ally_air",
-                        lambda *a, **k: asked.append(k["recount"]) or
-                        (40 * 32, 60 * 32))
-    for _ in range(6):
-        io.t += trial.ALLY_AIR_CHECK
-        trial.follow_ally_air(io, Watch(), m, st)
-    assert asked == [False, False, True, False, False, True]
 
 
 def minimap_screen(name):

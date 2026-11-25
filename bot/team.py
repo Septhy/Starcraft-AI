@@ -485,6 +485,30 @@ AIR_LOOKS = {"Wraith": "small, fast Terran fighter planes; not the bulky "
                       "map they are called Light Fighters"}
 
 
+FLEET_SYSTEM = (
+    "You look at a screenshot of the game view of StarCraft: Brood War "
+    "(Remastered graphics) and list the Allied players' fighting air "
+    "units: those of the teal, purple and orange players. For each owner "
+    "and kind, give how many there are. Kinds: Wraith (small Terran "
+    "fighter), Scout (Protoss fighter with two forward prongs, called "
+    "Light Fighter on this map), Battlecruiser (big Terran capital ship), "
+    "Valkyrie, Corsair, Carrier, or other. Do not count dropships, "
+    "shuttles or other transports, ground units, buildings, or units of "
+    "other colours (brown is Russia, not counted). If none are shown, "
+    "give an empty list. Answer only with the JSON asked for.")
+FLEET_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["groups"],
+    "properties": {"groups": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "required": ["owner", "kind", "count"],
+        "properties": {
+            "owner": {"type": "string", "enum": ["teal", "purple", "orange"]},
+            "kind": {"type": "string",
+                     "enum": ["Wraith", "Scout", "Battlecruiser", "Valkyrie",
+                              "Corsair", "Carrier", "other"]},
+            "count": {"type": "integer"}}}}}}
+
+
 class ChatEars:
     """Listen to the chat. listen(picture, clock) offers the newest
     screenshot; orders(now) returns allies' orders heard since the last
@@ -646,6 +670,41 @@ class ChatEars:
             body = next((b.text for b in response.content
                          if b.type == "text"), "")
             return max(0, int(json.loads(body)["count"]))
+        except Exception as e:          # never let a bad call stop the bot
+            self.failures += 1
+            self.last_error = type(e).__name__
+            return None
+
+    def fleet_record(self, picture):
+        """The allies' air on the game view: a list of {"owner", "kind",
+        "count"}, or None if it cannot be asked."""
+        if self.dead():
+            return None
+        try:
+            view = picture.convert("RGB").crop((0, 40, 1920, 760)) \
+                .resize((1280, 480))
+            out = _io.BytesIO()
+            view.save(out, format="PNG")
+            data = base64.standard_b64encode(out.getvalue()).decode("ascii")
+            response = self.client.messages.create(
+                model=self.model, max_tokens=1000, system=FLEET_SYSTEM,
+                output_config={"format": {"type": "json_schema",
+                                          "schema": FLEET_SCHEMA}},
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png",
+                        "data": data}},
+                    {"type": "text", "text": "List the Allied air units."}]}])
+            self._charge(response)
+            if response.stop_reason != "end_turn":
+                self.last_error = f"fleet record stopped: {response.stop_reason}"
+                return None
+            body = next((b.text for b in response.content
+                         if b.type == "text"), "")
+            groups = json.loads(body).get("groups", [])
+            return [{"owner": g["owner"], "kind": g["kind"],
+                     "count": max(0, int(g["count"]))}
+                    for g in groups if int(g.get("count", 0)) > 0][:12]
         except Exception as e:          # never let a bad call stop the bot
             self.failures += 1
             self.last_error = type(e).__name__

@@ -1386,3 +1386,19 @@ second hit (the demo only shows how).
   S then "Select Location" with a green or red ghost; once placed, the
   Engineer's own buttons are back. A depot costs 100 minerals and 100
   gas on this map, so a tax order now checks the gas too.
+
+## "@R bring air" with a fleet record (the repository owner)
+
+- At the ping the allies' air is written down: FLEET RECORD with the
+  game time, the units (how many of which kind, by owner, read by the
+  model; teal by colour without it) and the position (minimap, tile,
+  nearest place). A picture is kept.
+- Every 8 seconds the fleet is looked for near its last record; roughly
+  the same (total within 30%, same main owner and kind): our air
+  follows 5 tiles behind it and a new record is written.
+- Not there: searched at once, not on the timer: the allies' groups on
+  the minimap near the last record, then the camera round it (10, 20
+  and 32 tiles, eight ways); our air does not move until it is found.
+  Found: our air goes there by the safe way and a new record is written.
+  Not found in 30 seconds: "Lost the fleet", the air parks, the mass
+  cycle goes on.

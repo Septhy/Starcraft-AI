@@ -37,6 +37,7 @@ API key, Claude is shown the fight every few seconds and advises
 (bot/general.py): keep massing, hit now, or pull back, and where.
 """
 import json
+import math
 import re
 
 from eyes import live, numbers
@@ -4081,17 +4082,183 @@ ALLY_AIR_MOVED = 6             # minimap pixels the ally's air must move to re-r
 ALLY_AIR_RECOUNT = 3           # every third check-up their air is counted again
 
 
+# The fleet record (the repository owner): at the ping, and at every
+# check, the allies' air is written down: the game time, how many of
+# which air units of which ally, and where (minimap and nearest place).
+# Every 8 seconds Russia looks for it near the last record and follows
+# 4 to 6 tiles behind if it roughly matches (within 30%). If it is not
+# there, Russia searches at once (not on the timer), around the last
+# record on the minimap and by moving the camera, without moving its
+# own air; found, the air goes there and a new record is written; not
+# found in 30 seconds, "Lost the fleet", the air goes back to its
+# parking spot and the mass cycle goes on.
+FLEET_CHECK = 8                # seconds between checks while following
+FLEET_MATCH = 0.3              # how far the count may drift and still match
+FLEET_BEHIND = 5               # tiles behind the allies' air the fleet stays
+FLEET_NEAR = 12                # minimap pixels from the record: "still there"
+FLEET_SEARCH = 30              # seconds to search before "Lost the fleet"
+SEARCH_RINGS = (10, 20, 32)    # tiles round the last record the camera sweeps
+SEARCH_REACH = 40              # minimap pixels round the record searched for groups
+
+
+def read_fleet(io, st, picture):
+    """The allies' air on the screen: [{"owner", "kind", "count"}], or
+    None if it cannot be read. The model reads owner and kind; without
+    it, teal planes are counted by their colour."""
+    if picture is None:
+        return None
+    ears = st.ears
+    groups = None
+    if ears is not None and hasattr(ears, "fleet_record"):
+        groups = ears.fleet_record(picture)
+    if groups is None:
+        n = ally_air_by_colour(picture)
+        groups = [{"owner": "teal", "kind": "Wraith", "count": n}] if n else []
+        if ears is not None:
+            io.log(f"bring air: the model could not read the fleet "
+                   f"({getattr(ears, 'last_error', None) or 'no answer'}); "
+                   f"by colour: {n} teal")
+    return groups
+
+
+def fleet_total(groups):
+    return sum(g["count"] for g in groups or [])
+
+
+def fleet_text(groups):
+    if not groups:
+        return "none"
+    return ", ".join(f"{g['count']} {g['kind']}{'s' if g['count'] != 1 else ''}"
+                     f" ({g['owner']})" for g in groups)
+
+
+def fleet_matches(record, groups):
+    """Roughly the same fleet: the total within 30% (units die or join),
+    and the same main owner and kind."""
+    if not groups or not record:
+        return False
+    old, new = fleet_total(record["groups"]), fleet_total(groups)
+    if abs(new - old) > max(1, FLEET_MATCH * old):
+        return False
+    main = lambda gs: max(gs, key=lambda g: g["count"])
+    a, b = main(record["groups"]), main(groups)
+    return a["owner"] == b["owner"] and a["kind"] == b["kind"]
+
+
+def write_record(io, st, mapdata, groups, xy, picture=True):
+    """Write down the allies' fleet: time, units, position (with a
+    picture kept at the ping and when it is found again)."""
+    clock = team_rules.clock_text(st.clock.time()) if st.clock else \
+        f"{io.now():.0f} s"
+    c, r = live.to_drawn(*xy)
+    rec = {"time": clock, "groups": groups, "xy": xy,
+           "place": place_name(mapdata, *xy), "at": io.now()}
+    if picture:
+        io.shot("fleet-record")
+    io.log("FLEET RECORD\n"
+           f"* Time: {clock}\n"
+           f"* Units: {fleet_total(groups)} in all: {fleet_text(groups)}\n"
+           f"* Position: minimap ({int(c)}, {int(r)}), tile "
+           f"({int(xy[0] // 32)}, {int(xy[1] // 32)}), near {rec['place']}")
+    return rec
+
+
+def behind(xy, came_from):
+    """A point FLEET_BEHIND tiles back from xy toward came_from (where
+    the allies' air came from, or our side)."""
+    dx, dy = came_from[0] - xy[0], came_from[1] - xy[1]
+    d = (dx * dx + dy * dy) ** 0.5
+    if d < 1:
+        return xy
+    k = min(FLEET_BEHIND * 32, d) / d
+    return (xy[0] + dx * k, xy[1] + dy * k)
+
+
+def ally_groups_near(io, watch, xy, reach):
+    """Places near xy where the allies' colours show on the minimap and
+    may be air (over water or moving): their middles, nearest first."""
+    c0, r0 = live.to_drawn(*xy)
+    out = []
+    for slot in sorted(set(ALLY_SLOTS.values())):
+        for g in air_places(io, watch, slot):
+            x, y = middle(g)
+            c, r = live.to_drawn(x, y)
+            d = abs(c - c0) + abs(r - r0)
+            if d <= reach:
+                out.append((d, (x, y)))
+    return [p for _, p in sorted(out)]
+
+
+def look_fleet(io, st, xy):
+    """Look at a map point and read the allies' air there."""
+    look_at(io, *centred(*xy), wait=0.3)
+    return read_fleet(io, st, io.shot("fleet-look", keep=False))
+
+
+def follow_to(io, watch, st, task, xy, came_from, route=False):
+    """The fleet to a point behind the allies' air."""
+    spot = behind(xy, came_from)
+    if route:
+        send_fleet(io, watch, st, task["spot"], spot)   # by the safe way
+    else:
+        for key in st.air_keys:
+            io.key(key)
+            io.sleep(0.05)
+            attack_move(io, *spot)
+    task["spot"] = spot
+
+
+def search_fleet(io, watch, mapdata, st, task):
+    """The allies' air is not where it was: search at once, around the
+    last record, on the minimap and by moving the camera, without
+    moving our own air. True once found (the air goes there); after
+    FLEET_SEARCH seconds, "Lost the fleet" and the air goes home."""
+    record = task["record"]
+    started = io.now()
+    io.log(f"bring air: the fleet is not near {record['place']}: searching "
+           f"(last seen {record['time']}: {fleet_text(record['groups'])})")
+    looked = []
+
+    def fresh(xy):
+        return all(abs(xy[0] - p[0]) + abs(xy[1] - p[1]) > 6 * 32 for p in looked)
+    rings = [(record["xy"][0] + math.cos(a) * t * 32,
+              record["xy"][1] + math.sin(a) * t * 32)
+             for t in SEARCH_RINGS for a in [k * math.pi / 4 for k in range(8)]]
+    while io.now() - started < FLEET_SEARCH:
+        spots = [p for p in ally_groups_near(io, watch, record["xy"],
+                                             SEARCH_REACH) if fresh(p)]
+        spots = spots[:2] or [p for p in rings if fresh(p)][:1]
+        if not spots:
+            break
+        for xy in spots:
+            if io.now() - started >= FLEET_SEARCH:
+                break
+            looked.append(xy)
+            groups = look_fleet(io, st, xy)
+            if fleet_matches(record, groups):
+                task["record"] = write_record(io, st, mapdata, groups, xy)
+                follow_to(io, watch, st, task, xy, record["xy"], route=True)
+                io.log(f"bring air: the fleet found near "
+                       f"{task['record']['place']} after "
+                       f"{io.now() - started:.0f} s: our air follows")
+                task["checked"] = io.now()
+                return True
+    st.fleet_task = None
+    say(io, st, "Lost the fleet", force=True)
+    park_fleet(io, st, "bring air: the allies' fleet was lost")
+    return False
+
+
 def follow_ally_air(io, watch, mapdata, st):
-    """While the fleet is with an ally's air: every 8 seconds, find their
-    air again; if it has moved, take the fleet after it by the safe way,
-    else attack-move it on the same spot. Called from the massing loops,
-    so the massing goes on in between."""
+    """While the fleet is with an ally's air: every 8 seconds, look for
+    their air near its last record; roughly the same there, follow 4 to
+    6 tiles behind and write a new record; not there, search at once.
+    Called from the massing loops, so the massing goes on in between."""
     ping_step(io, watch, mapdata, st)
     task = st.fleet_task
-    if task is None or io.now() - task["checked"] < ALLY_AIR_CHECK:
+    if task is None or io.now() - task["checked"] < FLEET_CHECK:
         return False
     task["checked"] = io.now()
-    task["checks"] = task.get("checks", 0) + 1
     if fleet_left(io, st) == 0:
         # the planes are gone: no more following, back to the mass cycle
         st.fleet_task = None
@@ -4101,27 +4268,20 @@ def follow_ally_air(io, watch, mapdata, st):
         return False
     if task.get("mode") == "attack":
         return attack_ping_step(io, watch, mapdata, st, task)
-    where = find_ally_air(io, watch, task["colour"], st, last=task["spot"],
-                          recount=task["checks"] % ALLY_AIR_RECOUNT == 0)
-    if where is None:
-        task["lost"] = task.get("lost", 0) + 1
-        if task["lost"] == 3:
-            io.log(f"bring air: the {task['colour']} air is not to be seen;"
-                   f" the fleet waits where it is")
+    record = task.get("record")
+    if record is None:
         return False
-    task["lost"] = 0
-    c0 = live.to_drawn(*task["spot"])
-    c1 = live.to_drawn(*where)
-    if abs(c0[0] - c1[0]) + abs(c0[1] - c1[1]) >= ALLY_AIR_MOVED:
-        send_fleet(io, watch, st, task["spot"], where)
-        io.log(f"bring air: the {task['colour']} air moved to near "
-               f"{place_name(mapdata, *where)}: the fleet follows")
-        task["spot"] = where
-    else:
-        for key in st.air_keys:         # stay on them
-            io.key(key)
-            io.sleep(0.05)
-            attack_move(io, *where)
+    # where the record was, or the nearest group of theirs close to it
+    near_ = ally_groups_near(io, watch, record["xy"], FLEET_NEAR)
+    xy = near_[0] if near_ else record["xy"]
+    groups = look_fleet(io, st, xy)
+    if not fleet_matches(record, groups):
+        return search_fleet(io, watch, mapdata, st, task)
+    task["record"] = write_record(io, st, mapdata, groups, xy, picture=False)
+    c0, c1 = live.to_drawn(*record["xy"]), live.to_drawn(*xy)
+    moved = abs(c0[0] - c1[0]) + abs(c0[1] - c1[1]) >= ALLY_AIR_MOVED
+    came_from = record["xy"] if moved else task.get("from", fleet_spot())
+    follow_to(io, watch, st, task, xy, came_from, route=moved)
     return True
 
 
@@ -4286,9 +4446,17 @@ def ping_step(io, watch, mapdata, st):
     start = fleet_spot() if st.air_home or not st.battle or \
         not st.battle.front else st.battle.front
     if allies is not None and allies >= PING_ALLY_AIR:
-        send_fleet(io, watch, st, start, at)       # by the safe way
-        st.fleet_task = {"colour": colour, "spot": at, "since": io.now(),
-                         "checked": io.now(), "mode": "follow"}
+        groups = read_fleet(io, st, pic) or \
+            [{"owner": colour, "kind": ALLY_AIR[colour][0], "count": allies}]
+        if fleet_total(groups) < PING_ALLY_AIR:
+            groups = [{"owner": colour, "kind": ALLY_AIR[colour][0],
+                       "count": allies}]
+        near_ = ally_groups_near(io, watch, at, FLEET_NEAR)
+        xy = near_[0] if near_ else at
+        st.fleet_task = {"colour": colour, "spot": start, "since": io.now(),
+                         "checked": io.now(), "mode": "follow", "from": start}
+        st.fleet_task["record"] = write_record(io, st, mapdata, groups, xy)
+        follow_to(io, watch, st, st.fleet_task, xy, start, route=True)
         st.air_home = False
         say(io, st, "following your air", force=True)
         return

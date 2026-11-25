@@ -306,3 +306,14 @@ def test_an_announced_hit_no_longer_ready_is_called_off():
     t2 = team.Team(chat.say, chat.log)
     t2.heard(order("go", front="east", wait=60, said="@R hit east in 1"), 100)
     assert run_until(t2, chat, 100, 200, ready=False) == 160
+
+
+def test_the_allies_fleet_is_read_by_owner_and_kind():
+    seen = []
+    answer = {"groups": [{"owner": "teal", "kind": "Wraith", "count": 14},
+                         {"owner": "purple", "kind": "Scout", "count": 0}]}
+    ears = team.ChatEars(chat_client(answer, seen), background=False)
+    groups = ears.fleet_record(Image.new("RGB", (1920, 1080)))
+    assert groups == [{"owner": "teal", "kind": "Wraith", "count": 14}]
+    body = seen[0][2]
+    assert "dropships" in body["system"] and ears.calls == 1
