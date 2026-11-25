@@ -1356,3 +1356,6 @@ second hit (the demo only shows how).
   no detachment: the ally is told "Axis hold Warsaw: I'll tax it once
   it's clear", and the depot follows once a hit clears it (up to 8
   minutes).
+- The repository owner: a tax city is clear when no enemy is there at
+  all; the detachment then walks back at once, it need not stay while
+  the SCV comes.

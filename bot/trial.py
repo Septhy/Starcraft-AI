@@ -4384,6 +4384,8 @@ def upgrade_step(io, mapdata, st):
 MOSCOW_CC = (209, 49)           # tiles: Moscow's command centre
 ORDER_TAX_SECURE = 120          # seconds the detachment has to clear the city
 ORDER_TAX_LEAST = 8             # men in the detachment at least
+ORDER_TAX_CLEAR = 1             # enemy pixels by the city that mean it is not
+                               # clear: any at all (the repository owner)
 ORDER_TAX_HELD = 480            # seconds a strongly held city is waited for
 BACK_NEAR = 6                   # tiles from the mass point it walks back to
 
@@ -4450,8 +4452,10 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
         st.guards[name] = io.now()      # the detachment stays, not gathered
     if job["stage"] == "secure":
         enemies = len(near(hostile, xy, TAX_ENEMY))
-        if enemies < TAX_ENEMY_LEAST:
-            job["stage"] = "depot"      # clear: on to the depot
+        if enemies < ORDER_TAX_CLEAR:
+            job["stage"] = "depot"      # no enemy there: clear, on to the
+            release_guard(io, watch, mapdata, st, job)   # depot; no guard
+            return                      # needed while the SCV comes
         elif enemies > TAX_HEAVY and not job["guard"]:
             hold_tax(io, st, job, name, enemies)   # too strong for a few men
         elif not job["guard"]:
@@ -4468,7 +4472,7 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
         # trial 32: Warsaw held in strength; 7 men were sent and lost.
         # Now it waits for a hit (or the Axis leaving) to clear it.
         enemies = len(near(hostile, xy, TAX_ENEMY))
-        if enemies < TAX_ENEMY_LEAST:
+        if enemies < ORDER_TAX_CLEAR:
             job["stage"], job["since"] = "depot", io.now()
             io.log(f"tax order: {name} is clear now: on to the depot")
         elif io.now() - job["since"] > ORDER_TAX_HELD:
@@ -4489,6 +4493,23 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
             return tax_order_end(io, watch, mapdata, st, job, ok=False)
 
 
+def release_guard(io, watch, mapdata, st, job):
+    """The detachment walks back near the mass point: once the city is
+    clear it is not needed there for the SCV (the repository owner)."""
+    name = job["city"]
+    if not job["guard"]:
+        return
+    job["guard"] = False
+    city = place(mapdata, name)
+    pic = io.shot("watch", keep=False)
+    there = near(watch.units(pic), (city["x"], city["y"]), TAX_ENEMY + 4)
+    back = (MASS[0] + BACK_NEAR // 2 * 32, MASS[1])   # within 6 tiles
+    for group in live.clusters(there, 4, 4)[:3]:
+        if len(group) >= 2 and select_group(io, group, st, watch, margin=45):
+            attack_move(io, *back)
+    st.guards.pop(name, None)
+
+
 def hold_tax(io, st, job, name, enemies, sent=0):
     """The city is held too strongly for a detachment: the order waits
     (ORDER_TAX_HELD) for it to be cleared by a hit, and the ally is
@@ -4507,15 +4528,7 @@ def tax_order_end(io, watch, mapdata, st, job, ok):
     from bot import places
     name = job["city"]
     st.tax_jobs.pop(name, None)
-    if job["guard"]:
-        city = place(mapdata, name)
-        pic = io.shot("watch", keep=False)
-        there = near(watch.units(pic), (city["x"], city["y"]), TAX_ENEMY + 4)
-        back = (MASS[0] + BACK_NEAR // 2 * 32, MASS[1])   # within 6 tiles
-        for group in live.clusters(there, 4, 4)[:3]:
-            if len(group) >= 2 and select_group(io, group, st, watch, margin=45):
-                attack_move(io, *back)
-        st.guards.pop(name, None)
+    release_guard(io, watch, mapdata, st, job)
     if ok:
         say(io, st, f"{places.plain(name)} taxed", force=True)
         io.log(f"tax order: {name} taken, a depot stands there")

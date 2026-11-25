@@ -315,3 +315,26 @@ def test_too_few_men_to_send_waits_as_well(monkeypatch):
     trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
     trial.tax_order_step(io, StubWatch(set(), blob(xy, 2)), m, st, None)
     assert st.tax_jobs["Warsaw 200"]["stage"] == "held"
+
+
+def test_a_city_with_no_enemy_is_clear_and_the_detachment_goes_back_at_once(monkeypatch):
+    """The repository owner: clear means no enemy there at all; the men
+    need not stay while the SCV comes."""
+    m = trial.load_map()
+    said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    xy = (trial.place(m, "Warsaw 200")["x"], trial.place(m, "Warsaw 200")["y"])
+    monkeypatch.setattr(trial, "send_guard", lambda *a: 12)
+    monkeypatch.setattr(trial, "depot_at", lambda *a, **k: 0)
+    monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
+    back = []
+    monkeypatch.setattr(trial, "attack_move", lambda io_, x, y: back.append((x, y)))
+    trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
+    one = {next(iter(blob(xy, 1)))}
+    trial.tax_order_step(io, StubWatch(blob(xy, 3), one), m, st, None)
+    job = st.tax_jobs["Warsaw 200"]
+    assert job["stage"] == "secure" and job["guard"]    # one enemy: not clear
+    trial.tax_order_step(io, StubWatch(blob(xy, 3), set()), m, st, None)
+    assert job["stage"] == "depot" and not job["guard"] and back
+    assert "Warsaw 200" not in st.guards
