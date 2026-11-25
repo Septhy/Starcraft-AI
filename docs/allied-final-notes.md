@@ -1380,3 +1380,9 @@ second hit (the demo only shows how).
 - Scouts: "every fleet key is full" from 20 minutes on: the count of
   Scouts per key never went down when they died. Now the keys are
   counted again when they look full.
+- The repository owner's pictures of building a depot: the Engineer
+  (SCV) comes out beside the Command Outpost; B opens its build menu
+  (only an Engineer has one, so a marine picked by mistake is let go);
+  S then "Select Location" with a green or red ghost; once placed, the
+  Engineer's own buttons are back. A depot costs 100 minerals and 100
+  gas on this map, so a tax order now checks the gas too.

@@ -167,7 +167,8 @@ def test_the_new_scv_is_ordered_to_the_depot_at_once_then_home(monkeypatch):
     looked = []
     monkeypatch.setattr(trial, "look_at",
                         lambda io_, x, y, wait=0: looked.append((x, y)) or (x, y))
-    placing = iter([True, False, True])     # picked; first spot refused
+    placing = iter([True, False, False, True])  # picked; B opens the build
+                                                # menu; first spot refused
     monkeypatch.setattr(trial.live, "units_selected", lambda pic: next(placing))
     monkeypatch.setattr(trial.live, "selected_count", lambda pic: 1)
     cc = (trial.MOSCOW_CC[0] * 32, trial.MOSCOW_CC[1] * 32 + 128)
@@ -445,3 +446,37 @@ def test_the_new_scv_rallies_on_the_screen_and_waits_for_supply(monkeypatch):
     sx, sy = trial.live.on_screen(*job["wait"], (cc["x"], cc["y"]))
     assert (sx, sy, "right") in io.clicks           # on the screen, not the minimap
     assert job["look"] == (cc["x"], cc["y"])        # picked with the same view
+
+
+def test_a_marine_picked_by_the_centre_is_not_taken_for_the_scv(monkeypatch):
+    """The repository owner's pictures: only the Engineer opens a build
+    menu with B. A marine picked by mistake is let go, the next spot
+    tried."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: label
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    menu = iter([True, False])          # a marine first, then the Engineer
+    monkeypatch.setattr(trial.live, "units_selected",
+                        lambda pic: next(menu) if pic == "build-menu" else True)
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 1)
+    job = {"stage": "training", "due": io.t, "wait": (6000, 1700),
+           "walk": 10, "looks": 0}
+    st.depots["Warsaw 200"] = job
+    w = trial.place(m, "Warsaw 200")
+    assert trial.depot_by_order(io, m, st, "Warsaw 200", w["x"], w["y"], job) == 1
+    assert io.keys[:5] == ["b", "esc", "b", "s", "m"]
+
+
+def test_a_tax_needs_gas_for_the_depot(monkeypatch):
+    """The repository owner's pictures: a supply depot costs 100 minerals
+    and 100 gas on this map."""
+    m = trial.load_map()
+    out = said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: "pic"
+    monkeypatch.setattr(trial.numbers, "read_minerals", lambda pic: 5000)
+    monkeypatch.setattr(trial.numbers, "read_text", lambda pic, box: "50")
+    trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
+    assert out == ["not enough gas to tax Warsaw: ask me next tax turn"]
+    assert not st.tax_jobs

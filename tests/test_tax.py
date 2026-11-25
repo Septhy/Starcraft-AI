@@ -196,9 +196,11 @@ def test_with_nothing_left_to_float_an_scv_builds_a_depot(monkeypatch):
     looked = []
     monkeypatch.setattr(trial, "look_at",
                         lambda io_, x, y, wait=0: looked.append((x, y)) or (x, y))
-    monkeypatch.setattr(trial.live, "units_selected", lambda pic: True)
+    # an Engineer: B opens its build menu (the Move button goes)
+    monkeypatch.setattr(trial.live, "units_selected", lambda pic: pic != "build-menu")
     monkeypatch.setattr(trial.live, "selected_count", lambda pic: 1)
-    io.shot = lambda label, keep=True: None
+    io.shot = lambda label, keep=True: label
+    monkeypatch.setattr(trial.numbers, "read_supply", lambda pic: None)
     trial.tax_rounds(io, watch, m, st, None)
     land = trial.TAX_LAND["Krakow 200"]
     assert trial.centred(land[0] * 32 + 32, land[1] * 32 + 32) in looked

@@ -2009,9 +2009,17 @@ def depot_by_order(io, mapdata, st, name, cx, cy, job, then_home=True):
         io.click(sx + dx, sy + dy)
         io.sleep(0.1)
         pic = io.shot("scv", keep=False)
-        if live.units_selected(pic) and live.selected_count(pic) == 1:
+        if not (live.units_selected(pic) and live.selected_count(pic) == 1):
+            continue
+        # only an Engineer (the SCV) opens the build menu with B: the
+        # card's Move button goes (the repository owner's pictures); a
+        # marine standing by the centre keeps it
+        io.key("b")
+        io.sleep(0.1)
+        if not live.units_selected(io.shot("build-menu", keep=False)):
             picked = True
             break
+        io.key("esc")
     if not picked:
         job["looks"] = job.get("looks", 0) + 1
         if job["looks"] >= SCV_LOOKS:
@@ -2026,12 +2034,15 @@ def depot_by_order(io, mapdata, st, name, cx, cy, job, then_home=True):
     cam = look_at(io, *centred(cx, cy), wait=0.2)
     bx, by = live.on_screen(cx, cy, cam)
     l, t, r, btm = live.GAME_AREA
+    in_menu = True                      # B was pressed when it was picked
     for dx, dy in DEPOT_SPOTS:
         x, y = bx + dx, by + dy
         if not (l + 40 < x < r - 40 and t + 40 < y < btm - 40):
             continue
-        io.key("b")
-        io.sleep(0.1)
+        if not in_menu:
+            io.key("b")
+            io.sleep(0.1)
+        in_menu = False
         io.key("s")                     # a supply depot
         io.sleep(0.15)
         io.click(x, y)
@@ -4470,6 +4481,7 @@ ORDER_TAX_HELD = 180            # seconds a strongly held city is waited for
 BACK_NEAR = 6                   # tiles from the mass point it walks back to
 
 
+TAX_GAS = 100                  # a supply depot costs 100 gas too on this map
 TAX_PRICE = 150                # an SCV (50) and a supply depot (100)
 MARINE_PRICE = 50
 
@@ -4498,8 +4510,18 @@ def tax_order(io, watch, mapdata, st, order):
     if name in st.tax_jobs:
         say(io, st, f"still taxing {plain}", force=True)
         return
-    money = numbers.read_minerals(io.shot("money", keep=False))
+    pic = io.shot("money", keep=False)
+    money = numbers.read_minerals(pic)
+    gas = numbers.read_text(pic, GAS_FIELD) if pic is not None else None
+    gas = int(gas) if gas and gas.isdigit() else None
     need = tax_reserve(st) + TAX_PRICE
+    gas_need = (len(st.tax_jobs) + 1) * TAX_GAS
+    if gas is not None and gas < gas_need:
+        say(io, st, f"not enough gas to tax {plain}: ask me next tax turn",
+            force=True)
+        io.log(f"{order.colour} said {order.said!r}: {gas} gas, {gas_need} "
+               f"needed (a depot costs {TAX_GAS} gas on this map): not now")
+        return
     if money is not None and money < need:
         say(io, st, f"not enough money to tax {plain}: ask me next tax turn",
             force=True)
