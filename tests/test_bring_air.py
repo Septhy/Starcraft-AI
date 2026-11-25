@@ -289,7 +289,7 @@ def two_places():
 
 
 @pytest.mark.parametrize("colour, kind, mass", [
-    ("orange", "Wraith", 8), ("purple", "Scout", 11), ("teal", "Wraith", 22)])
+    ("orange", "Wraith", 5), ("purple", "Scout", 5), ("teal", "Wraith", 5)])
 def test_the_allys_air_mass_is_found_by_counting_their_air(colour, kind, mass):
     a, b = two_places()
     slot = trial.ALLY_SLOTS[colour]
@@ -383,3 +383,22 @@ def test_the_bars_wait_for_the_square(monkeypatch):
     trial.watch_for_ping(st, minimap_screen("ping_square"))
     c, r = live.to_drawn(*st.air_ping["at"])
     assert abs(c - 107) <= 3 and abs(r - 117) <= 3
+
+
+def test_allied_planes_are_counted_by_colour_when_the_model_cannot(monkeypatch):
+    """Trial 31: twenty teal Wraiths at the ping, the model's count came
+    back empty ("? teal planes") and Russia said it couldn't find them."""
+    from PIL import Image, ImageDraw
+    pic = Image.new("RGB", (1920, 1080), (60, 70, 40))
+    d = ImageDraw.Draw(pic)
+    for k in range(7):                              # seven teal planes
+        x, y = 700 + k * 90, 300 + (k % 2) * 60
+        d.rectangle((x, y, x + 8, y + 6), fill=(40, 190, 160))
+    assert trial.ally_air_by_colour(pic) == 7
+    st, io = trial.State(), StubIO()
+    st.ears = CountingEars([None])
+    assert trial.allied_air_at(io, st, pic, "teal") == 7 >= trial.PING_ALLY_AIR
+    st.ears = CountingEars([9])                     # the model, when it can
+    assert trial.allied_air_at(io, st, pic, "teal") == 9
+    assert trial.ally_air_by_colour(Image.new("RGB", (1920, 1080),
+                                              (60, 70, 40))) == 0

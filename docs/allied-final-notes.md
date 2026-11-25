@@ -1324,3 +1324,18 @@ second hit (the demo only shows how).
   px), or, before it, two upright and two lying bars, whose middle is
   near the ping; the bars wait up to 2 s for the square, which is exact.
   Spain's moving units (small blobs of new yellow) are not taken.
+
+## Trial 31
+
+- "@R bring air": at the ping the screen showed about twenty teal Wraiths,
+  but the model's count came back empty, so Russia said "I can't find your
+  air". Now every allied Wraith and Scout (teal, purple and orange
+  together) is counted, 5 is enough to follow, a count by colour on the
+  screen stands in when the model cannot count (or counts fewer), and the
+  reason the model gave nothing is logged.
+- Tax by SCV: the SCV walked to the city first and was then looked for by
+  the beacon; it was lost and looked for in the same place again and
+  again. Now it waits by the command centre and is ordered to build the
+  depot as soon as it is out. Not seen at the second look: "couldn't tax
+  <city>".
+- New "@R commands": lists every order, a line each.

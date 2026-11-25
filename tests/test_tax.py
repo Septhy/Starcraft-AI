@@ -186,21 +186,28 @@ def test_with_nothing_left_to_float_an_scv_builds_a_depot(monkeypatch):
     trial.tax_rounds(io, watch, m, st, None)
     assert flown == []
     assert "s" in io.keys                           # an SCV is made
-    land = trial.TAX_LAND["Krakow 200"]             # by the landing spot
-    rally = live.minimap_point(land[0] * 32 + 32, land[1] * 32 + 32)
-    assert (*rally, "right") in io.clicks           # and sent to the city
-    assert st.depots["Krakow 200"]["stage"] == "walking"
-    # it arrives; it is picked and told to build a depot by the beacon
+    assert (*rally_by_cc(st, "Krakow 200"), "right") in io.clicks  # waits by it
+    assert st.depots["Krakow 200"]["stage"] == "training"
+    # once it is out, it is picked by the centre and told at once to build
+    # a depot by Krakow's landing spot (trial 31: not walked there first)
     io.keys.clear()
     io.t = st.depots["Krakow 200"]["due"] + 1
     st.last_tax = -1e9
-    watch.ours = at(m, "Krakow 200", 2)
-    monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
-    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x - 900, y - 400))
+    looked = []
+    monkeypatch.setattr(trial, "look_at",
+                        lambda io_, x, y, wait=0: looked.append((x, y)) or (x, y))
+    monkeypatch.setattr(trial.live, "units_selected", lambda pic: True)
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 1)
     io.shot = lambda label, keep=True: None
     trial.tax_rounds(io, watch, m, st, None)
-    assert io.keys[:2] == ["b", "s"] and io.keys[-1] == "esc"
+    land = trial.TAX_LAND["Krakow 200"]
+    assert trial.centred(land[0] * 32 + 32, land[1] * 32 + 32) in looked
+    assert io.keys[:2] == ["b", "s"] and "esc" not in io.keys
     assert st.depots["Krakow 200"]["stage"] == "building"
+
+
+def rally_by_cc(st, name):
+    return live.minimap_point(*st.depots[name]["wait"])
 
 
 def test_no_tax_effort_before_the_first_hit(monkeypatch):
@@ -429,9 +436,8 @@ def test_factory_7_without_a_starport_in_reach_gets_a_depot(monkeypatch):
     monkeypatch.setattr(trial, "select_building", lambda io_, b: True)
     trial.tax_rounds(io, watch, m, st, None)
     assert "Factory 7" not in [c for _, _, c in flown]
-    assert st.depots["Factory 7"]["stage"] == "walking"
-    f7 = trial.place(m, "Factory 7")
-    assert (*live.minimap_point(f7["x"], f7["y"]), "right") in io.clicks
+    assert st.depots["Factory 7"]["stage"] == "training"
+    assert (*rally_by_cc(st, "Factory 7"), "right") in io.clicks
 
 
 def test_krakow_s_factory_lands_at_its_spot_by_the_city(monkeypatch):
@@ -459,7 +465,7 @@ def test_with_no_factory_near_krakow_an_scv_builds_a_depot_there(monkeypatch):
     monkeypatch.setattr(trial, "select_building", lambda io_, b: True)
     trial.tax_rounds(io, watch, m, st, None)
     assert "Krakow 200" not in [c for _, _, c in flown]
-    assert st.depots["Krakow 200"]["stage"] == "walking"
+    assert st.depots["Krakow 200"]["stage"] == "training"
 
 
 def test_no_tax_while_a_hit_is_about_to_go(monkeypatch):

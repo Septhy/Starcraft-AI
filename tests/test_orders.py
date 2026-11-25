@@ -75,7 +75,7 @@ def test_tax_order_secures_the_city_then_builds_a_depot_then_comes_back(monkeypa
 
     def depot(io_, watch, mapdata, st_, name, ours, cc_tile=None, then_home=False):
         depots.append((name, cc_tile, then_home))
-        st_.depots.setdefault(name, {"stage": "walking", "due": io_.now() + 30})
+        st_.depots.setdefault(name, {"stage": "training", "due": io_.now() + 30})
         return 1
     monkeypatch.setattr(trial, "depot_at", depot)
     back = []
@@ -111,7 +111,7 @@ def test_a_failed_tax_order_is_said_and_not_tried_again(monkeypatch):
     def depot(io_, watch, mapdata, st_, name, ours, cc_tile=None, then_home=False):
         calls.append(1)
         if len(calls) == 1:
-            st_.depots[name] = {"stage": "walking", "due": io_.now()}
+            st_.depots[name] = {"stage": "training", "due": io_.now()}
         return 1
     monkeypatch.setattr(trial, "depot_at", depot)
     trial.tax_order(io, None, m, st, O("tax", "Kiev"))
@@ -137,24 +137,47 @@ def test_the_allies_orders_reach_the_bot():
     assert got == [("tax", "Warsaw"), ("upgrade",)]
 
 
-def test_the_scv_builds_by_the_beacon_and_then_goes_home_to_moscow(monkeypatch):
+def test_the_new_scv_is_ordered_to_the_depot_at_once_then_home(monkeypatch):
+    """Trial 31: the SCV is not walked to the city first; picked where it
+    waits by the command centre, it is ordered to build by the beacon,
+    then goes back to Moscow."""
     m = trial.load_map()
     st, io = trial.State(), StubIO()
     io.shot = lambda label, keep=True: None
-    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
-    monkeypatch.setattr(trial.live, "units_selected", lambda pic: True)
+    looked = []
+    monkeypatch.setattr(trial, "look_at",
+                        lambda io_, x, y, wait=0: looked.append((x, y)) or (x, y))
+    placing = iter([True, False, True])     # picked; first spot refused
+    monkeypatch.setattr(trial.live, "units_selected", lambda pic: next(placing))
     monkeypatch.setattr(trial.live, "selected_count", lambda pic: 1)
-    money = iter([1000, 1000, 1000, 900])            # the second spot takes it
-    monkeypatch.setattr(trial.numbers, "read_minerals", lambda pic: next(money))
-    job = {"stage": "walking", "due": io.t}
+    cc = (trial.MOSCOW_CC[0] * 32, trial.MOSCOW_CC[1] * 32 + 128)
+    job = {"stage": "training", "due": io.t, "wait": cc, "walk": 50, "looks": 0}
     st.depots["Warsaw 200"] = job
     w = trial.place(m, "Warsaw 200")
     assert trial.depot_by_order(io, m, st, "Warsaw 200", w["x"], w["y"], job) == 1
     assert job["stage"] == "building"
+    assert looked[0] == trial.centred(*cc)          # by the centre, not Warsaw
     assert io.keys.count("esc") == 1                 # the first spot refused
     mx, my = trial.MOSCOW_CC
     home = trial.live.minimap_point(mx * 32, my * 32)
     assert io.keys[-1] == "m" and io.clicks[-1] == (*home, "shift")
+
+
+def test_an_scv_not_seen_at_the_second_look_ends_the_tax(monkeypatch):
+    """Trial 31: it kept looking for a lost SCV. Not seen twice: the
+    job is dropped, and the tax order says it couldn't tax."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    monkeypatch.setattr(trial.live, "units_selected", lambda pic: False)
+    job = {"stage": "training", "due": io.t, "wait": (100, 100), "looks": 0}
+    st.depots["Warsaw 200"] = job
+    w = trial.place(m, "Warsaw 200")
+    assert trial.depot_by_order(io, m, st, "Warsaw 200", w["x"], w["y"], job) == 0
+    assert st.depots["Warsaw 200"]["due"] == io.t + trial.SCV_RECHECK
+    trial.depot_by_order(io, m, st, "Warsaw 200", w["x"], w["y"], job)
+    assert "Warsaw 200" not in st.depots
 
 
 def test_tax_orders_keep_money_for_every_city_and_marines_wait(monkeypatch):
@@ -212,3 +235,18 @@ def test_all_three_levels_then_all_upgrades_completed(monkeypatch):
     assert len(io.keys) == keys
     trial.upgrade_order(io, m, st)
     assert out[-1] == "all upgrades completed"
+
+
+def test_r_commands_lists_every_order_in_short_lines(monkeypatch):
+    out = said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    t = team.Team(lambda s: None, lambda s: None,
+                  on_commands=lambda: trial.list_commands(io, st))
+    t.heard(team.Order({"colour": "orange", "kind": "commands",
+                        "said": "@R commands"}), 100)
+    assert out == team.COMMANDS and all(len(line) <= 60 for line in out)
+    text = " ".join(out)
+    for word in ("hit", "stop", "mass at", "tax", "upgrade", "bring air",
+                 "return air", "status", "reset", "commands"):
+        assert word in text
+    assert "commands" in team.CHAT_SYSTEM

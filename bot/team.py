@@ -117,6 +117,23 @@ class GameClock:
         return self.value + (self.now() - self.read_at)
 
 
+# "@R commands": what Russia takes, one chat line each (60 letters at most)
+COMMANDS = [
+    "@R hit east / @R hit balks: hit that front now",
+    "@R hit <city>: hit that city",
+    "@R go east in 2: hit in 2 minutes",
+    "@R stop (or wait): don't hit yet",
+    "@R mass at <city>: gather my army there",
+    "@R tax <city>: take that city's tax",
+    "@R upgrade: infantry weapons and armor to 3/3",
+    "@R bring air: my air comes to your ping",
+    "@R return air: my air goes back home",
+    "@R status: how I stand",
+    "@R reset: drop orders about massing and hitting",
+    "@R commands: this list",
+]
+
+
 class Team:
     """The plan for the next hit, as agreed with the allies.
 
@@ -126,7 +143,8 @@ class Team:
 
     def __init__(self, say, log, on_mass=None, on_status=None,
                  on_reset=None, resolve=None, on_bring_air=None,
-                 on_return_air=None, on_tax=None, on_upgrade=None):
+                 on_return_air=None, on_tax=None, on_upgrade=None,
+                 on_commands=None):
         self.say, self.log = say, log   # say(text) types to the allies
         self.on_mass = on_mass          # on_mass(order): move the mass
         self.on_status = on_status      # on_status(): say how things stand
@@ -135,6 +153,7 @@ class Team:
         self.on_return_air = on_return_air  # on_return_air(): fleet back
         self.on_tax = on_tax            # on_tax(order): take a city's tax
         self.on_upgrade = on_upgrade    # on_upgrade(): infantry upgrades
+        self.on_commands = on_commands  # on_commands(): list the orders
         self.resolve = resolve          # resolve(place) -> (target, label)
                                         # or (None, the answer to type)
         self.pending_target = None      # the city the allies named for the hit
@@ -163,6 +182,13 @@ class Team:
         if order.kind == "upgrade":
             if self.on_upgrade:
                 self.on_upgrade()
+            return
+        if order.kind == "commands":
+            if self.on_commands:
+                self.on_commands()
+            else:
+                for line in COMMANDS:
+                    self.say(line)
             return
         if order.kind == "bring_air":
             if self.on_bring_air:
@@ -340,7 +366,7 @@ ORDER_SCHEMA = {
                 "kind": {"type": "string",
                          "enum": ["stop", "go", "mass", "status", "reset",
                                   "bring_air", "return_air", "tax",
-                                  "upgrade"]},
+                                  "upgrade", "commands"]},
                 "front": {"type": "string",
                           "enum": ["east", "balks", "none"]},
                 "wait_seconds": {"type": "integer"},
@@ -405,6 +431,8 @@ written. Several cities in one message ("@R tax Warsaw and Kiev") are \
 one tax order for each city.
 - upgrade: "@R upgrade", "@R upgrades", "@R get upgrades", "@R upgrade \
 infantry": the ally wants Russia's infantry weapons and armor upgraded.
+- commands: "@R commands", "@R help", "@R what can you do": the ally \
+wants the list of Russia's orders.
 The front: "east" means the eastern front toward Germany (Berlin, \
 Warsaw, Konigsberg, Poland, "ger", "berlin", "north"). "balks" means the \
 Balkans (Romania, Belgrade, Hungary, "rom", "balkans", "south"). Use \
@@ -442,11 +470,12 @@ def chat_signature(picture):
 
 AIR_SYSTEM = (
     "You look at a screenshot of the game view of StarCraft: Brood War "
-    "(Remastered graphics) and count one player's air units of one kind, "
-    "told apart by their team colour. Count only flying units of that "
-    "kind in that colour. Do not count dropships or other transports, "
-    "ground units, buildings, or units of other colours. If none are "
-    "shown, the count is 0. Answer only with the JSON asked for.")
+    "(Remastered graphics) and count the Allied players' fighter planes: "
+    "Wraiths and Scouts of the teal, purple and orange players, all "
+    "together. Count only those flying fighters. Do not count dropships "
+    "or other transports, ground units, buildings, or units of other "
+    "colours (brown is Russia, not counted). If none are shown, the "
+    "count is 0. Answer only with the JSON asked for.")
 AIR_SCHEMA = {"type": "object", "additionalProperties": False,
               "required": ["count"],
               "properties": {"count": {"type": "integer"}}}
@@ -559,7 +588,8 @@ class ChatEars:
                            if o.get("colour") in ALLY_COLOURS
                            and o.get("kind") in ("stop", "go", "mass",
                                                  "status", "reset",
-                                                 "bring_air", "return_air", "tax", "upgrade")
+                                                 "bring_air", "return_air", "tax", "upgrade",
+                                                 "commands")
                            and addressed(o.get("said", ""))]
                     with self._lock:
                         self._found += [(game_clock, o) for o in got]
@@ -596,7 +626,7 @@ class ChatEars:
             view.save(out, format="PNG")
             data = base64.standard_b64encode(out.getvalue()).decode("ascii")
             response = self.client.messages.create(
-                model=self.model, max_tokens=200,
+                model=self.model, max_tokens=400,
                 system=AIR_SYSTEM,
                 output_config={"format": {"type": "json_schema",
                                           "schema": AIR_SCHEMA}},
@@ -605,10 +635,13 @@ class ChatEars:
                         "type": "base64", "media_type": "image/png",
                         "data": data}},
                     {"type": "text", "text": (
-                        f"Count the {colour} player's {kind}s "
-                        f"({AIR_LOOKS[kind]}).")}]}])
+                        f"Count all the Allied fighters: the teal, purple "
+                        f"and orange players' Wraiths ({AIR_LOOKS['Wraith']}) "
+                        f"and Scouts ({AIR_LOOKS['Scout']}) together. The "
+                        f"{colour} player asked; their {kind}s count too.")}]}])
             self._charge(response)
             if response.stop_reason != "end_turn":
+                self.last_error = f"air count stopped: {response.stop_reason}"
                 return None
             body = next((b.text for b in response.content
                          if b.type == "text"), "")

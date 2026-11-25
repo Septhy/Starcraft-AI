@@ -1863,18 +1863,23 @@ def select_building(io, b):
     return pick_building(io, b)
 
 
-DEPOT_RALLY = (0, 5)            # tiles from the beacon where an ordered SCV
-                               # waits ("@R tax"): clear of the detachment
+SCV_WAIT = (0, 4)              # tiles from the command centre where a new
+                               # SCV waits for its depot order
+SCV_RECHECK = 8                # real seconds before the SCV is looked for again
+SCV_LOOKS = 2                  # looks for it before the try is given up
+                               # (the repository owner, trial 31)
 SCV_PICK = [(0, 0), (20, 0), (-20, 0), (0, 20), (0, -20), (30, 30), (-30, 30)]
 
 
 def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
              then_home=False):
     """With no factory or starport left to float, Russia makes an SCV at
-    the nearest command centre, sends it to the city (the centre's
-    rally point), and has it build a supply depot next to the beacon.
-    Called on each round of the tax cities; returns 1 when it gave an
-    order."""
+    the nearest command centre and, as soon as it is out, orders it to
+    build a supply depot next to the city's beacon (trial 31: not walked
+    there first, then ordered). With `then_home` ("@R tax") it goes back
+    to Moscow after. If the SCV is not seen by the centre at the second
+    look, the try is over. Called on each round of the tax cities;
+    returns 1 when it gave an order."""
     city = place(mapdata, name)
     cx, cy = city["x"], city["y"]
     if name in TAX_LAND:                # by the landing spot
@@ -1895,47 +1900,19 @@ def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
             return 0
         io.key("s")                     # build an SCV
         io.sleep(0.1)
-        rx, ry = (cx + DEPOT_RALLY[0] * 32, cy + DEPOT_RALLY[1] * 32) \
-            if then_home else (cx, cy)
-        io.click(*live.minimap_point(rx, ry), button="right")   # its rally
+        wx, wy = b["x"] + SCV_WAIT[0] * 32, b["y"] + SCV_WAIT[1] * 32
+        io.click(*live.minimap_point(wx, wy), button="right")   # waits there
         io.sleep(0.1)
         walk = ((b["x"] - cx) ** 2 + (b["y"] - cy) ** 2) ** 0.5 / 32 / SCV_SPEED
-        st.depots[name] = {"stage": "walking", "due": now + SCV_TRAIN + walk}
-        io.log(f"tax: no factory or starport left: an SCV is on its way to "
-               f"build a depot at {name} (about {SCV_TRAIN + walk:.0f} s)")
+        st.depots[name] = {"stage": "training", "due": now + SCV_TRAIN + 2,
+                           "wait": (wx, wy), "walk": walk, "looks": 0}
+        io.log(f"tax: no factory or starport left: an SCV is being made for "
+               f"a depot at {name}; it is ordered there once it is out")
         return 1
-    if job["stage"] == "walking" and then_home:
+    if job["stage"] == "training":
         if now < job["due"]:
             return 0
-        return depot_by_order(io, mapdata, st, name, cx, cy, job)
-    if job["stage"] == "walking":
-        if now < job["due"]:
-            return 0
-        here = near(ours, (cx, cy), 8)
-        if not here:
-            if now > job["due"] + 60:
-                del st.depots[name]     # it never came: try again later
-                io.log(f"tax: the SCV for {name} did not arrive")
-            return 0
-        if not select_group(io, sorted(here)[:4], st, watch, margin=40):
-            return 0
-        cam = look_at(io, *centred(cx, cy), wait=0.2)
-        sx, sy = live.on_screen(cx, cy, cam)
-        io.key("b")                     # build a basic structure:
-        io.sleep(0.1)
-        io.key("s")                     # a supply depot
-        io.sleep(0.15)
-        l, t, r, btm = live.GAME_AREA
-        for dx, dy in DEPOT_SPOTS:      # the first good spot takes it;
-            x, y = sx + dx, sy + dy     # the others then just click
-            if l + 40 < x < r - 40 and t + 40 < y < btm - 40:
-                io.click(x, y)
-                io.sleep(0.15)
-        io.key("esc")                   # out of placing, if still in it
-        job.update(stage="building", due=now + DEPOT_BUILD)
-        io.shot("depot-" + name.split()[0])
-        io.log(f"tax: depot ordered at {name}")
-        return 1
+        return depot_by_order(io, mapdata, st, name, cx, cy, job, then_home)
     if job["stage"] == "building" and now >= job["due"]:
         if near(ours, (cx, cy), TAX_HERE + 2):
             job["stage"] = "done"
@@ -1946,14 +1923,15 @@ def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
     return 0
 
 
-def depot_by_order(io, mapdata, st, name, cx, cy, job):
-    """"@R tax": the SCV waiting by the beacon builds a depot next to
-    it, then goes back to Moscow (queued). A spot is taken when the
-    money drops by a depot's price; otherwise the next spot is tried."""
+def depot_by_order(io, mapdata, st, name, cx, cy, job, then_home=True):
+    """The new SCV, picked where it waits by the command centre, is
+    ordered to build a depot next to the city's beacon. A spot is taken
+    when the game leaves placing (the SCV's own buttons are back);
+    otherwise the next spot is tried."""
     now = io.now()
-    rx, ry = cx + DEPOT_RALLY[0] * 32, cy + DEPOT_RALLY[1] * 32
-    cam = look_at(io, *centred(rx, ry), wait=0.2)
-    sx, sy = live.on_screen(rx, ry, cam)
+    wx, wy = job["wait"]
+    cam = look_at(io, *centred(wx, wy), wait=0.2)
+    sx, sy = live.on_screen(wx, wy, cam)
     picked = False
     for dx, dy in SCV_PICK:             # the SCV alone, by a click
         io.click(sx + dx, sy + dy)
@@ -1963,9 +1941,15 @@ def depot_by_order(io, mapdata, st, name, cx, cy, job):
             picked = True
             break
     if not picked:
-        if now > job["due"] + 60:
+        job["looks"] = job.get("looks", 0) + 1
+        if job["looks"] >= SCV_LOOKS:
             del st.depots[name]
-            io.log(f"tax: the SCV for {name} was not found there")
+            io.log(f"tax: the SCV for {name} was not seen by the command "
+                   f"centre at the second look; given up")
+        else:
+            job["due"] = now + SCV_RECHECK
+            io.log(f"tax: the SCV for {name} not seen yet; looking again in "
+                   f"{SCV_RECHECK} s")
         return 0
     cam = look_at(io, *centred(cx, cy), wait=0.2)
     bx, by = live.on_screen(cx, cy, cam)
@@ -1974,24 +1958,25 @@ def depot_by_order(io, mapdata, st, name, cx, cy, job):
         x, y = bx + dx, by + dy
         if not (l + 40 < x < r - 40 and t + 40 < y < btm - 40):
             continue
-        before = numbers.read_minerals(io.shot("money", keep=False))
         io.key("b")
         io.sleep(0.1)
         io.key("s")                     # a supply depot
         io.sleep(0.15)
         io.click(x, y)
-        io.sleep(0.4)
-        after = numbers.read_minerals(io.shot("money", keep=False))
-        if before is None or after is None or after <= before - 50:
-            io.key("m")                 # then home to Moscow, queued
-            io.sleep(0.05)
-            mx, my = MOSCOW_CC
-            io.click_with("shift", *live.minimap_point(mx * 32, my * 32))
-            io.sleep(0.05)
-            job.update(stage="building", due=now + DEPOT_BUILD)
+        io.sleep(0.3)
+        if live.units_selected(io.shot("placed", keep=False)):
+            if then_home:
+                io.key("m")             # then home to Moscow, queued
+                io.sleep(0.05)
+                mx, my = MOSCOW_CC
+                io.click_with("shift", *live.minimap_point(mx * 32, my * 32))
+                io.sleep(0.05)
+            job.update(stage="building",
+                       due=now + job.get("walk", 0) + DEPOT_BUILD)
             io.shot("depot-" + name.split()[0])
-            io.log(f"tax: depot ordered by {name}'s beacon; the SCV goes "
-                   f"back to Moscow after")
+            io.log(f"tax: the new SCV is ordered to build a depot by "
+                   f"{name}'s beacon" + ("; it goes back to Moscow after"
+                                         if then_home else ""))
             return 1
         io.key("esc")                   # that spot was taken: the next
         io.sleep(0.1)
@@ -2191,7 +2176,7 @@ def tax_rounds(io, watch, mapdata, st, picture):
             continue                    # an ally's "@R tax" sees to it
         city = place(mapdata, name)
         cx, cy = city["x"], city["y"]
-        if st.depots.get(name, {}).get("stage") in ("walking", "building"):
+        if st.depots.get(name, {}).get("stage") in ("training", "building"):
             sent += depot_at(io, watch, mapdata, st, name, ours)
             continue                    # an SCV is seeing to it
         # (our troops standing there do not tax it: a building must
@@ -3801,9 +3786,14 @@ def _land():
     return np.asarray(Image.open(live.data_path("land.png")).convert("L")) > 127
 
 
-ALLY_AIR = {"orange": ("Wraith", 8), "purple": ("Scout", 11),
-            "teal": ("Wraith", 22)}  # the repository owner: what counts as
-                               # each ally's air mass (their Wraiths or Scouts)
+ALLY_AIR = {"orange": ("Wraith", 5), "purple": ("Scout", 5),
+            "teal": ("Wraith", 5)}   # the repository owner (trial 31): an air
+                               # mass is 5 allied Wraiths or Scouts at least,
+                               # all allies' together
+# Allied planes on the game screen by their colour, when the model cannot
+# count them (trial 31: twenty teal Wraiths, "? teal planes"). Purple is
+# left out: too much of the ground is near it.
+AIR_COLOUR_PATCH = 6           # pixels of their colour that may be a plane
 AIR_LOOKS_AT = 4               # places looked at for an ally's air at most
 NEAR_LAST = 12                 # minimap pixels from where their air was last
 
@@ -3834,6 +3824,40 @@ def count_ally_air(io, st, picture, colour):
     if ears is None or not hasattr(ears, "count_air"):
         return None
     return ears.count_air(picture, colour, kind)
+
+
+def ally_air_by_colour(picture):
+    """Allied planes on the game screen counted by colour alone: teal
+    and orange patches over the view (the minimap's corner left out).
+    Rough, but never nothing when the sky is full of them."""
+    import numpy as np
+    if picture is None:
+        return 0
+    l, t, r, b = live.GAME_AREA
+    a = np.asarray(picture.convert("RGB").crop((l, t, r, b))).astype(int)
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    teal = (G > 120) & (B > 100) & (R < 90) & (G - R > 60) & \
+        (np.abs(G - B) < 60)
+    orange = np.abs(a - np.array((248, 140, 20))).max(axis=2) < 40
+    n = 0
+    for mask in (teal, orange):
+        mask[:240, :400] = False
+        n += len([p for p in patches(mask) if p[0] >= AIR_COLOUR_PATCH])
+    return n
+
+
+def allied_air_at(io, st, picture, colour):
+    """All allied Wraiths and Scouts the screen shows, counted by the
+    model, or by their colour when it cannot (or sees fewer)."""
+    n = count_ally_air(io, st, picture, colour)
+    by_colour = ally_air_by_colour(picture)
+    if n is None or by_colour > n:
+        why = getattr(st.ears, "last_error", None) if st.ears else "no API key"
+        io.log(f"bring air: the model counted "
+               f"{'nothing' if n is None else n} ({why or 'no problem'}), "
+               f"by colour {by_colour}")
+        return by_colour
+    return n
 
 
 def find_ally_air(io, watch, colour, st=None, last=None, recount=False):
@@ -4017,7 +4041,8 @@ def follow_ally_air(io, watch, mapdata, st):
 PING_WAIT = 10                 # seconds to wait for the ping (the repository
                                # owner: then "can't find ping")
 PING_LEAST = 24                # new yellow minimap pixels that make a ping
-PING_ALLY_AIR = 2              # allied planes there that mean "follow them"
+PING_ALLY_AIR = 5              # allied planes there (all allies' Wraiths and
+                               # Scouts) that mean "follow them" (trial 31)
 PING_ENEMY = 4                 # enemy there that mean "attack them"
 PING_CLEAR = 1                 # enemy left there: cleared
 PING_LOOK = 10                 # tiles round the ping looked at on the screen
@@ -4159,7 +4184,7 @@ def ping_step(io, watch, mapdata, st):
     cam = look_at(io, *centred(*at), wait=0.3)
     pic = io.shot("ping")
     sx, sy = live.on_screen(at[0], at[1], cam)
-    allies = count_ally_air(io, st, pic, colour) if pic is not None else None
+    allies = allied_air_at(io, st, pic, colour) if pic is not None else None
     enemies = enemy_on_screen(pic, sx, sy, PING_LOOK * 32 * live.ZOOM) \
         if pic is not None else 0
     io.log(f"bring air: ping near {place_name(mapdata, *at)}: "
@@ -4471,6 +4496,15 @@ def tax_order_end(io, watch, mapdata, st, job, ok):
                f"until an ally asks")
 
 
+def list_commands(io, st):
+    """"@R commands": every order Russia takes, a line each."""
+    for line in team_rules.COMMANDS:
+        say(io, st, line, force=True)
+        io.sleep(0.3)
+    io.log("commands: the list of orders typed to the allies")
+    return True
+
+
 def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     """Returns a short result for the log. `save_lessons` is called with
     the general's lessons for the next game, if it wrote any. `ears`
@@ -4505,6 +4539,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
         on_return_air=lambda: return_air(raw, mapdata, st),
         on_tax=lambda o: tax_order(raw, st.watch, mapdata, st, o),
         on_upgrade=lambda: upgrade_order(raw, mapdata, st),
+        on_commands=lambda: list_commands(raw, st),
         resolve=lambda text: place_for_hit(mapdata, text))
     if ears is not None:
         from bot import places
