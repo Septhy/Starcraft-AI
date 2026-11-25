@@ -187,6 +187,10 @@ class State:
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
+        self.tax_job = None        # "@R tax <city>": the one try at it
+        self.upgrade_wanted = set()  # "@R upgrade": the upgrades still to start
+        self.upgrade_level = {"weapons": 0, "armor": 0}
+        self.last_upgrade_look = -1e9
         self.krakow_landed = False # Krakow's building is on the ground
         self.land_tries = 0
         self.last_land_check = -1e9
@@ -1715,7 +1719,8 @@ F7_SET_OFF = 60                # countdown seconds: set off for Factory 7 at 1:0
 F7_ARRIVE = 180                # and arrive before the countdown reaches 3:00
 # Never a barracks (the repository owner: they make the marines), never
 # a command centre.
-TAX_KINDS = ["Engineering Bay", "Factory", "Starport"]
+TAX_KINDS = ["Factory", "Starport"]  # (the Engineering Bays stay: they do
+                               # the infantry upgrades, "@R upgrade")
 KEEP_BUILDINGS = {(163, 99)}   # the barracks on Odessa: it taxes Odessa
 TAX_TRIES = 3                  # buildings sent to one city in a game at most
 # The repository owner's demonstration: the Vehicle Factory floats to
@@ -1845,7 +1850,13 @@ def select_building(io, b):
     return pick_building(io, b)
 
 
-def depot_at(io, watch, mapdata, st, name, ours):
+DEPOT_RALLY = (0, 5)            # tiles from the beacon where an ordered SCV
+                               # waits ("@R tax"): clear of the detachment
+SCV_PICK = [(0, 0), (20, 0), (-20, 0), (0, 20), (0, -20), (30, 30), (-30, 30)]
+
+
+def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
+             then_home=False):
     """With no factory or starport left to float, Russia makes an SCV at
     the nearest command centre, sends it to the city (the centre's
     rally point), and has it build a supply depot next to the beacon.
@@ -1860,8 +1871,8 @@ def depot_at(io, watch, mapdata, st, name, ours):
     if job is None:
         if st.depot_tries.get(name, 0) >= DEPOT_TRIES:
             return 0
-        tile = min(COMMAND_CENTRES, key=lambda t: (t[0] * 32 - cx) ** 2
-                   + (t[1] * 32 - cy) ** 2)
+        tile = cc_tile or min(COMMAND_CENTRES, key=lambda t: (t[0] * 32 - cx) ** 2
+                              + (t[1] * 32 - cy) ** 2)
         b = next((b for b in mapdata["slots"][SLOT]["buildings"]
                   if b["type"] == "Command Center"
                   and (b["x"] // 32, b["y"] // 32) == tile), None)
@@ -1871,13 +1882,19 @@ def depot_at(io, watch, mapdata, st, name, ours):
             return 0
         io.key("s")                     # build an SCV
         io.sleep(0.1)
-        io.click(*live.minimap_point(cx, cy), button="right")   # its rally
+        rx, ry = (cx + DEPOT_RALLY[0] * 32, cy + DEPOT_RALLY[1] * 32) \
+            if then_home else (cx, cy)
+        io.click(*live.minimap_point(rx, ry), button="right")   # its rally
         io.sleep(0.1)
         walk = ((b["x"] - cx) ** 2 + (b["y"] - cy) ** 2) ** 0.5 / 32 / SCV_SPEED
         st.depots[name] = {"stage": "walking", "due": now + SCV_TRAIN + walk}
         io.log(f"tax: no factory or starport left: an SCV is on its way to "
                f"build a depot at {name} (about {SCV_TRAIN + walk:.0f} s)")
         return 1
+    if job["stage"] == "walking" and then_home:
+        if now < job["due"]:
+            return 0
+        return depot_by_order(io, mapdata, st, name, cx, cy, job)
     if job["stage"] == "walking":
         if now < job["due"]:
             return 0
@@ -1913,6 +1930,60 @@ def depot_at(io, watch, mapdata, st, name, ours):
         else:
             del st.depots[name]
             io.log(f"tax: no depot to be seen at {name}")
+    return 0
+
+
+def depot_by_order(io, mapdata, st, name, cx, cy, job):
+    """"@R tax": the SCV waiting by the beacon builds a depot next to
+    it, then goes back to Moscow (queued). A spot is taken when the
+    money drops by a depot's price; otherwise the next spot is tried."""
+    now = io.now()
+    rx, ry = cx + DEPOT_RALLY[0] * 32, cy + DEPOT_RALLY[1] * 32
+    cam = look_at(io, *centred(rx, ry), wait=0.2)
+    sx, sy = live.on_screen(rx, ry, cam)
+    picked = False
+    for dx, dy in SCV_PICK:             # the SCV alone, by a click
+        io.click(sx + dx, sy + dy)
+        io.sleep(0.1)
+        pic = io.shot("scv", keep=False)
+        if live.units_selected(pic) and live.selected_count(pic) == 1:
+            picked = True
+            break
+    if not picked:
+        if now > job["due"] + 60:
+            del st.depots[name]
+            io.log(f"tax: the SCV for {name} was not found there")
+        return 0
+    cam = look_at(io, *centred(cx, cy), wait=0.2)
+    bx, by = live.on_screen(cx, cy, cam)
+    l, t, r, btm = live.GAME_AREA
+    for dx, dy in DEPOT_SPOTS:
+        x, y = bx + dx, by + dy
+        if not (l + 40 < x < r - 40 and t + 40 < y < btm - 40):
+            continue
+        before = numbers.read_minerals(io.shot("money", keep=False))
+        io.key("b")
+        io.sleep(0.1)
+        io.key("s")                     # a supply depot
+        io.sleep(0.15)
+        io.click(x, y)
+        io.sleep(0.4)
+        after = numbers.read_minerals(io.shot("money", keep=False))
+        if before is None or after is None or after <= before - 50:
+            io.key("m")                 # then home to Moscow, queued
+            io.sleep(0.05)
+            mx, my = MOSCOW_CC
+            io.click_with("shift", *live.minimap_point(mx * 32, my * 32))
+            io.sleep(0.05)
+            job.update(stage="building", due=now + DEPOT_BUILD)
+            io.shot("depot-" + name.split()[0])
+            io.log(f"tax: depot ordered by {name}'s beacon; the SCV goes "
+                   f"back to Moscow after")
+            return 1
+        io.key("esc")                   # that spot was taken: the next
+        io.sleep(0.1)
+    del st.depots[name]
+    io.log(f"tax: no room for a depot by {name}'s beacon")
     return 0
 
 
@@ -2103,6 +2174,8 @@ def tax_rounds(io, watch, mapdata, st, picture):
     for name in TAX_CITIES:
         if name != "Factory 7" and not due:
             continue
+        if st.tax_job is not None and st.tax_job["city"] == name:
+            continue                    # an ally's "@R tax" sees to it
         city = place(mapdata, name)
         cx, cy = city["x"], city["y"]
         if st.depots.get(name, {}).get("stage") in ("walking", "building"):
@@ -3441,6 +3514,8 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         fight(io, watch, mapdata, st, picture)
         defend_home(io, watch, mapdata, st, picture, still)
         tax_rounds(io, watch, mapdata, st, picture)
+        tax_order_step(io, watch, mapdata, st, picture)
+        upgrade_step(io, mapdata, st)
         st.need = need
         if general:
             consult(io, watch, mapdata, st)
@@ -3991,6 +4066,162 @@ def hear(io, st, picture):
         st.team.heard(order, now)
 
 
+# ------------------------------------------------- the allies' new orders
+# "@R upgrade" (the repository owner): infantry weapons at one
+# Engineering Bay, infantry armor at the other, when there is the money;
+# if not, say so and do it once there is.
+UPGRADE_COST = [100, 175, 250]  # minerals (and as much gas) for levels 1-3
+UPGRADES = [("weapons", "w"), ("armor", "a")]   # the Engineering Bay's keys
+UPGRADE_EVERY = 15             # seconds between looks at the money for them
+
+
+def engineering_bays(mapdata):
+    return [b for b in mapdata["slots"][SLOT]["buildings"]
+            if b["type"] == "Engineering Bay"]
+
+
+def upgrade_order(io, mapdata, st):
+    """"@R upgrade": both infantry upgrades, now if the money is there,
+    otherwise once it is."""
+    todo = [name for name, _ in UPGRADES if st.upgrade_level[name] < 3]
+    if not todo:
+        say(io, st, "infantry upgrades are all done", force=True)
+        return
+    st.upgrade_wanted = set(todo)
+    st.last_upgrade_look = -1e9
+    if not upgrade_step(io, mapdata, st, asked=True):
+        say(io, st, "I'll upgrade infantry when I have the resources",
+            force=True)
+
+
+def upgrade_step(io, mapdata, st, asked=False):
+    """Start what upgrades the money allows; True if any was started."""
+    if not st.upgrade_wanted or \
+            io.now() - st.last_upgrade_look < UPGRADE_EVERY:
+        return False
+    st.last_upgrade_look = io.now()
+    money = numbers.read_minerals(io.shot("money", keep=False))
+    bays = engineering_bays(mapdata)
+    started = []
+    for k, (name, key) in enumerate(UPGRADES):
+        if name not in st.upgrade_wanted or k >= len(bays):
+            continue
+        cost = UPGRADE_COST[min(st.upgrade_level[name], 2)]
+        if money is None or money < cost:
+            continue
+        if not select_building(io, bays[k]):
+            continue
+        io.key(key)                     # weapons (W) or armor (A)
+        io.sleep(0.2)
+        after = numbers.read_minerals(io.shot("money", keep=False))
+        if after is not None and after > money - cost // 2:
+            io.log(f"upgrade: infantry {name} did not start")
+            continue                    # not taken: tried again later
+        money = after if after is not None else money - cost
+        st.upgrade_level[name] += 1
+        st.upgrade_wanted.discard(name)
+        started.append(name)
+    if started:
+        say(io, st, "upgrading infantry " + " and ".join(started), force=True)
+        io.log(f"upgrade: infantry {' and '.join(started)} started")
+    return bool(started)
+
+
+# "@R tax <city>" (the repository owner): a one-time try at a city. With
+# enemies there, a detachment of 8 to 12 secures it first. Then an SCV
+# from Moscow's command centre builds a depot by the white beacon. Taken:
+# the detachment walks back to within 6 tiles of the mass point and the
+# SCV goes back to Moscow. Failed: said so, and not tried again until an
+# ally asks again.
+MOSCOW_CC = (209, 49)           # tiles: Moscow's command centre
+ORDER_TAX_SECURE = 120          # seconds the detachment has to clear the city
+ORDER_TAX_LEAST = 8             # men in the detachment at least
+BACK_NEAR = 6                   # tiles from the mass point it walks back to
+
+
+def tax_order(io, watch, mapdata, st, order):
+    """"@R tax <city>": start the one try at it."""
+    from bot import places
+    name = places.resolve(mapdata, order.place.strip())
+    if name is None:
+        say(io, st, "I can't find that place", force=True)
+        return
+    city = place(mapdata, name)
+    if not places.walkable(city["x"], city["y"]):
+        say(io, st, f"I can't reach {places.plain(name)}", force=True)
+        return
+    if st.tax_job is not None:
+        say(io, st, f"still taxing {places.plain(st.tax_job['city'])}",
+            force=True)
+        return
+    st.depots.pop(name, None)           # a fresh try
+    st.depot_tries[name] = 0
+    st.tax_job = {"city": name, "stage": "secure", "since": io.now(),
+                  "guard": False}
+    say(io, st, f"taxing {places.plain(name)}", force=True)
+    io.log(f"{order.colour} said {order.said!r}: taxing {name}")
+
+
+def tax_order_step(io, watch, mapdata, st, picture):
+    """One step of the "@R tax" job, from the massing loop."""
+    job = st.tax_job
+    if job is None:
+        return
+    from bot import places
+    name = job["city"]
+    city = place(mapdata, name)
+    xy = (city["x"], city["y"])
+    ours = watch.units(picture)
+    hostile = watch.others(picture, HOSTILE)
+    if job["guard"]:
+        st.guards[name] = io.now()      # the detachment stays, not gathered
+    if job["stage"] == "secure":
+        enemies = len(near(hostile, xy, TAX_ENEMY))
+        if enemies < TAX_ENEMY_LEAST:
+            job["stage"] = "depot"      # clear: on to the depot
+        elif not job["guard"]:
+            if send_guard(io, watch, mapdata, st, name, picture):
+                job["guard"] = True
+                st.guards[name] = io.now()
+        elif io.now() - job["since"] > ORDER_TAX_SECURE:
+            return tax_order_end(io, watch, mapdata, st, ok=False)
+        return
+    if job["stage"] == "depot":
+        if job.get("started") and name not in st.depots:
+            return tax_order_end(io, watch, mapdata, st, ok=False)  # one try
+        job["started"] = True
+        depot_at(io, watch, mapdata, st, name, ours, cc_tile=MOSCOW_CC,
+                 then_home=True)
+        stage = st.depots.get(name, {}).get("stage")
+        if stage == "done":
+            return tax_order_end(io, watch, mapdata, st, ok=True)
+        if stage is None:
+            return tax_order_end(io, watch, mapdata, st, ok=False)
+
+
+def tax_order_end(io, watch, mapdata, st, ok):
+    """The try is over: the detachment walks back near the mass point."""
+    from bot import places
+    job, st.tax_job = st.tax_job, None
+    name = job["city"]
+    if job["guard"]:
+        city = place(mapdata, name)
+        pic = io.shot("watch", keep=False)
+        there = near(watch.units(pic), (city["x"], city["y"]), TAX_ENEMY + 4)
+        back = (MASS[0] + BACK_NEAR // 2 * 32, MASS[1])   # within 6 tiles
+        for group in live.clusters(there, 4, 4)[:3]:
+            if len(group) >= 2 and select_group(io, group, st, watch, margin=45):
+                attack_move(io, *back)
+        st.guards.pop(name, None)
+    if ok:
+        say(io, st, f"{places.plain(name)} taxed", force=True)
+        io.log(f"tax order: {name} taken, a depot stands there")
+    else:
+        say(io, st, f"couldn't tax {places.plain(name)}", force=True)
+        io.log(f"tax order: {name} could not be taken; not tried again "
+               f"until an ally asks")
+
+
 def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     """Returns a short result for the log. `save_lessons` is called with
     the general's lessons for the next game, if it wrote any. `ears`
@@ -4023,6 +4254,8 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
         on_reset=lambda: reset_orders(raw, mapdata, st),
         on_bring_air=lambda o: bring_air(raw, st.watch, mapdata, st, o.colour),
         on_return_air=lambda: return_air(raw, mapdata, st),
+        on_tax=lambda o: tax_order(raw, st.watch, mapdata, st, o),
+        on_upgrade=lambda: upgrade_order(raw, mapdata, st),
         resolve=lambda text: place_for_hit(mapdata, text))
     if ears is not None:
         from bot import places

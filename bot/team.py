@@ -126,13 +126,15 @@ class Team:
 
     def __init__(self, say, log, on_mass=None, on_status=None,
                  on_reset=None, resolve=None, on_bring_air=None,
-                 on_return_air=None):
+                 on_return_air=None, on_tax=None, on_upgrade=None):
         self.say, self.log = say, log   # say(text) types to the allies
         self.on_mass = on_mass          # on_mass(order): move the mass
         self.on_status = on_status      # on_status(): say how things stand
         self.on_reset = on_reset        # on_reset(): back to the usual
         self.on_bring_air = on_bring_air  # on_bring_air(order): fleet to them
         self.on_return_air = on_return_air  # on_return_air(): fleet back
+        self.on_tax = on_tax            # on_tax(order): take a city's tax
+        self.on_upgrade = on_upgrade    # on_upgrade(): infantry upgrades
         self.resolve = resolve          # resolve(place) -> (target, label)
                                         # or (None, the answer to type)
         self.pending_target = None      # the city the allies named for the hit
@@ -153,6 +155,14 @@ class Team:
         if order.kind == "return_air":
             if self.on_return_air:
                 self.on_return_air()
+            return
+        if order.kind == "tax":
+            if self.on_tax:
+                self.on_tax(order)
+            return
+        if order.kind == "upgrade":
+            if self.on_upgrade:
+                self.on_upgrade()
             return
         if order.kind == "bring_air":
             if self.on_bring_air:
@@ -329,7 +339,8 @@ ORDER_SCHEMA = {
                 "colour": {"type": "string", "enum": ALLY_COLOURS},
                 "kind": {"type": "string",
                          "enum": ["stop", "go", "mass", "status", "reset",
-                                  "bring_air", "return_air"]},
+                                  "bring_air", "return_air", "tax",
+                                  "upgrade"]},
                 "front": {"type": "string",
                           "enum": ["east", "balks", "none"]},
                 "wait_seconds": {"type": "integer"},
@@ -387,6 +398,12 @@ is about massing and hitting only.
 Warsaw", "@R mass in Odessa", "@R gather at Kiev". Put the place in \
 "place", as one of the place names listed below if it is one of them, \
 otherwise as written. "@R mass home" or "@R mass at Smolensk": "home".
+- tax: the ally tells Russia to take a city's tax: "@R tax Warsaw", \
+"@R take tax at Kiev", "@R tax Krakow pls". Put the city in "place", as \
+one of the place names listed below if it is one of them, otherwise as \
+written.
+- upgrade: "@R upgrade", "@R upgrades", "@R get upgrades", "@R upgrade \
+infantry": the ally wants Russia's infantry weapons and armor upgraded.
 The front: "east" means the eastern front toward Germany (Berlin, \
 Warsaw, Konigsberg, Poland, "ger", "berlin", "north"). "balks" means the \
 Balkans (Romania, Belgrade, Hungary, "rom", "balkans", "south"). Use \
@@ -541,7 +558,7 @@ class ChatEars:
                            if o.get("colour") in ALLY_COLOURS
                            and o.get("kind") in ("stop", "go", "mass",
                                                  "status", "reset",
-                                                 "bring_air", "return_air")
+                                                 "bring_air", "return_air", "tax", "upgrade")
                            and addressed(o.get("said", ""))]
                     with self._lock:
                         self._found += [(game_clock, o) for o in got]

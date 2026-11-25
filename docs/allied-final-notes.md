@@ -1261,3 +1261,25 @@ second hit (the demo only shows how).
   downloads are removed from the release; their code stays (HIT_STYLE
   "keys", "rel", "back7"; bot/app_line_ahead.py, app_line_beside.py,
   app_back_first.py) in case they are wanted again.
+
+## New ally orders
+
+- "@R tax <city>" (tax_order, tax_order_step): one try at any city
+  Russia can walk to. Enemies there: a detachment of up to twelve
+  (send_guard) secures it, two minutes at most. Then an SCV is made at
+  Moscow's command centre (it cannot yet tell an SCV already standing
+  at Moscow from other units), walks to 5 tiles below the beacon, is
+  picked by a click (one unit selected), builds a depot at the first
+  spot next to the beacon that takes it (the money drops), then walks
+  back to Moscow, queued. A standing depot: "<city> taxed", the
+  detachment walks back to within 6 tiles of the mass point. Anything
+  failing: "couldn't tax <city>", not tried again until asked again.
+  Replies: "taxing <city>", "I can't find that place", "I can't reach
+  <city>", "still taxing <city>".
+- "@R upgrade" (upgrade_order, upgrade_step): infantry weapons (W) at
+  one Engineering Bay, infantry armor (A) at the other, each when the
+  minerals (read off the top of the screen; gas is always the same on
+  this map) cover it: 100, 175, 250 for levels 1-3. Not enough: "I'll
+  upgrade infantry when I have the resources", and it is done once there
+  is (looked at every 15 s). Started: "upgrading infantry weapons and
+  armor". The Engineering Bays are no longer floated for tax.

@@ -83,3 +83,15 @@ def read_supply(screen):
     if not 0 < int(limit) <= 400 or int(used) > int(limit) + 60:
         return None                     # not a believable reading
     return int(used), int(limit)
+
+
+MINERALS = (1490, 10, 1600, 32)  # left, top, right, bottom of the minerals
+
+
+def read_minerals(screen):
+    """Minerals at the top of the screen, or None if unreadable. (On
+    this map gas always equals minerals.)"""
+    text = read_text(screen, MINERALS)
+    if not text or not text.isdigit():
+        return None
+    return int(text)
