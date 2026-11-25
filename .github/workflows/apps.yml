@@ -29,6 +29,7 @@ jobs:
           pyinstaller --onefile --windowed --name StarcraftTrial --paths . --add-data "data;data" --collect-submodules anthropic bot/app.py
           pyinstaller --onefile --windowed --name StarcraftTrialLineAhead --paths . --add-data "data;data" --collect-submodules anthropic bot/app_line_ahead.py
           pyinstaller --onefile --windowed --name StarcraftTrialLineBeside --paths . --add-data "data;data" --collect-submodules anthropic bot/app_line_beside.py
+          pyinstaller --onefile --windowed --name StarcraftTrialBackFirst --paths . --add-data "data;data" --collect-submodules anthropic bot/app_back_first.py
       - name: Check the trial app has everything packed in
         shell: bash
         run: |
@@ -42,6 +43,9 @@ jobs:
           ./dist/StarcraftTrialLineBeside.exe --selftest selftest3.txt
           for i in 1 2 3 4 5 6 7 8 9 10; do [ -f selftest3.txt ] && break; sleep 2; done
           grep -q "^ok" selftest3.txt
+          ./dist/StarcraftTrialBackFirst.exe --selftest selftest4.txt
+          for i in 1 2 3 4 5 6 7 8 9 10; do [ -f selftest4.txt ] && break; sleep 2; done
+          grep -q "^ok" selftest4.txt
       - name: Check the apps start
         shell: bash
         run: |
@@ -61,13 +65,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="Recorder: takes screenshots. Trial: the bot. TrialLineAhead: the bot, keying the mass on 1-7 in a line ahead of the mass. TrialLineBeside: the same, the line beside the mass, on the side set by where the mass stands from the target. Built from commit $GITHUB_SHA."
+          notes="Recorder: takes screenshots. Trial: the bot. TrialLineAhead: the bot, keying the mass on 1-7 in a line ahead of the mass. TrialLineBeside: the same, the line beside the mass, on the side set by where the mass stands from the target. TrialBackFirst: as LineAhead, but seven groups from the back of the mass go before the keys. Built from commit $GITHUB_SHA."
           if gh release view recorder >/dev/null 2>&1; then
             for old in StarcraftTrialKeys.exe StarcraftTrialRel.exe; do   # renamed
               gh release delete-asset recorder "$old" -y >/dev/null 2>&1 || true
             done
-            gh release upload recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialLineAhead.exe dist/StarcraftTrialLineBeside.exe --clobber
+            gh release upload recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialLineAhead.exe dist/StarcraftTrialLineBeside.exe dist/StarcraftTrialBackFirst.exe --clobber
             gh release edit recorder --title "StarCraft apps" --notes "$notes"
           else
-            gh release create recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialLineAhead.exe dist/StarcraftTrialLineBeside.exe --title "StarCraft apps" --notes "$notes" --target "$GITHUB_SHA"
+            gh release create recorder dist/StarcraftRecorder.exe dist/StarcraftTrial.exe dist/StarcraftTrialLineAhead.exe dist/StarcraftTrialLineBeside.exe dist/StarcraftTrialBackFirst.exe --title "StarCraft apps" --notes "$notes" --target "$GITHUB_SHA"
           fi

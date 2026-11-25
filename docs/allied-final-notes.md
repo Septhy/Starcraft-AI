@@ -1252,3 +1252,7 @@ second hit (the demo only shows how).
   Move, the corner button) it is done (check_landed, corner_button).
 - Fixed: build_big_mass could end with no men counted when time was
   already up ("massed" unset).
+- A fourth app, StarcraftTrialBackFirst.exe (HIT_STYLE "back7", the
+  repository owner): the line ahead version, but at the hit seven
+  groups (BACK_FORMATIONS) are boxed and sent from the back of the mass
+  before the keys attack, then the rest.

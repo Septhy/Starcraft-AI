@@ -1279,7 +1279,10 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
 # sent first; while it sets off every key attacks, keeping its place in
 # the line; then the rest is boxed, back to front. The usual version
 # boxes the whole mass.
-HIT_STYLE = "boxes"            # "keys" in the line ahead version
+HIT_STYLE = "boxes"            # "back7" in the back first version (the line
+                               # ahead version, but seven groups from the back
+                               # of the mass go before the keys);
+                               # "keys" in the line ahead version
                                # (StarcraftTrialLineAhead), "rel" in the line
                                # beside version (StarcraftTrialLineBeside;
                                # the line placed by where the mass stands
@@ -1287,7 +1290,7 @@ HIT_STYLE = "boxes"            # "keys" in the line ahead version
 
 
 def keys_style():
-    return HIT_STYLE in ("keys", "rel")
+    return HIT_STYLE in ("keys", "rel", "back7")
 MASS_KEYS = list("1234567")     # the mass is put on these before a hit
 KEY_FRESH = 600                # seconds: keys older than this are not used
 KEYED_ROOM = 3                 # minimap pixels round a keyed group's place
@@ -1367,6 +1370,9 @@ def line_offsets(n, mass, target):
 KEY_EVERY = 6                  # seconds between keying steps while massing
 KEY_LEAST = 6                  # men a box must hold to be put on a key
 BACK_BOXES = 3                 # boxes from the back before the keys go
+BACK_FORMATIONS = 7            # the back first version (StarcraftTrialBackFirst,
+                               # the repository owner): seven groups formed
+                               # and sent from the back before the keys
 
 
 REL_SIDE = 8                   # tiles from the mass to its line (rel version)
@@ -1501,7 +1507,8 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
         for spot in spots:
             skip |= near(a, spot, KEYED_ROOM)
         n, _ = sweep_mass(io, watch, mapdata, st, target,
-                          max_boxes=BACK_BOXES, steer=False, skip=skip)
+                          max_boxes=BACK_FORMATIONS if HIT_STYLE == "back7"
+                          else BACK_BOXES, steer=False, skip=skip)
         orders += n
         orders += keyed_attack(io, mapdata, st, target, keyed[1])
     elif use_keys:

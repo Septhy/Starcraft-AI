@@ -457,3 +457,23 @@ def test_the_fleet_goes_once_most_of_the_hit_is_sent(monkeypatch):
     trial.hit(io, None, m, st, "Berlin 1000", use_keys=False)
     assert calls[-1] == ("fleet",)                   # after the boxes
     assert all(c[1] is False for c in calls if c[0] == "sweep")   # no steering
+
+
+def test_back_first_version_sends_seven_groups_from_the_back_before_the_keys(monkeypatch):
+    m = trial.load_map()
+    monkeypatch.setattr(trial, "HIT_STYLE", "back7")
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    st.keyed = [(k, (trial.MASS[0] + 200 * i, trial.MASS[1]))
+                for i, k in enumerate("1234567")]
+    st.mass_keyed = (io.t - 20, list("1234567"), "Berlin 1000")
+    calls = []
+    monkeypatch.setattr(trial, "sweep_mass", lambda *a, **k: calls.append(
+        ("sweep", k.get("max_boxes"), bool(k.get("front_first")))) or (7, 60))
+    monkeypatch.setattr(trial, "keyed_attack", lambda io_, m_, st_, t, keys:
+                        calls.append(("keys",)) or len(keys))
+    from tests.test_trial import StubWatch
+    trial.hit(io, StubWatch(set(), set()), m, st, "Berlin 1000", use_keys=False)
+    assert calls[0] == ("sweep", trial.BACK_FORMATIONS, False)   # the back first
+    assert calls[1] == ("keys",)
+    assert trial.keys_style()
