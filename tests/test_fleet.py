@@ -702,8 +702,8 @@ class TargetEars:
 
 def test_scouts_shoot_battlecruisers_then_scvs_by_bunkers_then_bunkers():
     """The repository owner: the screen scanned; Battlecruisers first,
-    then SCVs by bunkers, then bunkers; several of them queued in one
-    focus (A, click; then A, Shift + click)."""
+    then SCVs by bunkers, then bunkers, the nearest first; each attacked
+    alone (A, click), never queued."""
     st, io = trial.State(), StubIO()
     st.air_keys = ["9"]
     cam = (4000, 2000)
@@ -716,28 +716,39 @@ def test_scouts_shoot_battlecruisers_then_scvs_by_bunkers_then_bunkers():
     assert [f["kind"] for f in found] == ["battlecruiser", "battlecruiser",
                                           "scv", "bunker"]
     assert abs(trial.live.on_screen(*found[0]["xy"], cam)[0] - 1300) <= 1  # nearer first
-    n = trial.focus_fire(io, st, found, cam)
-    assert n == trial.FOCUS_MAX
-    assert io.keys == ["9", "a", "a", "a"]
+    assert trial.attack_target(io, st, found[0], cam)
+    assert io.keys == ["9", "a"] and len(io.clicks) == 1
     assert abs(io.clicks[0][0] - 1300) <= 1 and io.clicks[0][2] == "left"
-    assert [c[2] for c in io.clicks[1:]] == ["shift", "shift"]
     st.ears = TargetEars([])
     assert trial.scan_targets(io, st, "pic", fleet, cam) == []
     st.ears = None
     assert trial.scan_targets(io, st, "pic", fleet, cam) is None
 
 
-def test_in_the_dogfight_targets_are_focused_and_none_means_hops_and_holds(monkeypatch):
+def test_in_the_dogfight_one_target_then_a_hop_back_then_the_next(monkeypatch):
+    """A Battlecruiser and a bunker seen: the Battlecruiser is attacked,
+    shot at for a while with no hops, then a hop back, then the bunker.
+    None seen: only hops and Holds."""
     m = trial.load_map()
     fleet = trial.live.CENTRE
     enemy = (fleet[0] + 300, fleet[1])
-    looks = [(fleet, [enemy])] * 30 + [(fleet, [])] * (trial.QUIET_END + 1)
+    looks = [(fleet, [enemy])] * 40 + [(fleet, [])] * (trial.QUIET_END + 1)
     st, io = fight_setup(monkeypatch, looks)
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (4000, 2000))
     st.ears = TargetEars([{"kind": "battlecruiser", "x": 1200, "y": 300},
                           {"kind": "bunker", "x": 1250, "y": 500}])
     trial.dogfight(io, None, m, st, "Warsaw 200")
-    assert any("focus fire on battlecruiser, bunker" in l for l in io.lines)
-    # none found: hops and Holds only, no clicks on enemies
+    focus = [l for l in io.lines if "focus fire" in l]
+    assert focus[:2] == ["dogfight: focus fire on a battlecruiser",
+                         "dogfight: focus fire on a bunker"]
+    assert not any(c[2] == "shift" for c in io.clicks)      # never queued
+    # between the two attacks (A, click on each key), a hop back: a
+    # right-click on each key
+    attacks = [i for i, c in enumerate(io.clicks) if c[2] == "left"]
+    rights = [i for i, c in enumerate(io.clicks) if c[2] == "right"]
+    first_end, second_start = attacks[1], attacks[2]
+    assert any(first_end < i < second_start for i in rights)
+    # none found: hops and Holds only
     st, io = fight_setup(monkeypatch, looks)
     st.ears = TargetEars([])
     trial.dogfight(io, None, m, st, "Warsaw 200")

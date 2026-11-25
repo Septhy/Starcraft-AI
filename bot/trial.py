@@ -4873,9 +4873,10 @@ TARGET_PRIORITY = ("battlecruiser", "scv", "bunker")   # the repository
 TARGET_LOOK = 6                # seconds between the model's looks for them
 
 
-FOCUS_MAX = 3                  # targets queued in one focus (Shift)
-FOCUS_HOLD = 2.5               # seconds per queued target with no hops, so
-                               # the Scouts shoot what they were sent at
+FOCUS_MAX = 3                  # targets taken from one scan, one at a time
+FOCUS_HOLD = 2.5               # seconds on a target with no hops, so the
+                               # Scouts shoot it; then a hop back, then the
+                               # next (the repository owner: no queueing)
 
 
 def scan_targets(io, st, picture, fleet, cam):
@@ -4902,27 +4903,21 @@ def scan_targets(io, st, picture, fleet, cam):
             for f in near_]
 
 
-def focus_fire(io, st, targets, cam):
-    """Every fleet key: an attack on the first target (A, click on it),
-    the next ones queued (A, Shift + click), in the order given."""
+def attack_target(io, st, target, cam):
+    """Every fleet key: an attack on one target (A, then a click on it).
+    False if it is off the screen."""
     l, t, r, b = live.GAME_AREA
-    points = []
-    for f in targets[:FOCUS_MAX]:
-        x, y = live.on_screen(*f["xy"], cam)
-        if l + 10 < x < r - 10 and t + 10 < y < b - 10:
-            points.append((x, y))
+    x, y = live.on_screen(*target["xy"], cam)
+    if not (l + 10 < x < r - 10 and t + 10 < y < b - 10):
+        return False
     for key in st.air_keys:
         io.key(key)
         io.sleep(0.02)
-        for k, (x, y) in enumerate(points):
-            io.key("a")
-            io.sleep(0.02)
-            if k == 0:
-                io.click(x, y)
-            else:
-                io.click_with("shift", x, y)
-            io.sleep(0.02)
-    return len(points)
+        io.key("a")
+        io.sleep(0.02)
+        io.click(x, y)
+        io.sleep(0.02)
+    return True
 
 
 def dogfight(io, watch, mapdata, st, target):
@@ -4946,6 +4941,7 @@ def dogfight(io, watch, mapdata, st, target):
     orders = hops = burst = quiet = unseen = 0
     fought = False
     last_scan, focus_until = -1e9, -1e9   # the scans for targets
+    to_shoot, hop_back = [], False        # targets left from the last scan
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
         cam = look_at(io, *centred(*fleet_xy), wait=0.1)
@@ -5011,20 +5007,30 @@ def dogfight(io, watch, mapdata, st, target):
         if io.now() < focus_until:
             io.sleep(TICK)                  # shooting what they were sent at
             continue
-        if io.now() - last_scan >= TARGET_LOOK:
+        if hop_back:
+            # done with that target: a hop back, before the next one
+            hop_back = False
+            back = clamp_to(toward(fleet_xy, anchor if anchor != fleet_xy
+                                   else MASS, HOP), anchor, ANCHOR_REACH)
+            order_fleet(io, st, live.on_screen(back[0], back[1], cam))
+            orders += 1
+            io.sleep(TICK)
+            continue
+        if not to_shoot and io.now() - last_scan >= TARGET_LOOK:
             last_scan = io.now()
-            found = scan_targets(io, st, pic, fleet, cam)
-            if found:
-                # Battlecruisers, then SCVs by bunkers, then bunkers (the
-                # repository owner): several in a row, queued
-                n = focus_fire(io, st, found, cam)
-                if n:
-                    orders += 1
-                    focus_until = io.now() + FOCUS_HOLD * n
-                    io.log("dogfight: focus fire on " + ", ".join(
-                        f["kind"] for f in found[:n]))
-                    continue
-            # none on the screen: on with the hops and Holds
+            to_shoot = (scan_targets(io, st, pic, fleet, cam) or [])[:FOCUS_MAX]
+        while to_shoot:
+            # Battlecruisers, then SCVs by bunkers, then bunkers (the
+            # repository owner): one at a time, a hop back in between
+            aim = to_shoot.pop(0)
+            if attack_target(io, st, aim, cam):
+                orders += 1
+                focus_until, hop_back = io.now() + FOCUS_HOLD, True
+                io.log(f"dogfight: focus fire on a {aim['kind']}")
+                break
+        if hop_back:
+            continue
+        # none on the screen: on with the hops and Holds
         orders += 1
         if st.ears is None and orders % TARGET_EVERY == 0:
             order_fleet(io, st, e)          # no model to ask: the nearest

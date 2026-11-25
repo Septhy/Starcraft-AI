@@ -107,9 +107,10 @@ Step 3 (dogfight, version 1), in the build after 00f01a1:
 - Focus fire (the repository owner): every 6 s in a fight the model
   scans the screen for Battlecruisers, SCVs standing by bunkers, and
   bunkers (`team.ChatEars.find_targets`, `scan_targets`); found, they
-  are attacked in that order, nearest first, up to 3 queued (A, click;
-  A, Shift + click; `focus_fire`), with no hops for 2.5 s per target so
-  the Scouts shoot them. None found: only hops and Holds. Without the
+  are attacked in that order, nearest first, one at a time (A, click on
+  it; `attack_target`; never Shift-queued, the repository owner): 2.5 s
+  with no hops so the Scouts shoot it, then a hop back, then the next
+  (up to 3 from one scan). None found: only hops and Holds. Without the
   model (no API key), every ninth order is a click on the nearest enemy.
 - No enemy near: the fleet attack-moves a few tiles over our army's
   front; once it has fought, 6 looks without an enemy end the dogfight.
