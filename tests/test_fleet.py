@@ -496,3 +496,78 @@ def test_full_fleet_keys_are_counted_again_and_lost_scouts_make_room(monkeypatch
     n = trial.add_selected_scouts(io, st, lambda: 2)
     assert n == 2
     assert st.fleet[1]["scouts"] == 2 + 2 and st.last_added_key == "0"
+
+
+def test_orders_to_the_fleet_are_counted_for_the_air_report():
+    """Plan step 1: every order given through a fleet key is counted:
+    a move (right-click, or M then a click), an attack (A then a click,
+    and each queued stop), a Hold (H)."""
+    st, raw = trial.State(), StubIO()
+    st.air_keys = ["9", "0"]
+    io = trial.AirCounting(raw, st)
+    io.key("9"); io.click(5, 5, button="right")         # a move
+    io.key("a"); io.click(6, 6)                         # an attack
+    io.key("a"); io.click_with("shift", 7, 7)           # a queued stop
+    io.key("h")                                         # Hold
+    io.key("1"); io.click(8, 8, button="right")         # a ground key: not air
+    io.key("0"); io.click(9, 9)                         # a plain click: a pick
+    io.click(9, 9, button="right")                      # not counted
+    a = st.air
+    assert a.orders == {"move": 1, "attack": 2, "hold": 1}
+    trial.air_report(raw, st)
+    text = [l for l in raw.lines if l.startswith("AIR REPORT")][0]
+    assert "4 in" in text and "1 hold" in text
+
+
+def test_the_air_brain_keeps_one_state_and_adds_up_its_time():
+    st, io = trial.State(), StubIO()
+    trial.air_stats(io, st).count(20, io.t)
+    trial.set_air_state(io, st, "with the hit", "Berlin")
+    io.t += 30
+    trial.air_stats(io, st).count(15, io.t)
+    trial.set_air_state(io, st, "parked", "back")
+    a = st.air
+    assert a.state == "parked" and a.spent["with the hit"] == 30
+    assert a.fights == [[io.t - 30, 20, io.t, 15]]
+    trial.air_report(io, st)
+    text = [l for l in io.lines if l.startswith("AIR REPORT")][0]
+    assert "Scouts 20 -> 15" in text and "lost about 5" in text
+
+
+def test_leftover_scouts_go_on_the_next_key_or_to_the_fleet_never_the_mass(monkeypatch):
+    """Plan step 2: three new Scouts, one space on key 9 and one on key 0,
+    no key left to start: one goes on 9, the rest are picked again, one
+    goes on 0, and the last flies to the fleet without a key."""
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": "9", "scouts": trial.FLEET_SIZE - 1, "ha": (0, 0)},
+                {"key": "0", "scouts": trial.FLEET_SIZE - 1, "ha": (0, 0)}]
+    st.air_keys = ["9", "0"]
+    monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
+    monkeypatch.setattr(trial, "attack_move", lambda *a: None)
+    monkeypatch.setattr(trial, "recount_fleet", lambda *a, **k: False)
+    monkeypatch.setattr(trial, "open_fleet_key", lambda io_, st_: False)
+    sent = []
+    monkeypatch.setattr(trial, "attack_move", lambda io_, x, y: sent.append((x, y)))
+    picks = iter([3, 2, 1])
+    assert trial.add_selected_scouts(io, st, lambda: next(picks)) == 3
+    assert st.fleet[0]["scouts"] == st.fleet[1]["scouts"] == trial.FLEET_SIZE
+    assert sent == [trial.fleet_spot()] * 3          # all three to the fleet
+    assert any("without a key" in line for line in io.lines)
+
+
+def test_a_dead_heavy_artillery_is_noticed_and_no_longer_taken_off_the_count(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": "9", "scouts": 5, "ha": (100, 100)}]
+    st.air_keys = ["9"]
+    a = trial.air_stats(io, st)
+    a.upkeeps = trial.HA_CHECK_EVERY - 1
+    io.t += trial.AIR_UPKEEP + 1
+    monkeypatch.setattr(trial, "click_unit", lambda *a, **k: None)
+    monkeypatch.setattr(trial, "locate_fleet", lambda io_, st_: None)
+    io.shot = lambda label, keep=True: label
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 5)
+    assert trial.air_upkeep(io, None, m, st)
+    assert st.fleet[0]["ha_dead"] and st.fleet[0]["scouts"] == 5
+    assert a.counts[-1][1] == 5                     # 5 selected, all Scouts

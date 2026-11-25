@@ -348,7 +348,9 @@ def test_opening_masses_fast_and_hits_berlin():
                                 for u in io.alive())
                 seen["t"] = io.time
             out = real_hit(io, *a, **k)
-            game = getattr(io, "io", io)            # under the listening wrapper
+            game = io
+            while hasattr(game, "io"):              # under the wrappers
+                game = game.io
             if not hasattr(game, "time_first_hit_done"):
                 game.time_first_hit_done = game.time
             return out

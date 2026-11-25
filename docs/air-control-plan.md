@@ -53,6 +53,39 @@ Measured from their replays (selections tracked through hotkeys; see
 - About 4 to 7 air orders a minute, all attack-moves: no hops, no Hold,
   no targets.
 
+## Done so far
+
+Step 1 (measure) and step 2 (groundwork), in the build after 040c6b5:
+
+- Every order given through a fleet key is counted (`AirCounting`, a
+  wrapper round the game's io): moves, attacks (each queued stop) and
+  Holds. An AIR REPORT goes to the log every 5 minutes and at the end:
+  orders a minute, Holds after moves, Scouts on the keys over time and
+  lost, minutes in each state, each fight's Scouts at its start and end.
+- The air brain: one state for the fleet (`set_air_state`, `AIR_STATES`:
+  parked, travelling, with the hit, with the army, following, searching,
+  fighting), set wherever the fleet is ordered, with the time in each
+  added up. `steer_fleet` leaves the fleet alone while it is with an
+  ally.
+- Upkeep every 90 s while the fleet is parked or with the army
+  (`air_upkeep`): the keys counted, one key's Heavy Artillery checked in
+  turn (a dead one is noted, and the counts no longer take one off for
+  it), the fleet looked for by its gold Scouts (`locate_fleet`).
+- Leftover Scouts: when new Scouts do not fit one key, the rest are
+  picked again and go on the next key with room; with no room anywhere
+  they fly to the fleet without a key, never left by the factory to be
+  swept into the mass.
+- `replay_tools/air.py`: the air group's bursts in the replays. In the
+  four games: bursts are short, 2 to 4 s and 5 to 8 orders, hops of 1
+  to 3 tiles; 70 to 90% begin within 10 s of an order to a ground group;
+  their middle is 3 to 6 tiles from the ground's targets (the air works
+  over its own army, not alone); about 1 click in 9 is on a unit; most
+  bursts end without a long move (the next burst follows), the few long
+  moves go as often back as on. Holds are fewer than the moves suggest:
+  about one burst in three has one. For step 3 this means: short
+  bursts, small hops, kept over our own army at the front, alternating
+  with the ground's orders rather than one long dogfight.
+
 ## The plan
 
 ### Step 1: measure first

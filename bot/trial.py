@@ -245,6 +245,7 @@ class State:
         self.home_axis0 = 0        # Axis pixels inside Russia at the start
         self.last_defence = -1e9   # when troops were last sent at intruders
         self.air_home = False      # the air has been pulled back to the mass
+        self.air = None            # the air brain: AirStats
         self.looks_kept = 0
 
 
@@ -615,26 +616,37 @@ def trim_selection(io, keep):
 FLEET_RECOUNT = 60             # seconds between counts of what is on the keys
 
 
-def recount_fleet(io, st):
+def on_key(e):
+    """Units on a fleet key besides its Scouts: its Heavy Artillery, if
+    it still stands."""
+    return 0 if e.get("ha_dead") else 1
+
+
+def recount_fleet(io, st, force=False):
     """Count the Scouts left on each fleet key (pressing it; the Heavy
     Artillery not counted), so lost Scouts make room. True if a key
     turned out to have room. Selects the keys: callers select again."""
-    if io.now() - getattr(st, "fleet_counted", -1e9) < FLEET_RECOUNT:
+    if not force and \
+            io.now() - getattr(st, "fleet_counted", -1e9) < FLEET_RECOUNT:
         return False
     st.fleet_counted = io.now()
     found = False
+    total, read = 0, False
     for e in st.fleet:
         io.key(e["key"])
         io.sleep(0.06)
         pic = io.shot("fleet-count", keep=False)
         if pic is None:
             continue
-        n = max(0, live.selected_count(pic) - 1)
+        n = max(0, live.selected_count(pic) - on_key(e))
+        total, read = total + n, True
         if n < e["scouts"]:
             io.log(f"fleet: key {e['key']} has {n} Scouts left, not "
                    f"{e['scouts']}")
             e["scouts"] = n
         found = found or n < FLEET_SIZE
+    if read:
+        air_stats(io, st).count(total, io.now())
     return found
 
 
@@ -646,7 +658,7 @@ def key_with_room(st, n):
     return None
 
 
-def add_selected_scouts(io, st, reselect):
+def add_selected_scouts(io, st, reselect, depth=0):
     """Put the Scouts that `reselect()` selects onto the fleet, after
     checking they are all Scouts: on a key with room for them all, or a
     new key, rather than split them (one left over would stay behind and
@@ -682,8 +694,14 @@ def add_selected_scouts(io, st, reselect):
             max(st.fleet, key=lambda e: FLEET_SIZE - e["scouts"])
         room = FLEET_SIZE - entry["scouts"]
     if room <= 0:
-        io.log("fleet: every fleet key is full")
-        return 0
+        # no room on any key: they still fly to the fleet, so they are
+        # never swept into the ground mass (plan step 2)
+        attack_move(io, *fleet_spot())
+        st.last_added_key = "none (no room: sent to the fleet unkeyed)"
+        io.log(f"fleet: every fleet key is full: {n} Scouts sent to the "
+               f"fleet's spot without a key")
+        return n
+    whole = n
     if n > room:
         n = trim_selection(io, room)
         if n == 0 or n > room:
@@ -693,6 +711,13 @@ def add_selected_scouts(io, st, reselect):
     entry["scouts"] += n
     st.last_added_key = entry["key"]
     attack_move(io, *fleet_spot())      # off to the fleet, out of the mass
+    if whole > n and depth < 2:
+        # the rest did not fit: once those added have flown off, the
+        # others are picked again and go on the next key with room, or
+        # to the fleet unkeyed (before, they stayed by the factory and
+        # were swept into the mass)
+        io.sleep(MOSCOW_GONE)
+        n += add_selected_scouts(io, st, reselect, depth + 1)
     return n
 
 
@@ -1102,10 +1127,13 @@ def wait_for_mass(io, watch, mapdata, st, t0, earliest, latest):
             break
         relocate_mass(io, watch, mapdata, st)
         follow_ally_air(io, watch, mapdata, st)
+        air_upkeep(io, watch, mapdata, st)
         if not collected:
             collected = collect_middle_east(io, watch, st) > 0
         if not st.fleet_moved and now >= FLEET_MOVE_AFTER:
             st.fleet_moved = True       # the Middle East scouts are there
+            set_air_state(io, st, "parked", "to its spot by the mass",
+                          target=fleet_spot())
             for key in st.air_keys:
                 io.key(key)
                 io.sleep(0.04)
@@ -1523,6 +1551,8 @@ def send_fleet_with_hit(io, mapdata, st, target):
     w = place(mapdata, target)
     over = toward(MASS, (w["x"], w["y"]), AIR_LEAD)
     orders = 0
+    if own_fleet_keys(st):
+        set_air_state(io, st, "with the hit", target, target=over)
     for key in own_fleet_keys(st):
         io.key(key)
         io.sleep(0.035)
@@ -2934,6 +2964,8 @@ def defend_home(io, watch, mapdata, st, picture, still):
         if len(group) >= 4 and select_group(io, group, st, watch):
             attack_move(io, x, y)
             orders += 1
+    if own_fleet_keys(st):
+        set_air_state(io, st, "fighting", "Axis inside Russia", target=(x, y))
     for key in own_fleet_keys(st):
         io.key(key)
         io.sleep(0.05)
@@ -2970,6 +3002,9 @@ def fight(io, watch, mapdata, st, picture):
                 io.click(*home, button="right")     # walk, do not fight back
                 io.sleep(0.04)
                 orders += 1
+        if own_fleet_keys(st):
+            set_air_state(io, st, "parked", "the hit is being lost",
+                          target=fleet_spot())
         for key in own_fleet_keys(st):         # the fleet, as one, to its spot
             io.key(key)
             io.sleep(0.05)
@@ -3177,6 +3212,8 @@ def park_fleet(io, st, why):
     """The fleet, as one, back to its spot by the mass, to wait for the
     next hit."""
     park = live.minimap_point(*fleet_spot())
+    if own_fleet_keys(st):
+        set_air_state(io, st, "parked", why, target=fleet_spot())
     for key in own_fleet_keys(st):
         io.key(key)
         io.sleep(0.05)
@@ -3195,6 +3232,8 @@ def steer_fleet(io, watch, mapdata, st, picture):
     Scout round that point, it holds further back over our army, toward
     the mass. Once the hit begins to fade (half its men gone) the fleet
     is pulled back to its spot to wait for the next hit."""
+    if st.fleet_task is not None:
+        return None                     # with an ally: "@R bring air" has it
     battle = st.battle
     army = near(forward_units(watch.units(picture), mapdata), battle.front, 14)
     if len(army) < 4:
@@ -3231,6 +3270,7 @@ def steer_fleet(io, watch, mapdata, st, picture):
         return spot                     # already there: no new order (each
                                         # one costs clicks; trial 29)
     st.fleet_spot = spot
+    set_air_state(io, st, "with the army", "over our troops", target=spot)
     for key in st.air_keys:             # one stack, over our own troops
         io.key(key)
         io.sleep(0.05)
@@ -3260,6 +3300,8 @@ def recall(io, st, why):
         io.key(key)
         io.sleep(0.05)
         attack_move(io, *MASS)
+    if own_fleet_keys(st):
+        set_air_state(io, st, "parked", why, target=fleet_spot())
     for key in own_fleet_keys(st):             # the fleet, as one, to its spot
         io.key(key)
         io.sleep(0.05)
@@ -3541,6 +3583,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
         relocate_mass(io, watch, mapdata, st)
         collect_new_scouts(io, watch, mapdata, st)
         follow_ally_air(io, watch, mapdata, st)
+        air_upkeep(io, watch, mapdata, st)
         orders, picture, still = gather_idle(io, watch, mapdata, st, tried)
         gathered += orders
         st.blind = 0 if live.minimap_showing(picture) else st.blind + 1
@@ -4199,6 +4242,7 @@ def look_fleet(io, st, xy):
 def follow_to(io, watch, st, task, xy, came_from, route=False):
     """The fleet to a point behind the allies' air."""
     spot = behind(xy, came_from)
+    set_air_state(io, st, "following", "the allies' air", target=spot)
     if route:
         send_fleet(io, watch, st, task["spot"], spot)   # by the safe way
     else:
@@ -4216,6 +4260,7 @@ def search_fleet(io, watch, mapdata, st, task):
     FLEET_SEARCH seconds (10), "Lost the fleet" and the air goes home."""
     record = task["record"]
     started = io.now()
+    set_air_state(io, st, "searching", "the allies' air moved off")
     io.log(f"bring air: the fleet is not near {record['place']}: searching "
            f"(last seen {record['time']}: {fleet_text(record['groups'])})")
     looked = []
@@ -4264,6 +4309,7 @@ def follow_ally_air(io, watch, mapdata, st):
         # the planes are gone: no more following, back to the mass cycle
         st.fleet_task = None
         st.air_home = True
+        set_air_state(io, st, "parked", "every Scout lost")
         say(io, st, "my air is gone", force=True)
         io.log("bring air: the fleet has been lost")
         return False
@@ -4399,6 +4445,7 @@ def fleet_left(io, st):
     """How many planes are left on the fleet keys (each key's Heavy
     Artillery not counted); None if it cannot be told."""
     left, read = 0, False
+    entries = {e["key"]: e for e in st.fleet}
     for key in st.air_keys:
         io.key(key)
         io.sleep(0.06)
@@ -4406,7 +4453,10 @@ def fleet_left(io, st):
         if pic is None:
             return None
         read = True
-        left += max(0, live.selected_count(pic) - 1)
+        left += max(0, live.selected_count(pic)
+                    - on_key(entries.get(key, {})))
+    if read:
+        air_stats(io, st).count(left, io.now())
     return left if read else None
 
 
@@ -4465,6 +4515,7 @@ def ping_step(io, watch, mapdata, st):
         send_fleet(io, watch, st, start, at)       # attack-move, safe way
         st.fleet_task = {"colour": colour, "spot": at, "since": io.now(),
                          "checked": io.now(), "mode": "attack"}
+        set_air_state(io, st, "fighting", "at the ally's ping", target=at)
         st.air_home = False
         say(io, st, "attacking at your ping", force=True)
         return
@@ -4495,6 +4546,7 @@ def return_air(io, mapdata, st):
         say(io, st, "my air is already with me", force=True)
         return False
     st.fleet_task = None
+    set_air_state(io, st, "parked", "@R return air", target=fleet_spot())
     for key in st.air_keys:
         io.key(key)
         io.sleep(0.05)
@@ -4503,6 +4555,214 @@ def return_air(io, mapdata, st):
     say(io, st, "air coming back", force=True)
     io.log("return air: the fleet called back to its spot")
     return True
+
+
+# ------------------------------------------------- the air brain (plan step 1-2)
+# docs/air-control-plan.md. One place knows what the fleet is doing
+# (its state), counts every order it is given, how many Scouts are on
+# its keys over time, and writes an air report to the log, to measure
+# the air against the best Russia player in the replays (23 to 40
+# orders a minute on the air key, moves followed by Hold).
+AIR_STATES = ("parked", "travelling", "with the hit", "with the army",
+              "following", "searching", "fighting")
+AIR_REPORT_EVERY = 300         # seconds between air reports in the log
+AIR_UPKEEP = 90                # seconds between looks at the keys and the fleet
+HA_CHECK_EVERY = 2             # every second upkeep, one key's Heavy Artillery
+                               # too (in turn: clicking round each is slow)
+
+
+class AirStats:
+    def __init__(self, now):
+        self.t0 = now
+        self.orders = {}               # kind -> count
+        self.times = []                # when each order was given
+        self.counts = []               # (time, Scouts on the keys)
+        self.state, self.since = "parked", now
+        self.spent = {}                # state -> seconds
+        self.target = None             # where the fleet was last sent
+        self.seen = None               # (map point, time) the fleet was last seen
+        self.fights = []               # (start, Scouts then, end, Scouts then)
+        self.reported = now
+        self.upkeeps = 0
+        self.last_upkeep = now
+
+    def order(self, kind, now):
+        self.orders[kind] = self.orders.get(kind, 0) + 1
+        self.times.append(now)
+
+    def count(self, n, now):
+        if n is not None:
+            self.counts.append((now, n))
+
+
+def air_stats(io, st):
+    if getattr(st, "air", None) is None:
+        st.air = AirStats(io.now())
+    return st.air
+
+
+def set_air_state(io, st, state, why="", target=None):
+    """The fleet's state changes (one of AIR_STATES); the time spent in
+    each is added up, and a fight's Scouts at its start and end kept."""
+    a = air_stats(io, st)
+    now = io.now()
+    if target is not None:
+        a.target = target
+    if state == a.state:
+        return
+    a.spent[a.state] = a.spent.get(a.state, 0) + now - a.since
+    n = a.counts[-1][1] if a.counts else None
+    if state in ("fighting", "with the hit"):
+        a.fights.append([now, n, None, None])
+    elif a.state in ("fighting", "with the hit") and a.fights and \
+            a.fights[-1][2] is None:
+        a.fights[-1][2:] = [now, n]
+    io.log(f"air: {a.state} -> {state}" + (f" ({why})" if why else ""))
+    a.state, a.since = state, now
+
+
+def air_report(io, st):
+    """The air report: orders a minute and of what kind, Scouts on the
+    keys and lost, time in each state, the fights."""
+    a = air_stats(io, st)
+    now = io.now()
+    mins = max((now - a.t0) / 60, 1e-6)
+    spent = dict(a.spent)
+    spent[a.state] = spent.get(a.state, 0) + now - a.since
+    total = sum(a.orders.values())
+    holds = a.orders.get("hold", 0)
+    lost = sum(max(0, n0 - n1) for (_, n0), (_, n1) in zip(a.counts, a.counts[1:]))
+    lines = ["AIR REPORT",
+             f"* Orders: {total} in {mins:.1f} min ({total / mins:.1f} a minute; "
+             f"target 23 to 40 while fighting): "
+             + ", ".join(f"{n} {k}" for k, n in sorted(a.orders.items())),
+             f"* Holds after moves: {holds} of {a.orders.get('move', 0)} moves",
+             "* Scouts on the keys: " + (
+                 ", ".join(f"{(t - a.t0) / 60:.0f} min: {n}"
+                           for t, n in a.counts[-8:]) or "not counted yet")
+             + f"; lost about {lost}",
+             "* Time: " + ", ".join(f"{k} {v / 60:.1f} min"
+                                    for k, v in sorted(spent.items(),
+                                                       key=lambda kv: -kv[1]))]
+    for start, n0, end, n1 in a.fights[-6:]:
+        lines.append(f"* Fight at {(start - a.t0) / 60:.1f} min: Scouts "
+                     f"{n0 if n0 is not None else '?'} -> "
+                     f"{n1 if n1 is not None else '(going on)'}")
+    io.log("\n".join(lines))
+    a.reported = now
+
+
+def screen_to_map(sx, sy, camera):
+    """The map point shown at a screen pixel (on_screen turned round)."""
+    return (camera[0] + (sx - live.CENTRE[0]) / live.ZOOM,
+            camera[1] + (sy - live.CENTRE[1]) / live.ZOOM)
+
+
+def locate_fleet(io, st):
+    """Where the fleet really is: a look where it was last sent (or its
+    parking spot), and the middle of the gold Scouts there."""
+    a = air_stats(io, st)
+    guess = a.target or st.fleet_spot or fleet_spot()
+    cam = look_at(io, *centred(*guess), wait=0.2)
+    pic = io.shot("fleet-where", keep=False)
+    if pic is None:
+        return None
+    sx, sy = live.on_screen(guess[0], guess[1], cam)
+    gold = gold_on_screen(pic, sx, sy, 900)
+    if not gold:
+        io.log(f"air: no Scouts to be seen near "
+               f"{place_name(load_map(), *guess)}")
+        return None
+    mx = sum(p[0] for p in gold) / len(gold)
+    my = sum(p[1] for p in gold) / len(gold)
+    xy = screen_to_map(mx, my, cam)
+    a.seen = (xy, io.now())
+    return xy
+
+
+def ha_alive(io, e):
+    """The key's sieged Heavy Artillery still stands (clicked twice)."""
+    return click_unit(io, *e["ha"], movable=False) is not None
+
+
+def air_upkeep(io, watch, mapdata, st):
+    """Every AIR_UPKEEP seconds while the fleet is parked or with the
+    army: the keys counted, the Heavy Artillery checked now and then,
+    and the fleet looked for; the air report every 5 minutes."""
+    a = air_stats(io, st)
+    now = io.now()
+    if now - a.reported >= AIR_REPORT_EVERY:
+        air_report(io, st)
+    if not st.fleet or now - a.last_upkeep < AIR_UPKEEP or \
+            a.state not in ("parked", "with the army"):
+        return False
+    a.last_upkeep = now
+    a.upkeeps += 1
+    if a.upkeeps % HA_CHECK_EVERY == 0:
+        alive = [e for e in st.fleet if not e.get("ha_dead")]
+        if alive:
+            e = alive[(a.upkeeps // HA_CHECK_EVERY) % len(alive)]
+            if not ha_alive(io, e):
+                e["ha_dead"] = True
+                io.log(f"air: the Heavy Artillery of key {e['key']} is gone; "
+                       f"the key goes on with its Scouts alone")
+    recount_fleet(io, st, force=True)
+    where = locate_fleet(io, st)
+    if where is not None:
+        io.log(f"air: the fleet is near {place_name(mapdata, *where)}")
+    return True
+
+
+class AirCounting:
+    """The game's io, but every order given to the fleet's keys is
+    counted for the air report: a fleet key pressed, then a click (a
+    move, or an attack with A first), or H (Hold)."""
+
+    def __init__(self, io, st):
+        self.io, self.st = io, st
+        self.selected, self.pending = False, None
+
+    def __getattr__(self, name):
+        return getattr(self.io, name)
+
+    def key(self, name):
+        self.io.key(name)
+        if name in self.st.air_keys:
+            self.selected, self.pending = True, None
+        elif self.selected and name == "h":
+            air_stats(self.io, self.st).order("hold", self.io.now())
+        elif self.selected and name in ("a", "m"):
+            self.pending = name
+        elif self.selected and name not in ("esc",):
+            self.selected = False
+
+    def _clicked(self, button):
+        if not self.selected:
+            return
+        a = air_stats(self.io, self.st)
+        if button == "right" or self.pending == "m":
+            a.order("move", self.io.now())
+        elif self.pending == "a":
+            a.order("attack", self.io.now())
+        else:
+            self.selected = False       # a plain click picks something else
+        self.pending = None
+
+    def click(self, x, y, button="left"):
+        self.io.click(x, y, button=button)
+        self._clicked(button)
+
+    def click_with(self, held, x, y):
+        self.io.click_with(held, x, y)
+        self._clicked("left")           # a queued stop: A or M came first
+
+    def combo(self, *keys):
+        self.io.combo(*keys)
+        self.selected = False
+
+    def drag(self, *a, **k):
+        self.io.drag(*a, **k)
+        self.selected = False
 
 
 class Listening:
@@ -4889,6 +5149,8 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
         return {"trained": 0, "gathered": 0, "hits": []}
     t0, st = io.now(), State()
     st.general, st.t0 = general, t0
+    io = AirCounting(io, st)            # every order to the fleet counted
+    air_stats(io, st)
     raw = io
     st.clock = team_rules.GameClock(raw.now)
     st.clock.update(first)
@@ -4985,6 +5247,8 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
             io.log(general.summary())
         if st.ears:
             io.log(st.ears.summary())
+        if st.air_keys:
+            air_report(io, st)
     result.update({"targets": st.sent_at,
                    "units_per_box": round(st.selected / max(st.selections, 1), 1),
                    "keys": "".join(st.ground_keys + st.air_keys),
