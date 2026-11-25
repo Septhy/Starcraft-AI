@@ -167,8 +167,8 @@ def test_the_new_scv_is_ordered_to_the_depot_at_once_then_home(monkeypatch):
     looked = []
     monkeypatch.setattr(trial, "look_at",
                         lambda io_, x, y, wait=0: looked.append((x, y)) or (x, y))
-    placing = iter([True, False, False, True])  # picked; B opens the build
-                                                # menu; first spot refused
+    placing = iter([True, False, False, True, True])  # picked; B opens the
+                    # build menu; first spot refused; Esc: own buttons back
     monkeypatch.setattr(trial.live, "units_selected", lambda pic: next(placing))
     monkeypatch.setattr(trial.live, "selected_count", lambda pic: 1)
     cc = (trial.MOSCOW_CC[0] * 32, trial.MOSCOW_CC[1] * 32 + 128)
@@ -480,3 +480,24 @@ def test_a_tax_needs_gas_for_the_depot(monkeypatch):
     trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
     assert out == ["not enough gas to tax Warsaw: ask me next tax turn"]
     assert not st.tax_jobs
+
+
+def test_after_a_refused_spot_esc_goes_back_to_the_engineers_buttons(monkeypatch):
+    """If one Esc leaves the build menu up, a second is pressed, so the
+    next B is "Build" and never "Barracks"."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: label
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    seen = iter([True, False,           # picked; B opens the build menu
+                 False, False,          # spot refused; Esc: menu still up
+                 True])                 # next spot placed
+    monkeypatch.setattr(trial.live, "units_selected", lambda pic: next(seen))
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 1)
+    job = {"stage": "training", "due": io.t, "wait": (6000, 1700),
+           "walk": 10, "looks": 0}
+    st.depots["Warsaw 200"] = job
+    w = trial.place(m, "Warsaw 200")
+    assert trial.depot_by_order(io, m, st, "Warsaw 200", w["x"], w["y"],
+                                job, then_home=False) == 1
+    assert io.keys == ["b", "s", "esc", "esc", "b", "s"]

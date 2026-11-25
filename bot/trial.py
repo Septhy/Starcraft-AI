@@ -2063,6 +2063,12 @@ def depot_by_order(io, mapdata, st, name, cx, cy, job, then_home=True):
             return 1
         io.key("esc")                   # that spot was taken: the next
         io.sleep(0.1)
+        if not live.units_selected(io.shot("after-esc", keep=False)):
+            # Esc left the build menu up: once more, back to the
+            # Engineer's own buttons, so the next B is "Build" and never
+            # "Barracks" in the build menu
+            io.key("esc")
+            io.sleep(0.1)
     del st.depots[name]
     io.log(f"tax: no room for a depot by {name}'s beacon")
     return 0
