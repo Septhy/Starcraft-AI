@@ -317,3 +317,13 @@ def test_the_allies_fleet_is_read_by_owner_and_kind():
     assert groups == [{"owner": "teal", "kind": "Wraith", "count": 14}]
     body = seen[0][2]
     assert "dropships" in body["system"] and ears.calls == 1
+
+
+def test_the_targets_are_pointed_out_in_screen_pixels():
+    seen = []
+    answer = {"targets": [{"kind": "battlecruiser", "x": 640, "y": 240},
+                          {"kind": "bunker", "x": 2000, "y": 10}]}
+    ears = team.ChatEars(chat_client(answer, seen), background=False)
+    found = ears.find_targets(Image.new("RGB", (1920, 1080)))
+    assert found == [{"kind": "battlecruiser", "x": 960.0, "y": 400.0}]
+    assert "bunker" in seen[0][2]["system"]

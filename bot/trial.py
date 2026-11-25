@@ -4867,6 +4867,64 @@ def order_fleet(io, st, screen_point, hold=False):
     io.sleep(0.02)
 
 
+TARGET_PRIORITY = ("battlecruiser", "scv", "bunker")   # the repository
+                               # owner: Russia's Scouts shoot Battlecruisers
+                               # first, then SCVs by bunkers, then bunkers
+TARGET_LOOK = 6                # seconds between the model's looks for them
+
+
+FOCUS_MAX = 3                  # targets queued in one focus (Shift)
+FOCUS_HOLD = 2.5               # seconds per queued target with no hops, so
+                               # the Scouts shoot what they were sent at
+
+
+def scan_targets(io, st, picture, fleet, cam):
+    """The repository owner: the screen scanned for Battlecruisers, SCVs
+    by bunkers and bunkers (the model points them out). All on the
+    screen, as map points, Battlecruisers first, then SCVs, then bunkers,
+    each kind the nearest first; [] if none; None if the model cannot be
+    asked."""
+    ears = st.ears
+    if ears is None or not hasattr(ears, "find_targets"):
+        return None
+    found = ears.find_targets(picture)
+    if found is None:
+        return None
+    rank = {k: i for i, k in enumerate(TARGET_PRIORITY)}
+    near_ = [f for f in found if f["kind"] in rank]   # anywhere on the screen
+    near_.sort(key=lambda f: (rank[f["kind"]], (f["x"] - fleet[0]) ** 2
+                              + (f["y"] - fleet[1]) ** 2))
+    if near_:
+        io.log("dogfight: targets seen: " + ", ".join(
+            f"{sum(1 for f in near_ if f['kind'] == k)} {k}"
+            for k in TARGET_PRIORITY if any(f["kind"] == k for f in near_)))
+    return [{"kind": f["kind"], "xy": screen_to_map(f["x"], f["y"], cam)}
+            for f in near_]
+
+
+def focus_fire(io, st, targets, cam):
+    """Every fleet key: an attack on the first target (A, click on it),
+    the next ones queued (A, Shift + click), in the order given."""
+    l, t, r, b = live.GAME_AREA
+    points = []
+    for f in targets[:FOCUS_MAX]:
+        x, y = live.on_screen(*f["xy"], cam)
+        if l + 10 < x < r - 10 and t + 10 < y < b - 10:
+            points.append((x, y))
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.02)
+        for k, (x, y) in enumerate(points):
+            io.key("a")
+            io.sleep(0.02)
+            if k == 0:
+                io.click(x, y)
+            else:
+                io.click_with("shift", x, y)
+            io.sleep(0.02)
+    return len(points)
+
+
 def dogfight(io, watch, mapdata, st, target):
     """Work the air alone, once most of the hit has been sent: the
     camera on the fleet, short bursts of hops round the edge of the
@@ -4887,6 +4945,7 @@ def dogfight(io, watch, mapdata, st, target):
     last_count, last_n = io.now(), first
     orders = hops = burst = quiet = unseen = 0
     fought = False
+    last_scan, focus_until = -1e9, -1e9   # the scans for targets
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
         cam = look_at(io, *centred(*fleet_xy), wait=0.1)
@@ -4949,9 +5008,26 @@ def dogfight(io, watch, mapdata, st, target):
         e = close[0]
         e_xy = screen_to_map(e[0], e[1], cam)
         dist = ((e_xy[0] - fleet_xy[0]) ** 2 + (e_xy[1] - fleet_xy[1]) ** 2) ** 0.5 / 32
+        if io.now() < focus_until:
+            io.sleep(TICK)                  # shooting what they were sent at
+            continue
+        if io.now() - last_scan >= TARGET_LOOK:
+            last_scan = io.now()
+            found = scan_targets(io, st, pic, fleet, cam)
+            if found:
+                # Battlecruisers, then SCVs by bunkers, then bunkers (the
+                # repository owner): several in a row, queued
+                n = focus_fire(io, st, found, cam)
+                if n:
+                    orders += 1
+                    focus_until = io.now() + FOCUS_HOLD * n
+                    io.log("dogfight: focus fire on " + ", ".join(
+                        f["kind"] for f in found[:n]))
+                    continue
+            # none on the screen: on with the hops and Holds
         orders += 1
-        if orders % TARGET_EVERY == 0:
-            order_fleet(io, st, e)          # pick the target: a click on it
+        if st.ears is None and orders % TARGET_EVERY == 0:
+            order_fleet(io, st, e)          # no model to ask: the nearest
         else:
             if dist < STANDOFF:             # too close: a hop back
                 spot = toward(fleet_xy, anchor if anchor != fleet_xy else MASS,

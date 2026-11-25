@@ -689,3 +689,57 @@ def test_a_lone_gold_light_or_one_on_our_buildings_is_not_the_fleet(monkeypatch)
     monkeypatch.setattr(trial, "gold_on_screen", lambda pic, x, y, r: list(many))
     assert trial.sense_fight("pic", (500, 300))[0] is not None
     assert trial.sense_fight("pic", (500, 300), skip=[(520, 330, 150)])[0] is None
+
+
+class TargetEars:
+    def __init__(self, found):
+        self.found, self.asked = found, 0
+
+    def find_targets(self, picture):
+        self.asked += 1
+        return [dict(f) for f in self.found]
+
+
+def test_scouts_shoot_battlecruisers_then_scvs_by_bunkers_then_bunkers():
+    """The repository owner: the screen scanned; Battlecruisers first,
+    then SCVs by bunkers, then bunkers; several of them queued in one
+    focus (A, click; then A, Shift + click)."""
+    st, io = trial.State(), StubIO()
+    st.air_keys = ["9"]
+    cam = (4000, 2000)
+    fleet = (900, 400)
+    st.ears = TargetEars([{"kind": "bunker", "x": 1000, "y": 400},
+                          {"kind": "scv", "x": 1050, "y": 420},
+                          {"kind": "battlecruiser", "x": 1600, "y": 300},
+                          {"kind": "battlecruiser", "x": 1300, "y": 300}])
+    found = trial.scan_targets(io, st, "pic", fleet, cam)
+    assert [f["kind"] for f in found] == ["battlecruiser", "battlecruiser",
+                                          "scv", "bunker"]
+    assert abs(trial.live.on_screen(*found[0]["xy"], cam)[0] - 1300) <= 1  # nearer first
+    n = trial.focus_fire(io, st, found, cam)
+    assert n == trial.FOCUS_MAX
+    assert io.keys == ["9", "a", "a", "a"]
+    assert abs(io.clicks[0][0] - 1300) <= 1 and io.clicks[0][2] == "left"
+    assert [c[2] for c in io.clicks[1:]] == ["shift", "shift"]
+    st.ears = TargetEars([])
+    assert trial.scan_targets(io, st, "pic", fleet, cam) == []
+    st.ears = None
+    assert trial.scan_targets(io, st, "pic", fleet, cam) is None
+
+
+def test_in_the_dogfight_targets_are_focused_and_none_means_hops_and_holds(monkeypatch):
+    m = trial.load_map()
+    fleet = trial.live.CENTRE
+    enemy = (fleet[0] + 300, fleet[1])
+    looks = [(fleet, [enemy])] * 30 + [(fleet, [])] * (trial.QUIET_END + 1)
+    st, io = fight_setup(monkeypatch, looks)
+    st.ears = TargetEars([{"kind": "battlecruiser", "x": 1200, "y": 300},
+                          {"kind": "bunker", "x": 1250, "y": 500}])
+    trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert any("focus fire on battlecruiser, bunker" in l for l in io.lines)
+    # none found: hops and Holds only, no clicks on enemies
+    st, io = fight_setup(monkeypatch, looks)
+    st.ears = TargetEars([])
+    trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert not any("focus fire" in l for l in io.lines)
+    assert io.keys.count("h") >= 2 and "a" not in io.keys[:20]

@@ -509,6 +509,30 @@ FLEET_SCHEMA = {
             "count": {"type": "integer"}}}}}}
 
 
+TARGET_SYSTEM = (
+    "You look at a screenshot of the game view of StarCraft: Brood War "
+    "(Remastered graphics), 1280 by 480 pixels, and point out the enemy "
+    "targets Russia's fighter planes should shoot. The enemy are the "
+    "red, blue and yellow players (Germany, Italy, Spain); brown is "
+    "Russia, and teal, purple and orange are its allies: never point at "
+    "those. Find: battlecruiser (the big Terran capital ship), scv (the "
+    "Terran worker, here called Engineer, only those standing next to a "
+    "bunker), bunker (the low round Terran fortification). For each, "
+    "give the middle of the unit as x and y in the picture's pixels. "
+    "Give an empty list if there are none. Answer only with the JSON "
+    "asked for.")
+TARGET_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["targets"],
+    "properties": {"targets": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "required": ["kind", "x", "y"],
+        "properties": {
+            "kind": {"type": "string",
+                     "enum": ["battlecruiser", "scv", "bunker"]},
+            "x": {"type": "integer"}, "y": {"type": "integer"}}}}}}
+TARGET_VIEW = (0, 40, 1920, 760)       # the game view, sent at 1280 x 480
+
+
 class ChatEars:
     """Listen to the chat. listen(picture, clock) offers the newest
     screenshot; orders(now) returns allies' orders heard since the last
@@ -705,6 +729,43 @@ class ChatEars:
             return [{"owner": g["owner"], "kind": g["kind"],
                      "count": max(0, int(g["count"]))}
                     for g in groups if int(g.get("count", 0)) > 0][:12]
+        except Exception as e:          # never let a bad call stop the bot
+            self.failures += 1
+            self.last_error = type(e).__name__
+            return None
+
+    def find_targets(self, picture):
+        """The enemy Battlecruisers, SCVs by bunkers and bunkers on the
+        game view: [{"kind", "x", "y"}] in screen pixels, or None if it
+        cannot be asked."""
+        if self.dead():
+            return None
+        l, t, r, b = TARGET_VIEW
+        try:
+            view = picture.convert("RGB").crop(TARGET_VIEW).resize((1280, 480))
+            out = _io.BytesIO()
+            view.save(out, format="PNG")
+            data = base64.standard_b64encode(out.getvalue()).decode("ascii")
+            response = self.client.messages.create(
+                model=self.model, max_tokens=1000, system=TARGET_SYSTEM,
+                output_config={"format": {"type": "json_schema",
+                                          "schema": TARGET_SCHEMA}},
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png",
+                        "data": data}},
+                    {"type": "text", "text": "Point out the targets."}]}])
+            self._charge(response)
+            if response.stop_reason != "end_turn":
+                self.last_error = f"targets stopped: {response.stop_reason}"
+                return None
+            body = next((b.text for b in response.content
+                         if b.type == "text"), "")
+            sx, sy = (r - l) / 1280, (b - t) / 480
+            return [{"kind": g["kind"], "x": l + int(g["x"]) * sx,
+                     "y": t + int(g["y"]) * sy}
+                    for g in json.loads(body).get("targets", [])
+                    if 0 <= int(g["x"]) <= 1280 and 0 <= int(g["y"]) <= 480][:20]
         except Exception as e:          # never let a bad call stop the bot
             self.failures += 1
             self.last_error = type(e).__name__
