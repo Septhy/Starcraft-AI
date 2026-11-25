@@ -187,6 +187,11 @@ class State:
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
+        self.krakow_landed = False # Krakow's building is on the ground
+        self.land_tries = 0
+        self.last_land_check = -1e9
+        self.fleet_spot = None     # where the fleet was last ordered to stay
+        self.fleet_looked = -1e9   # when the enemy round it was last counted
         self.spread_next = 0       # the next spot the mass is spread to
         self.spawn_next = 0        # the next spot a group brought in goes to
         self.keyed = []            # keys version: (key, its place in the line)
@@ -845,12 +850,13 @@ def picked_are_scouts(io, st, n):
     return True
 
 
-def drop_scouts(io, st):
+def drop_scouts(io, st, pic=None):
     """Take any Scouts out of what a box selected (Shift + click on their
     small pictures), so they are never sent off with the ground army
     (trial 26: boxes at the mass took the fleet into the hits). Returns
     how many units are left selected."""
-    pic = io.shot("box-check", keep=False)
+    if pic is None:
+        pic = io.shot("box-check", keep=False)
     n = live.selected_count(pic)
     if st.scout_frame is None or n == 0:
         return n
@@ -1166,14 +1172,15 @@ def select_full(io, st, seed, pool, cam):
         io.drag(*box)
         io.sleep(0.05)
         st.boxes += 1
-        n = live.selected_count(io.shot("box", keep=False))
+        pic = io.shot("box", keep=False)
+        n = live.selected_count(pic)
         if n == 0 and live.building_selected(io.card()):
             # a building, not troops: the next box smaller (trial 25:
             # depots and command centres picked up)
             st.box_px = max(2, int(take * 0.6))
             break
         if n and st.scout_frame is not None:
-            n = drop_scouts(io, st)
+            n = drop_scouts(io, st, pic)        # (the same picture: no new look)
             if n == 0:
                 break
         if n >= FULL:
@@ -1197,7 +1204,7 @@ def select_full(io, st, seed, pool, cam):
 
 def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
                radius=MASS_RADIUS, least=12, max_boxes=None, front_first=False,
-               steer=True, skip=()):
+               steer=True, skip=(), settle=1.2):
     """One pass over the massing place (or the ground round `centre`):
     every part of it where the minimap shows units standing still is
     boxed, back to front, each box drawn to hold as near to twelve units
@@ -1208,7 +1215,7 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
     else:
         w = place(mapdata, target)
     a = watch.units(io.shot("sweep"))
-    io.sleep(1.2)                       # only those still standing there
+    io.sleep(settle)                    # only those still standing there
     area = near(a, centre, radius) if centre else at_mass(a)
     there = area & watch.units(io.shot("watch", keep=False))
     if len(there) < least:
@@ -1293,7 +1300,7 @@ SPREAD_WIDE = [(dx, dy) for dy in (-4, 4, -12, 12) for dx in (-4, 4, -12, 12)]
 
 
 def reinforce_target(io, st):
-    """The keys version: the target new troops walk straight to, for a
+    """The line versions: the target new troops walk straight to, for a
     minute after a hit that is not being lost; None: to the mass."""
     b = st.battle
     if not keys_style() or b is None or \
@@ -1462,7 +1469,11 @@ def send_fleet_with_hit(io, mapdata, st, target):
         orders += 1
     st.air_moved = io.now()
     st.air_home = False
+    st.fleet_spot = over
     return orders
+
+
+HIT_SETTLE_LOOK = 0.6          # seconds between the two looks of a sweep at a hit
 
 
 def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
@@ -1499,38 +1510,25 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
             io.sleep(0.035)
             send_at(io, mapdata, st, target)
             orders += 1
-    # the fleet goes with it, and is looked after from now on
-    orders += send_fleet_with_hit(io, mapdata, st, target)
     st.battle = Battle(target, io.now())
     if use_keys or keyed:
-        io.sleep(1.5)                   # let them step off
+        io.sleep(0.5)                   # let them step off
     st.rekey = len(free_ground_keys(st)) if (use_keys or keyed) else 0
-    if keyed:
-        # the rest, back to front; far bodies come on as reinforcements
-        start = None
-        for sweep in range(sweeps):
-            n, found = sweep_mass(io, watch, mapdata, st, target, steer=False)
-            orders += n
-            start = start or max(found, 1)
-            if n == 0 or found < 0.1 * start:
-                break
-            io.sleep(1.0)
-    else:
-        if not use_keys:
-            # bodies behind the mass set off first, so they are not left
-            # trailing after it
-            orders += push_front(io, watch, mapdata, st, target, side="rear")
-        start = None
-        for sweep in range(sweeps):
-            n, found = sweep_mass(io, watch, mapdata, st, target)
-            orders += n
-            start = start or max(found, 1)
-            # sweep again until the massing place is about empty
-            if n == 0 or found < 0.1 * start:
-                break
-            io.sleep(1.5)
-        if not use_keys:                # nothing is forward before the first hit
-            orders += push_front(io, watch, mapdata, st, target, side="forward")
+    # the rest of the mass, back to front, as fast as it goes: no air
+    # steering in between, no fetching of far bodies (they come on as
+    # reinforcements, straight to the hit), short pauses
+    start = None
+    for sweep in range(sweeps):
+        n, found = sweep_mass(io, watch, mapdata, st, target, steer=False,
+                              settle=HIT_SETTLE_LOOK)
+        orders += n
+        start = start or max(found, 1)
+        if n == 0 or found < 0.1 * start:
+            break
+        io.sleep(0.4)
+    # the fleet goes once most of the hit has been sent (the repository
+    # owner), as one stack over the army's back
+    orders += send_fleet_with_hit(io, mapdata, st, target)
     st.hit_sent = io.now()
     st.hits_sent += 1
     st.go_pending = False
@@ -1968,6 +1966,8 @@ def float_to(io, watch, mapdata, st, name, ours, to_arrive=None):
             st.flights_done.discard(tile)   # still on the ground: again later
         return 0
     st.tax_sent[name] = (io.now(), tile, io.now() + float_time(b, city))
+    if name == "Krakow 200":
+        st.krakow_landed, st.land_tries = False, 0   # a new one to land
     st.tax_tries[name] = st.tax_tries.get(name, 0) + 1
     io.log(f"tax: {b['type']} floated to {name}, there in about "
            f"{float_time(b, city):.0f} s")
@@ -2010,6 +2010,65 @@ def tax_spot(mapdata, name):
     return c["x"], c["y"]
 
 
+LAND_TRIES = 4                 # landings tried at Krakow before giving up
+LAND_CHECK_EVERY = 20          # seconds between looks at the Krakow building
+LAND_SPOTS = [(0, 0), (0, 3), (3, 0), (-3, 0), (0, -3), (3, 3)]
+                               # tiles from the landing spot, tried in turn
+
+
+def corner_button(picture):
+    """True if the bottom-right command button is there (yellow): Lift
+    Off or Land, a building's; units show nothing there."""
+    import numpy as np
+    x, y = LIFT_BUTTON
+    a = np.asarray(picture.convert("RGB").crop((x - 40, y - 40, x + 40, y + 40))
+                   ).astype(int)
+    return int(((a[..., 0] > 180) & (a[..., 1] > 150) & (a[..., 2] < 90)).sum()) > 300
+
+
+def check_landed(io, mapdata, st):
+    """Krakow's building must land (the repository owner). Once it should
+    have arrived, look at its spot: still in the air (Move and the Land
+    button), land it again, a little to one side if the spot was taken;
+    on the ground (no Move, Lift Off there), done."""
+    flight = st.tax_sent.get("Krakow 200")
+    if not flight or st.krakow_landed or st.land_tries >= LAND_TRIES:
+        return False
+    now = io.now()
+    if now < flight[2] + 5 or now - st.last_land_check < LAND_CHECK_EVERY:
+        return False
+    st.last_land_check = now
+    lx, ly = tax_spot(mapdata, "Krakow 200")
+    cam = look_at(io, *centred(lx, ly), wait=0.25)
+    sx, sy = live.on_screen(lx, ly, cam)
+    l, t, r, b = live.GAME_AREA
+    for dx, dy in BUILDING_SPOTS:
+        x, y = sx + dx, sy + dy
+        if not (l + 5 < x < r - 5 and t + 5 < y < b - 5):
+            continue
+        io.click(x, y)
+        io.sleep(0.12)
+        pic = io.shot("land-check", keep=False)
+        if not corner_button(pic):
+            continue                    # a unit, or nothing: not it
+        if live.units_selected(pic):    # Move and Land: still in the air
+            ox, oy = LAND_SPOTS[st.land_tries % len(LAND_SPOTS)]
+            st.land_tries += 1
+            tx, ty = lx + ox * 32, ly + oy * 32
+            cam = look_at(io, *centred(tx, ty), wait=0.25)
+            io.click(*LIFT_BUTTON)      # Land
+            io.sleep(0.2)
+            io.click(*live.on_screen(tx, ty, cam))
+            io.sleep(0.3)
+            io.log(f"tax: the Krakow building was still in the air: landing "
+                   f"it again (try {st.land_tries})")
+            return True
+        st.krakow_landed = True         # on the ground
+        io.log("tax: the Krakow building has landed")
+        return True
+    return False
+
+
 def busy(st):
     """No time for tax: a hit has been announced and goes soon."""
     return st.team is not None and st.team.announced is not None
@@ -2023,6 +2082,7 @@ def tax_rounds(io, watch, mapdata, st, picture):
         return 0
     if busy(st):
         return 0                        # a hit is about to go: no time
+    check_landed(io, mapdata, st)
     # Krakow and Romania now and then; Factory 7 on every pass, because
     # its moment (1:00 to 0:00 on the countdown) lasts only about 40
     # real seconds and must not be missed
@@ -2947,6 +3007,7 @@ def park_fleet(io, st, why):
         io.click(*park, button="right")
         io.sleep(0.04)
     st.air_home = True
+    st.fleet_spot = None
     io.log(f"{why}: the fleet pulled back to wait for the next hit")
 
 
@@ -2971,6 +3032,11 @@ def steer_fleet(io, watch, mapdata, st, picture):
         return None
     spot = middle(army)
     limit = AIR_ODDS * fleet_scouts(st)
+    last = st.fleet_spot
+    if last is not None and io.now() - st.fleet_looked < AIR_LOOK_EVERY and \
+            max(abs(spot[0] - last[0]), abs(spot[1] - last[1])) < AIR_MOVE_LEAST * 32:
+        return last                     # the army has not moved: nothing to do
+    st.fleet_looked = io.now()
     # count the enemy on the game screen round where the fleet would go;
     # too many (more than three to a Scout): further back over our army
     for _ in range(4):
@@ -2983,6 +3049,12 @@ def steer_fleet(io, watch, mapdata, st, picture):
         io.log(f"fleet: about {seen} enemy near {place_name(mapdata, *spot)}"
                f" (limit {limit}): holding further back")
         spot = toward(spot, MASS, AIR_STEP)
+    last = st.fleet_spot
+    if last is not None and seen <= limit and \
+            max(abs(spot[0] - last[0]), abs(spot[1] - last[1])) < AIR_MOVE_LEAST * 32:
+        return spot                     # already there: no new order (each
+                                        # one costs clicks; trial 29)
+    st.fleet_spot = spot
     for key in st.air_keys:             # one stack, over our own troops
         io.key(key)
         io.sleep(0.05)
@@ -2994,7 +3066,10 @@ TARGET_NAMES = {"Berlin": "Berlin 1000", "Romania": "Romania 300",
                 "Belgrade": "Factory 7", "Warsaw": "Warsaw 200",
                 "Konigsberg": "Konigsberg 200", "Krakow": "Krakow 200"}
 ENEMY_AT_MASS = 12             # Axis pixels at the mass that mean "defend"
-AIR_FOLLOW_EVERY = 4           # seconds between moving the air to the front
+AIR_FOLLOW_EVERY = 8           # seconds between looks at where the air should be
+AIR_MOVE_LEAST = 3             # tiles the spot must move before a new order
+AIR_LOOK_EVERY = 16            # seconds: the enemy round a still fleet is
+                               # counted again this often
 RECALL_COOLDOWN = 20           # seconds between recalls of the army
 RECALL_AFTER_HIT = 45          # seconds: a hit just sent is not called back
 ARRIVED_WITHIN = 6             # minimap pixels from a target that count as there
@@ -3284,7 +3359,7 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
     went = False
     train_everywhere(io, mapdata, st)
     collected, tried, gathered = False, {}, 0
-    need, readings, strength = WANT_HIT, [], 0
+    need, readings, strength, massed = WANT_HIT, [], 0, 0
     capped, told = False, -99
     while io.now() - t0 < TRIAL_SECONDS:
         relocate_mass(io, watch, mapdata, st)

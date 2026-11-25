@@ -52,6 +52,7 @@ def test_floats_buildings_to_krakow_and_romania_when_clear(monkeypatch):
 
 def test_a_lost_building_is_replaced(monkeypatch):
     m, st, io, watch, flown, _ = setup(monkeypatch, countdown_at(150))
+    monkeypatch.setattr(trial, "check_landed", lambda *a: False)
     trial.tax_rounds(io, watch, m, st, None)
     io.t += 400                         # long after it should have arrived
     st.clock.value += 400
@@ -475,3 +476,34 @@ def test_troops_gone_on_past_romania_are_not_fetched_home(monkeypatch):
     st.battle = trial.Battle("Factory 7", 0)
     past = blob(trial.BALKS_POINT, 3)
     assert trial.in_battle(st, m, past) == past
+
+
+def _screen_with_card(name):
+    from PIL import Image
+    s = Image.new("RGB", (1920, 1080))
+    s.paste(Image.open("tests/data/%s.png" % name), (1560, 760))
+    return s
+
+
+def test_the_krakow_building_is_landed_again_if_still_in_the_air(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    st.tax_sent["Krakow 200"] = (io.t, (165, 49), io.t)
+    io.t += 10
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    io.shot = lambda label, keep=True: _screen_with_card("card_lifted")
+    assert trial.check_landed(io, m, st)
+    assert (*trial.LIFT_BUTTON, "left") in io.clicks        # Land again
+    assert st.land_tries == 1 and not st.krakow_landed
+    # twenty seconds later it is on the ground: done, no more looks
+    io.t += trial.LAND_CHECK_EVERY
+    io.shot = lambda label, keep=True: _screen_with_card("card_grounded")
+    assert trial.check_landed(io, m, st) and st.krakow_landed
+    io.t += trial.LAND_CHECK_EVERY
+    assert not trial.check_landed(io, m, st)
+
+
+def test_the_corner_button_tells_buildings_from_units():
+    assert trial.corner_button(_screen_with_card("card_lifted"))
+    assert trial.corner_button(_screen_with_card("card_grounded"))
+    assert not trial.corner_button(_screen_with_card("card_units"))

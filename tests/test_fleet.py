@@ -417,3 +417,43 @@ def test_groups_brought_in_go_each_to_its_own_spot():
     trial.to_mass(io, m, far, st)
     clicks = [c[:2] for c in io.clicks]
     assert len(set(clicks)) == 2                     # two different spots
+
+
+def test_the_fleet_is_not_ordered_again_while_the_army_stands_still(monkeypatch):
+    from tests.test_trial import StubWatch, blob
+    m = trial.load_map()
+    looks = []
+    monkeypatch.setattr(trial, "enemy_near_fleet",
+                        lambda io_, spot: looks.append(spot) or (0, None))
+    w = trial.place(m, "Warsaw 200")
+    front = (w["x"], w["y"])
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": "9", "scouts": 6, "ha": None}]
+    st.air_keys = ["9"]
+    st.battle = trial.Battle("Berlin 1000", io.t - 100)
+    st.battle.front = front
+    watch = StubWatch(blob(front), set())
+    trial.steer_fleet(io, watch, m, st, None)
+    assert io.keys.count("9") == 1 and len(looks) == 1
+    io.t += trial.AIR_FOLLOW_EVERY                   # nothing has moved
+    trial.steer_fleet(io, watch, m, st, None)
+    assert io.keys.count("9") == 1 and len(looks) == 1   # no clicks at all
+    moved = (front[0] - 6 * 32, front[1])            # the army moves on
+    trial.steer_fleet(io, StubWatch(blob(moved), set()), m, st, None)
+    assert io.keys.count("9") == 2
+
+
+def test_the_fleet_goes_once_most_of_the_hit_is_sent(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    st.air_keys = ["9"]
+    io.shot = lambda label, keep=True: None
+    calls = []
+    monkeypatch.setattr(trial, "sweep_mass",
+                        lambda *a, **k: calls.append(("sweep", k.get("steer"))) or (0, 0))
+    monkeypatch.setattr(trial, "send_fleet_with_hit",
+                        lambda *a, **k: calls.append(("fleet",)) or 1)
+    monkeypatch.setattr(trial, "push_front", lambda *a, **k: 1 / 0)
+    trial.hit(io, None, m, st, "Berlin 1000", use_keys=False)
+    assert calls[-1] == ("fleet",)                   # after the boxes
+    assert all(c[1] is False for c in calls if c[0] == "sweep")   # no steering

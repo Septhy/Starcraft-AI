@@ -1131,6 +1131,7 @@ def test_the_fleet_keeps_back_from_more_than_three_enemy_to_a_scout(monkeypatch)
     # mass, over our own side
     monkeypatch.setattr(trial, "enemy_near_fleet", lambda io_, spot: (
         30 if d(spot, trial.middle(ours)) < 2 * 32 else 4, None))
+    io.t += trial.AIR_LOOK_EVERY                    # time to count again
     spot = trial.steer_fleet(io, StubWatch(ours, set()), m, st, None)
     assert d(spot, trial.MASS) < d(trial.middle(ours), trial.MASS)
     assert any("holding further back" in line for line in io.lines)

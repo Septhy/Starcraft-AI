@@ -1228,3 +1228,27 @@ second hit (the demo only shows how).
   version StarcraftTrialLineBeside.exe (bot/app_line_beside.py). The
   old StarcraftTrialKeys.exe and StarcraftTrialRel.exe are removed from
   the release. Inside the code they are still HIT_STYLE "keys" and "rel".
+
+## The three recordings compared (normal, line ahead, line beside)
+
+- Second hit, "gone" to last group: normal 85 s, line ahead 57 s (5 of
+  7 keys), line beside 36 s (7 keys). No hit won in any version.
+- The bot clicked its air a lot (normal: 6.5 fleet selections a minute,
+  28 of 39 while a hit was being sent). Now, all versions:
+  - No air steering while a hit is being sent; the fleet gets its first
+    order once most of the hit has gone (the repository owner).
+  - Steering looked at every 8 s (was 4); a new order only if the spot
+    moved 3+ tiles (or too many enemy there); the enemy round a fleet
+    that has not moved is counted again only every 16 s.
+- Faster hits, all versions: no fetching of far bodies behind or forward
+  of the mass during a hit (they are gathered as usual afterwards), a
+  0.6 s settle between the two looks of a sweep (was 1.2), 0.4 s
+  between sweeps (was 1.5), the box's own picture reused for the Scout
+  check (one look fewer a box). Pretend game: 49 -> 40 s and 52 -> 26 s.
+- Krakow must land (the repository owner): from 5 s after it should
+  have arrived, every 20 s, the bot clicks round the landing spot; a
+  building still in the air (Move, and the yellow corner button) is
+  landed again, a few tiles to one side in turn; on the ground (no
+  Move, the corner button) it is done (check_landed, corner_button).
+- Fixed: build_big_mass could end with no men counted when time was
+  already up ("massed" unset).
