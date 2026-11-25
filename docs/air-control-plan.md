@@ -68,9 +68,12 @@ Step 1 (measure) and step 2 (groundwork), in the build after 040c6b5:
   added up. `steer_fleet` leaves the fleet alone while it is with an
   ally.
 - Upkeep every 90 s while the fleet is parked or with the army
-  (`air_upkeep`): the keys counted, one key's Heavy Artillery checked in
-  turn (a dead one is noted, and the counts no longer take one off for
-  it), the fleet looked for by its gold Scouts (`locate_fleet`).
+  (`air_upkeep`): each key is pressed and its unit pictures read
+  (`read_key`): those like the learnt Scout are its Scouts, anything
+  else its Heavy Artillery (the repository owner's way: no clicks on the
+  map). A key without its artillery gets one of the four that is not on
+  a key yet (`replace_ha`), or goes on with its Scouts alone. The fleet
+  is looked for by its gold Scouts (`locate_fleet`).
 - Leftover Scouts: when new Scouts do not fit one key, the rest are
   picked again and go on the next key with room; with no room anywhere
   they fly to the fleet without a key, never left by the factory to be

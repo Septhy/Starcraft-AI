@@ -246,6 +246,7 @@ class State:
         self.last_defence = -1e9   # when troops were last sent at intruders
         self.air_home = False      # the air has been pulled back to the mass
         self.air = None            # the air brain: AirStats
+        self.ha_gone = set()       # Heavy Artillery spots known to be empty
         self.looks_kept = 0
 
 
@@ -616,6 +617,29 @@ def trim_selection(io, keep):
 FLEET_RECOUNT = 60             # seconds between counts of what is on the keys
 
 
+def read_key(st, pic):
+    """What a fleet key shows when pressed: (units, Scouts, Heavy
+    Artillery there?). Each unit's picture is checked against the Scout
+    learnt at the start: anything not a Scout on a fleet key is its
+    Heavy Artillery (the repository owner: check the key's unit
+    pictures, no clicks on the map). Unknown (None) before the Scout is
+    learnt."""
+    n = live.selected_count(pic)
+    if n == 0:
+        return 0, 0, False
+    if n == 1:
+        if st.scout_one is None:
+            return 1, None, None
+        scout = alike(_crop(pic, PANEL_ONE), st.scout_one, trim=0) >= SHAPE_SAME
+        return 1, int(scout), not scout
+    if st.scout_frame is None:
+        return n, None, None
+    scouts = sum(1 for i in range(min(n, 12))
+                 if alike(_crop(pic, _frame_box(i, n)), st.scout_frame)
+                 >= SHAPE_SAME)
+    return n, scouts, scouts < n
+
+
 def on_key(e):
     """Units on a fleet key besides its Scouts: its Heavy Artillery, if
     it still stands."""
@@ -638,7 +662,16 @@ def recount_fleet(io, st, force=False):
         pic = io.shot("fleet-count", keep=False)
         if pic is None:
             continue
-        n = max(0, live.selected_count(pic) - on_key(e))
+        units, scouts, ha = read_key(st, pic)
+        if scouts is None:              # nothing learnt: by the count
+            scouts = max(0, units - on_key(e))
+        elif not ha and not e.get("ha_dead"):
+            e["ha_dead"] = True
+            io.log(f"air: key {e['key']} has no Heavy Artillery any more "
+                   f"(none of its pictures is not a Scout)")
+        elif ha and e.get("ha_dead"):
+            e["ha_dead"] = False
+        n = scouts
         total, read = total + n, True
         if n < e["scouts"]:
             io.log(f"fleet: key {e['key']} has {n} Scouts left, not "
@@ -4453,8 +4486,9 @@ def fleet_left(io, st):
         if pic is None:
             return None
         read = True
-        left += max(0, live.selected_count(pic)
-                    - on_key(entries.get(key, {})))
+        units, scouts, _ = read_key(st, pic)
+        left += scouts if scouts is not None else \
+            max(0, units - on_key(entries.get(key, {})))
     if read:
         air_stats(io, st).count(left, io.now())
     return left if read else None
@@ -4567,8 +4601,6 @@ AIR_STATES = ("parked", "travelling", "with the hit", "with the army",
               "following", "searching", "fighting")
 AIR_REPORT_EVERY = 300         # seconds between air reports in the log
 AIR_UPKEEP = 90                # seconds between looks at the keys and the fleet
-HA_CHECK_EVERY = 2             # every second upkeep, one key's Heavy Artillery
-                               # too (in turn: clicking round each is slow)
 
 
 class AirStats:
@@ -4680,9 +4712,29 @@ def locate_fleet(io, st):
     return xy
 
 
-def ha_alive(io, e):
-    """The key's sieged Heavy Artillery still stands (clicked twice)."""
-    return click_unit(io, *e["ha"], movable=False) is not None
+def replace_ha(io, st, e):
+    """A key whose Heavy Artillery is gone gets another one (Shift +
+    key), if one of the four is not on a key yet and still stands;
+    otherwise it goes on with its Scouts alone."""
+    used = {tuple(f["ha"]) for f in st.fleet}   # its own lost one too
+    gone = set(st.ha_gone)
+    for ha in HEAVY_ARTILLERY:
+        if tuple(ha) in used or tuple(ha) in gone:
+            continue
+        if click_unit(io, *ha, movable=False) is None:
+            st.ha_gone.add(tuple(ha))   # not there either
+            continue
+        io.combo("shift", e["key"])
+        io.sleep(0.04)
+        st.ha_gone.add(tuple(e["ha"]))
+        io.log(f"air: key {e['key']} got another Heavy Artillery, at {ha}")
+        e["ha"], e["ha_dead"] = ha, False
+        return True
+    if not e.get("ha_told"):
+        e["ha_told"] = True
+        io.log(f"air: no spare Heavy Artillery for key {e['key']}: it goes "
+               f"on with its Scouts alone")
+    return False
 
 
 def air_upkeep(io, watch, mapdata, st):
@@ -4698,15 +4750,10 @@ def air_upkeep(io, watch, mapdata, st):
         return False
     a.last_upkeep = now
     a.upkeeps += 1
-    if a.upkeeps % HA_CHECK_EVERY == 0:
-        alive = [e for e in st.fleet if not e.get("ha_dead")]
-        if alive:
-            e = alive[(a.upkeeps // HA_CHECK_EVERY) % len(alive)]
-            if not ha_alive(io, e):
-                e["ha_dead"] = True
-                io.log(f"air: the Heavy Artillery of key {e['key']} is gone; "
-                       f"the key goes on with its Scouts alone")
-    recount_fleet(io, st, force=True)
+    recount_fleet(io, st, force=True)  # also finds keys without their artillery
+    for e in st.fleet:
+        if e.get("ha_dead"):
+            replace_ha(io, st, e)
     where = locate_fleet(io, st)
     if where is not None:
         io.log(f"air: the fleet is near {place_name(mapdata, *where)}")

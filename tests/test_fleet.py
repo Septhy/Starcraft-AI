@@ -1,4 +1,5 @@
 """The fleet keys: only Scouts on them, found by their gold."""
+import pytest
 import os
 
 from PIL import Image
@@ -556,18 +557,50 @@ def test_leftover_scouts_go_on_the_next_key_or_to_the_fleet_never_the_mass(monke
     assert any("without a key" in line for line in io.lines)
 
 
-def test_a_dead_heavy_artillery_is_noticed_and_no_longer_taken_off_the_count(monkeypatch):
+def test_a_missing_heavy_artillery_is_seen_on_the_key_and_replaced(monkeypatch):
+    """The repository owner: press the key and look at its unit
+    pictures; if none of them is not a Scout, the Heavy Artillery is
+    gone, and another one goes on the key if there is one to spare."""
     m = trial.load_map()
     st, io = trial.State(), StubIO()
-    st.fleet = [{"key": "9", "scouts": 5, "ha": (100, 100)}]
+    ha9, ha0 = trial.HEAVY_ARTILLERY[0], trial.HEAVY_ARTILLERY[1]
+    st.fleet = [{"key": "9", "scouts": 5, "ha": ha9}]
     st.air_keys = ["9"]
     a = trial.air_stats(io, st)
-    a.upkeeps = trial.HA_CHECK_EVERY - 1
     io.t += trial.AIR_UPKEEP + 1
-    monkeypatch.setattr(trial, "click_unit", lambda *a, **k: None)
-    monkeypatch.setattr(trial, "locate_fleet", lambda io_, st_: None)
     io.shot = lambda label, keep=True: label
-    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 5)
+    monkeypatch.setattr(trial, "read_key", lambda st_, pic: (5, 5, False))
+    clicked = []
+    monkeypatch.setattr(trial, "click_unit",
+                        lambda io_, x, y, movable=True: clicked.append((x, y)) or (1, 1))
+    monkeypatch.setattr(trial, "locate_fleet", lambda io_, st_: None)
     assert trial.air_upkeep(io, None, m, st)
-    assert st.fleet[0]["ha_dead"] and st.fleet[0]["scouts"] == 5
-    assert a.counts[-1][1] == 5                     # 5 selected, all Scouts
+    e = st.fleet[0]
+    assert a.counts[-1][1] == 5                     # five Scouts, no artillery
+    assert clicked and clicked[0] != ha9            # a spare one, not the lost one
+    assert e["ha"] != ha9 and not e["ha_dead"]
+    assert ("shift", "9") in io.combos
+    assert any("got another Heavy Artillery" in l for l in io.lines)
+
+
+def test_with_no_spare_heavy_artillery_the_key_goes_on_alone(monkeypatch):
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": k, "scouts": 3, "ha": ha}
+                for k, ha in zip("9087", trial.HEAVY_ARTILLERY)]
+    st.fleet[2]["ha_dead"] = True
+    monkeypatch.setattr(trial, "click_unit", lambda *a, **k: pytest.fail("clicked"))
+    assert not trial.replace_ha(io, st, st.fleet[2])
+    assert any("no spare Heavy Artillery" in l for l in io.lines)
+
+
+def test_a_keys_pictures_tell_its_scouts_from_its_artillery(monkeypatch):
+    st = trial.State()
+    st.scout_frame = "scout"
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 4)
+    monkeypatch.setattr(trial, "_crop", lambda pic, box: box)
+    looks = {trial._frame_box(i, 4): ("scout" if i else "tank") for i in range(4)}
+    monkeypatch.setattr(trial, "alike",
+                        lambda a, b, trim=None: 1.0 if looks[a] == b else 0.1)
+    assert trial.read_key(st, "pic") == (4, 3, True)
+    looks[trial._frame_box(0, 4)] = "scout"
+    assert trial.read_key(st, "pic") == (4, 4, False)
