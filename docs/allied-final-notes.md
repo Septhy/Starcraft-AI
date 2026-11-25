@@ -1256,3 +1256,8 @@ second hit (the demo only shows how).
   repository owner): the line ahead version, but at the hit seven
   groups (BACK_FORMATIONS) are boxed and sent from the back of the mass
   before the keys attack, then the rest.
+- The user chose the normal version (StarcraftTrial.exe). The line
+  ahead, line beside and back first apps are no longer built, and their
+  downloads are removed from the release; their code stays (HIT_STYLE
+  "keys", "rel", "back7"; bot/app_line_ahead.py, app_line_beside.py,
+  app_back_first.py) in case they are wanted again.
