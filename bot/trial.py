@@ -4386,7 +4386,8 @@ ORDER_TAX_SECURE = 120          # seconds the detachment has to clear the city
 ORDER_TAX_LEAST = 8             # men in the detachment at least
 ORDER_TAX_CLEAR = 1             # enemy pixels by the city that mean it is not
                                # clear: any at all (the repository owner)
-ORDER_TAX_HELD = 480            # seconds a strongly held city is waited for
+ORDER_TAX_HELD = 180            # seconds a strongly held city is waited for
+                               # (the repository owner: 3 minutes)
 BACK_NEAR = 6                   # tiles from the mass point it walks back to
 
 
