@@ -1400,5 +1400,5 @@ second hit (the demo only shows how).
   the minimap near the last record, then the camera round it (10, 20
   and 32 tiles, eight ways); our air does not move until it is found.
   Found: our air goes there by the safe way and a new record is written.
-  Not found in 30 seconds: "Lost the fleet", the air parks, the mass
+  Not found in 10 seconds: "Lost the fleet", the air parks, the mass
   cycle goes on.

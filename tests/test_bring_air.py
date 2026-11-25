@@ -298,7 +298,7 @@ def test_a_missing_fleet_is_searched_at_once_and_found(monkeypatch):
     assert st.fleet_task["record"]["xy"] == far and sent
 
 
-def test_a_fleet_not_found_in_30_seconds_is_lost(monkeypatch):
+def test_a_fleet_not_found_in_10_seconds_is_lost(monkeypatch):
     m = trial.load_map()
     io = StubIO()
     io.shot = lambda label, keep=True: None
@@ -319,7 +319,7 @@ def test_a_fleet_not_found_in_30_seconds_is_lost(monkeypatch):
     monkeypatch.setattr(trial, "send_fleet", lambda *a: pytest.fail("moved"))
     assert not trial.search_fleet(io, Watch(), m, st, st.fleet_task)
     assert said == ["Lost the fleet"] and st.fleet_task is None
-    assert st.air_home and len(looked) >= 8          # the camera swept round
+    assert st.air_home and 3 <= len(looked) <= 5    # 10 s of looks, then lost
     assert any(k == "right" for *_, k in io.clicks)  # back to its parking
 
 

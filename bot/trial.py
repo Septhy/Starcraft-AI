@@ -4090,13 +4090,14 @@ ALLY_AIR_RECOUNT = 3           # every third check-up their air is counted again
 # there, Russia searches at once (not on the timer), around the last
 # record on the minimap and by moving the camera, without moving its
 # own air; found, the air goes there and a new record is written; not
-# found in 30 seconds, "Lost the fleet", the air goes back to its
+# found in 10 seconds, "Lost the fleet", the air goes back to its
 # parking spot and the mass cycle goes on.
 FLEET_CHECK = 8                # seconds between checks while following
 FLEET_MATCH = 0.3              # how far the count may drift and still match
 FLEET_BEHIND = 5               # tiles behind the allies' air the fleet stays
 FLEET_NEAR = 12                # minimap pixels from the record: "still there"
-FLEET_SEARCH = 30              # seconds to search before "Lost the fleet"
+FLEET_SEARCH = 10              # seconds to search before "Lost the fleet"
+                               # (the repository owner: 10, not 30)
 SEARCH_RINGS = (10, 20, 32)    # tiles round the last record the camera sweeps
 SEARCH_REACH = 40              # minimap pixels round the record searched for groups
 
@@ -4212,7 +4213,7 @@ def search_fleet(io, watch, mapdata, st, task):
     """The allies' air is not where it was: search at once, around the
     last record, on the minimap and by moving the camera, without
     moving our own air. True once found (the air goes there); after
-    FLEET_SEARCH seconds, "Lost the fleet" and the air goes home."""
+    FLEET_SEARCH seconds (10), "Lost the fleet" and the air goes home."""
     record = task["record"]
     started = io.now()
     io.log(f"bring air: the fleet is not near {record['place']}: searching "
