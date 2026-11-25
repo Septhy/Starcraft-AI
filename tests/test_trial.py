@@ -326,7 +326,10 @@ def test_watch_sees_units_and_not_buildings():
     assert len(watch.units(g.shot("x"))) == 0
 
 
-def test_opening_masses_fast_and_hits_berlin():
+def test_opening_masses_fast_and_hits_berlin(monkeypatch):
+    # the fake game draws no Scouts: the dogfight would only look for
+    # them and shift the end of the game (tested on its own instead)
+    monkeypatch.setattr(trial, "DOGFIGHT", False)
     m = trial.load_map()
     w = trial.place(m, trial.TARGETS[0])
     for error in [(0, 0), (40, 80), (-60, 10), (70, -60)]:

@@ -89,6 +89,28 @@ Step 1 (measure) and step 2 (groundwork), in the build after 040c6b5:
   bursts, small hops, kept over our own army at the front, alternating
   with the ground's orders rather than one long dogfight.
 
+Step 3 (dogfight, version 1), in the build after 00f01a1:
+
+- `dogfight` runs right after the fleet is sent with a hit
+  (`send_fleet_with_hit` in `hit`): the repository owner wants only the
+  air worked once most of the hit is out, no taking turns with the
+  ground. Up to 60 s (`DOGFIGHT_TIME`).
+- Each look: the camera on the fleet; the fleet found as three or more
+  gold patches together (one alone may be a walker's lights), our
+  buildings' lamps left out (`sense_fight`, `own_buildings_on_screen`);
+  the enemy patches near it (`ENGAGE` 9 tiles).
+- Enemy near: hop 2 tiles toward the nearest one, keeping 3 tiles off
+  (`HOP`, `STANDOFF`), never more than 6 tiles from over our own army
+  (`army_anchor`, `ANCHOR_REACH`); Hold after every third hop; every
+  ninth order a right-click on the enemy. Bursts of 6 orders 0.35 s
+  apart, then a 1 s look.
+- No enemy near: the fleet attack-moves a few tiles over our army's
+  front; once it has fought, 6 looks without an enemy end the dogfight.
+- The Scouts counted every 4 s: 3 or more lost since the last count, a
+  step back; half lost, the fleet goes home (parked).
+- The fake game in the tests draws no Scouts, so its long opening test
+  runs with the dogfight off; the dogfight has its own tests.
+
 ## The plan
 
 ### Step 1: measure first

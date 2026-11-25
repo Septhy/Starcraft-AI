@@ -604,3 +604,88 @@ def test_a_keys_pictures_tell_its_scouts_from_its_artillery(monkeypatch):
     assert trial.read_key(st, "pic") == (4, 3, True)
     looks[trial._frame_box(0, 4)] = "scout"
     assert trial.read_key(st, "pic") == (4, 4, False)
+
+
+class FightIO(StubIO):
+    """The game screen as the dogfight sees it, scripted look by look."""
+    def __init__(self, looks):
+        super().__init__()
+        self.looks = list(looks)
+        self.shot = lambda label, keep=True: "pic"
+
+    def sleep(self, s):
+        self.t += s
+
+
+def fight_setup(monkeypatch, looks, counts=None):
+    st = trial.State()
+    st.air_keys = ["9", "0"]
+    st.fleet = [{"key": "9", "scouts": 10, "ha": (0, 0)},
+                {"key": "0", "scouts": 10, "ha": (0, 0)}]
+    io = FightIO(looks)
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    seq = iter(looks)
+    monkeypatch.setattr(trial, "sense_fight", lambda pic, guess, skip=(): next(seq))
+    monkeypatch.setattr(trial, "army_anchor", lambda w, pic, goal: None)
+    c = iter(counts or [])
+    monkeypatch.setattr(trial, "fleet_left",
+                        lambda io_, st_: next(c, 20))
+    monkeypatch.setattr(trial, "attack_move", lambda *a: None)
+    return st, io
+
+
+def test_the_dogfight_hops_round_the_enemy_with_holds_and_picked_targets(monkeypatch):
+    """Plan step 3: once most of the hit is sent, only the air: short
+    hops toward the edge of the enemy near the fleet, a Hold every third
+    hop, a click on the enemy every ninth order; done when no enemy has
+    been near for a while."""
+    m = trial.load_map()
+    cam = trial.centred(*trial.toward(trial.MASS, (4160, 2928), trial.AIR_LEAD))
+    fleet = trial.live.CENTRE
+    enemy = (fleet[0] + 9 * 72 // 2, fleet[1])          # about 4.5 tiles off
+    looks = [(fleet, [enemy])] * 18 + [(fleet, [])] * (trial.QUIET_END + 1)
+    st, io = fight_setup(monkeypatch, looks)
+    n = trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert n >= 15
+    rights = [c for c in io.clicks if c[2] == "right"]
+    assert io.keys.count("h") >= 2 * 4                  # Holds, on both keys
+    on_enemy = [c for c in rights if abs(c[0] - enemy[0]) < 3 and abs(c[1] - enemy[1]) < 3]
+    assert on_enemy                                     # a target picked
+    hops = [c for c in rights if c not in on_enemy]
+    assert all(fleet[0] < c[0] < enemy[0] for c in hops)   # toward, not into
+    assert st.air.state == "with the army"
+    assert any("dogfight:" in l and "no enemy left" in l for l in io.lines)
+
+
+def test_the_dogfight_steps_back_when_scouts_die_fast_and_goes_home_at_half(monkeypatch):
+    m = trial.load_map()
+    fleet = trial.live.CENTRE
+    enemy = (fleet[0] + 200, fleet[1])
+    looks = [(fleet, [enemy])] * 200
+    st, io = fight_setup(monkeypatch, looks, counts=[20, 16, 9])
+    trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert any("a step back" in l for l in io.lines)
+    assert any("half the Scouts lost" in l for l in io.lines)
+    assert st.air.state == "parked"
+
+
+def test_the_dogfight_ends_when_the_fleet_is_out_of_sight(monkeypatch):
+    m = trial.load_map()
+    st, io = fight_setup(monkeypatch, [(None, [])] * 10)
+    assert trial.dogfight(io, None, m, st, "Warsaw 200") == 0
+    assert any("out of sight" in l for l in io.lines)
+
+
+def test_a_lone_gold_light_or_one_on_our_buildings_is_not_the_fleet(monkeypatch):
+    """Trial 33 pictures: a walker's lights and our factories' lamps are
+    gold too. A fleet is three or more gold patches together, off our
+    buildings."""
+    monkeypatch.setattr(trial, "enemy_mask", lambda pic: None)
+    monkeypatch.setattr(trial, "patches", lambda m: [])
+    one = [(500, 300)]
+    many = [(500, 300), (540, 320), (520, 360)]
+    monkeypatch.setattr(trial, "gold_on_screen", lambda pic, x, y, r: list(one))
+    assert trial.sense_fight("pic", (500, 300))[0] is None
+    monkeypatch.setattr(trial, "gold_on_screen", lambda pic, x, y, r: list(many))
+    assert trial.sense_fight("pic", (500, 300))[0] is not None
+    assert trial.sense_fight("pic", (500, 300), skip=[(520, 330, 150)])[0] is None

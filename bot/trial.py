@@ -1654,6 +1654,9 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     # the fleet goes once most of the hit has been sent (the repository
     # owner), as one stack over the army's back
     orders += send_fleet_with_hit(io, mapdata, st, target)
+    if DOGFIGHT and own_fleet_keys(st):
+        # most of the hit is out: now only the air (the repository owner)
+        dogfight(io, watch, mapdata, st, target)
     st.hit_sent = io.now()
     st.hits_sent += 1
     st.go_pending = False
@@ -4758,6 +4761,218 @@ def air_upkeep(io, watch, mapdata, st):
     if where is not None:
         io.log(f"air: the fleet is near {place_name(mapdata, *where)}")
     return True
+
+
+# ------------------------------------------------- the dogfight (plan step 3)
+# Once most of a hit has been sent, the bot works only the air (the
+# repository owner: no taking turns with the ground). Built on the best
+# Russia player's bursts in the replays: short bursts of a few orders
+# 0.3 to 0.6 s apart, hops of 1 to 3 tiles round the edge of the enemy,
+# over our own army (their bursts were 3 to 6 tiles from the ground's
+# target), now and then Hold so the Scouts stop and shoot, and about one
+# click in nine on an enemy to pick the target. The Scouts are counted
+# every few seconds: losing them fast, the fleet steps back; losing half,
+# it goes home.
+DOGFIGHT = True                # the dogfight after each hit
+DOGFIGHT_TIME = 60             # seconds the bot works the air at most
+TICK = 0.35                    # seconds between orders within a burst
+BURST = 6                      # orders in a burst, then a short pause
+BURST_PAUSE = 1.0              # seconds of looking between bursts
+HOP = 2                        # tiles a hop goes toward the enemy
+STANDOFF = 3                   # tiles the Scouts keep from the nearest enemy
+ENGAGE = 9                     # tiles round the fleet where enemies are fought
+ANCHOR_REACH = 6               # tiles the fleet may go from over our army
+HOLD_EVERY = 3                 # every third hop, then Hold (they stop and shoot)
+TARGET_EVERY = 9               # every ninth order, a click on the enemy
+COUNT_EVERY = 4                # seconds between counts of the Scouts
+LOSING_FAST = 3                # Scouts lost between counts: step back
+LOSING_HALF = 0.5              # share of the Scouts left: the fight is lost
+QUIET_END = 6                  # looks with no enemy, once it has fought: done
+LOST_SIGHT = 4                 # looks without seeing the fleet: done
+ENEMY_LEAST = 20               # enemy-colour pixels that make one enemy patch
+FLEET_SEEN = 3                 # gold patches together that make the fleet
+OWN_GOLD = 150                 # screen pixels round our buildings: their lamps
+
+
+def own_buildings_on_screen(cam, reach=OWN_GOLD):
+    """Our buildings' screen circles for a camera: their gold and red
+    lamps are neither Scouts nor enemy."""
+    global _own_buildings
+    if _own_buildings is None:
+        side = load_map()["slots"][SLOT]
+        _own_buildings = [(b["x"], b["y"]) for b in side["buildings"]] + \
+            [tuple(p) for p in side["structures"]]
+    return [(*live.on_screen(x, y, cam), reach) for x, y in _own_buildings]
+
+
+def sense_fight(picture, fleet_guess, skip=()):
+    """On the screen: where the fleet is (the middle of the gold Scouts
+    near where it should be), and the enemy patches (their middles).
+    Screen points; the fleet None if no Scout is seen. Anything inside
+    the `skip` circles (our buildings) is left out."""
+    def free(p):
+        return all((p[0] - x) ** 2 + (p[1] - y) ** 2 > r * r for x, y, r in skip)
+    gold = [p for p in gold_on_screen(picture, fleet_guess[0], fleet_guess[1], 700)
+            if free(p)]
+    fleet = None
+    for g in gold:
+        # a fleet is several Scouts together; one gold patch alone may be
+        # a walker's lights or a building's lamps (trial 33 pictures)
+        near_ = [p for p in gold if (p[0] - g[0]) ** 2
+                 + (p[1] - g[1]) ** 2 <= 250 ** 2]
+        if len(near_) >= FLEET_SEEN:
+            fleet = (sum(p[0] for p in near_) / len(near_),
+                     sum(p[1] for p in near_) / len(near_))
+            break
+    enemies = [(x, y) for n, x, y in patches(enemy_mask(picture))
+               if n >= ENEMY_LEAST and free((x, y))]
+    return fleet, enemies
+
+
+def army_anchor(watch, picture, target):
+    """Over our own army: the middle of our units nearest the target,
+    on the minimap (map point), or None."""
+    ours = forward_units(watch.units(picture), load_map()) if watch else set()
+    if not ours:
+        return None
+    tc, tr = live.to_drawn(*target)
+    lead = min(ours, key=lambda p: (p[0] - tc) ** 2 + (p[1] - tr) ** 2)
+    front = [p for p in ours if abs(p[0] - lead[0]) + abs(p[1] - lead[1]) <= 8]
+    return middle(front)
+
+
+def clamp_to(point, centre, reach):
+    """A map point kept within `reach` tiles of centre."""
+    dx, dy = point[0] - centre[0], point[1] - centre[1]
+    d = (dx * dx + dy * dy) ** 0.5
+    if d <= reach * 32:
+        return point
+    k = reach * 32 / d
+    return (centre[0] + dx * k, centre[1] + dy * k)
+
+
+def order_fleet(io, st, screen_point, hold=False):
+    """Every fleet key: a right-click there (a move, or an attack if on
+    an enemy), then Hold if asked."""
+    l, t, r, b = live.GAME_AREA
+    x = min(max(int(screen_point[0]), l + 30), r - 30)
+    y = min(max(int(screen_point[1]), t + 30), b - 30)
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.02)
+        io.click(x, y, button="right")
+        if hold:
+            io.sleep(0.12)
+            io.key("h")
+    io.sleep(0.02)
+
+
+def dogfight(io, watch, mapdata, st, target):
+    """Work the air alone, once most of the hit has been sent: the
+    camera on the fleet, short bursts of hops round the edge of the
+    enemy near it, kept over our own army; the Scouts counted every few
+    seconds. Ends when the fight is over (no enemy for a while), the
+    fleet is lost from sight, half the Scouts are gone, or after
+    DOGFIGHT_TIME seconds. Returns how many orders it gave."""
+    if not st.air_keys:
+        return 0
+    w = place(mapdata, target)
+    goal = (w["x"], w["y"])
+    a = air_stats(io, st)
+    fleet_xy = a.target or toward(MASS, goal, AIR_LEAD)
+    set_air_state(io, st, "fighting", f"dogfight on the way to {target}",
+                  target=fleet_xy)
+    start = io.now()
+    first = fleet_left(io, st) or 0
+    last_count, last_n = io.now(), first
+    orders = hops = burst = quiet = unseen = 0
+    fought = False
+    why = "time is up"
+    while io.now() - start < DOGFIGHT_TIME:
+        cam = look_at(io, *centred(*fleet_xy), wait=0.1)
+        pic = io.shot("dogfight", keep=False)
+        if pic is None:
+            break
+        guess = live.on_screen(fleet_xy[0], fleet_xy[1], cam)
+        fleet, enemies = sense_fight(pic, guess, own_buildings_on_screen(cam))
+        if fleet is None:
+            unseen += 1
+            if unseen >= LOST_SIGHT:
+                why = "the fleet is out of sight"
+                break
+            io.sleep(TICK)
+            continue
+        unseen = 0
+        fleet_xy = screen_to_map(fleet[0], fleet[1], cam)
+        anchor = army_anchor(watch, pic, goal) or fleet_xy
+        # the Scouts counted every few seconds
+        if io.now() - last_count >= COUNT_EVERY:
+            n = fleet_left(io, st)
+            last_count = io.now()
+            if n is not None:
+                if first and n <= first * LOSING_HALF:
+                    why = f"half the Scouts lost ({n} of {first} left)"
+                    st.fleet_task = None
+                    park_fleet(io, st, "dogfight lost")
+                    io.log(f"dogfight: {why}: the fleet goes home")
+                    return orders
+                if last_n - n >= LOSING_FAST:
+                    back = toward(fleet_xy, MASS, HOP * 2)
+                    order_fleet(io, st, live.on_screen(back[0], back[1], cam))
+                    orders += 1
+                    io.log(f"dogfight: {last_n - n} Scouts lost in "
+                           f"{COUNT_EVERY} s: a step back")
+                    io.sleep(BURST_PAUSE)
+                last_n = n
+        reach = ENGAGE * 32 * live.ZOOM
+        close = sorted((e for e in enemies
+                        if (e[0] - fleet[0]) ** 2 + (e[1] - fleet[1]) ** 2
+                        <= reach ** 2),
+                       key=lambda e: (e[0] - fleet[0]) ** 2 + (e[1] - fleet[1]) ** 2)
+        if not close:
+            quiet += 1
+            if fought and quiet >= QUIET_END:
+                why = "no enemy left near the fleet"
+                break
+            # nothing near: on with the army, a few tiles over its front
+            ahead = clamp_to(toward(anchor, goal, 3), anchor, ANCHOR_REACH)
+            if hops % 3 == 0:
+                for key in st.air_keys:
+                    io.key(key)
+                    io.sleep(0.02)
+                    attack_move(io, *ahead)
+                orders += 1
+            hops += 1
+            io.sleep(BURST_PAUSE)
+            continue
+        fought, quiet = True, 0
+        e = close[0]
+        e_xy = screen_to_map(e[0], e[1], cam)
+        dist = ((e_xy[0] - fleet_xy[0]) ** 2 + (e_xy[1] - fleet_xy[1]) ** 2) ** 0.5 / 32
+        orders += 1
+        if orders % TARGET_EVERY == 0:
+            order_fleet(io, st, e)          # pick the target: a click on it
+        else:
+            if dist < STANDOFF:             # too close: a hop back
+                spot = toward(fleet_xy, anchor if anchor != fleet_xy else MASS,
+                              HOP)
+            else:                           # to the edge of the enemy
+                spot = toward(fleet_xy, e_xy, min(HOP, dist - STANDOFF))
+            spot = clamp_to(spot, anchor, ANCHOR_REACH)
+            hops += 1
+            order_fleet(io, st, live.on_screen(spot[0], spot[1], cam),
+                        hold=hops % HOLD_EVERY == 0)
+        burst += 1
+        if burst >= BURST:
+            burst = 0
+            io.sleep(BURST_PAUSE)           # a look between bursts
+        else:
+            io.sleep(TICK)
+    set_air_state(io, st, "with the army", f"dogfight over: {why}",
+                  target=fleet_xy)
+    io.log(f"dogfight: {orders} orders in {io.now() - start:.0f} s "
+           f"({why})")
+    return orders
 
 
 class AirCounting:
