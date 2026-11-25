@@ -626,7 +626,7 @@ class ChatEars:
             view.save(out, format="PNG")
             data = base64.standard_b64encode(out.getvalue()).decode("ascii")
             response = self.client.messages.create(
-                model=self.model, max_tokens=400,
+                model=self.model, max_tokens=1000,
                 system=AIR_SYSTEM,
                 output_config={"format": {"type": "json_schema",
                                           "schema": AIR_SCHEMA}},

@@ -186,6 +186,7 @@ class State:
         self.flights_cities = set() # cities a FLIGHTS building has gone to
         self.f7_told = None
         self.idle_orders = {}      # idle body spot -> times it was ordered
+        self.idle_stuck = {}       # idle body spot -> when it was given up on
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
         self.tax_jobs = {}         # "@R tax <city>": city -> its one try
@@ -610,6 +611,32 @@ def trim_selection(io, keep):
     return n
 
 
+FLEET_RECOUNT = 60             # seconds between counts of what is on the keys
+
+
+def recount_fleet(io, st):
+    """Count the Scouts left on each fleet key (pressing it; the Heavy
+    Artillery not counted), so lost Scouts make room. True if a key
+    turned out to have room. Selects the keys: callers select again."""
+    if io.now() - getattr(st, "fleet_counted", -1e9) < FLEET_RECOUNT:
+        return False
+    st.fleet_counted = io.now()
+    found = False
+    for e in st.fleet:
+        io.key(e["key"])
+        io.sleep(0.06)
+        pic = io.shot("fleet-count", keep=False)
+        if pic is None:
+            continue
+        n = max(0, live.selected_count(pic) - 1)
+        if n < e["scouts"]:
+            io.log(f"fleet: key {e['key']} has {n} Scouts left, not "
+                   f"{e['scouts']}")
+            e["scouts"] = n
+        found = found or n < FLEET_SIZE
+    return found
+
+
 def key_with_room(st, n):
     """The first fleet key with room for n more Scouts, or None."""
     for e in st.fleet:
@@ -644,6 +671,15 @@ def add_selected_scouts(io, st, reselect):
             entry = max(st.fleet, key=lambda e: FLEET_SIZE - e["scouts"],
                         default=None)
     room = FLEET_SIZE - entry["scouts"] if entry else 0
+    if room <= 0 and recount_fleet(io, st):
+        # trial 33: "every fleet key is full" for the last half of the
+        # game, the keys' Scouts long dead; counted again, room is found
+        n = reselect()
+        if n == 0 or not picked_are_scouts(io, st, n):
+            return 0
+        entry = key_with_room(st, min(n, FLEET_SIZE)) or \
+            max(st.fleet, key=lambda e: FLEET_SIZE - e["scouts"])
+        room = FLEET_SIZE - entry["scouts"]
     if room <= 0:
         io.log("fleet: every fleet key is full")
         return 0
@@ -1823,7 +1859,7 @@ def guarding(st, mapdata, pixels, now):
     return out
 
 
-def send_guard(io, watch, mapdata, st, name, picture):
+def send_guard(io, watch, mapdata, st, name, picture, why=""):
     """A detachment of twelve from the massing place (or the nearest
     idle troops) to clear and hold a tax city."""
     city = place(mapdata, name)
@@ -1845,8 +1881,8 @@ def send_guard(io, watch, mapdata, st, name, picture):
         return False
     attack_move(io, city["x"], city["y"])
     st.guards[name] = io.now()
-    io.log(f"tax: enemies near {name}: a detachment of {n} sent to "
-           f"secure it")
+    io.log(f"tax: a detachment of {n} sent to {name} "
+           + (why or "to secure it from the enemies there"))
     return n
 
 
@@ -1864,12 +1900,24 @@ def select_building(io, b):
     return pick_building(io, b)
 
 
-SCV_WAIT = (0, 4)              # tiles from the command centre where a new
+SCV_WAIT = (0, 3)              # tiles from the command centre where a new
                                # SCV waits for its depot order
+SUPPLY_WAIT = 180              # seconds an SCV waits for room in supply
 SCV_RECHECK = 8                # real seconds before the SCV is looked for again
 SCV_LOOKS = 2                  # looks for it before the try is given up
                                # (the repository owner, trial 31)
-SCV_PICK = [(0, 0), (20, 0), (-20, 0), (0, 20), (0, -20), (30, 30), (-30, 30)]
+SCV_PICK = [(0, 0), (20, 0), (-20, 0), (0, 20), (0, -20), (30, 30), (-30, 30),
+            (30, -30), (-30, -30), (45, 0), (-45, 0), (0, 45), (0, -45)]
+
+
+def supply_full(io):
+    """True when the supply display reads full (no SCV can be made)."""
+    shot = getattr(io, "shot", None)
+    pic = shot("supply", keep=False) if shot else None
+    if pic is None:
+        return False
+    supply = numbers.read_supply(pic)
+    return bool(supply) and supply[0] >= supply[1]
 
 
 def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
@@ -1887,8 +1935,21 @@ def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
         cx, cy = TAX_LAND[name][0] * 32 + 32, TAX_LAND[name][1] * 32 + 32
     job = st.depots.get(name)
     now = io.now()
+    if job is not None and job["stage"] == "supply":
+        if now - job["since"] > SUPPLY_WAIT:
+            del st.depots[name]         # never room: the try is over
+            io.log(f"tax: supply stayed full; no SCV for {name}")
+            return 0
+        if supply_full(io):
+            return 0                    # still full: wait (a hit frees it)
+        del st.depots[name]
+        job = None
     if job is None:
         if st.depot_tries.get(name, 0) >= DEPOT_TRIES:
+            return 0
+        if supply_full(io):             # full: no SCV can be made
+            st.depots[name] = {"stage": "supply", "since": now}
+            io.log(f"tax: supply is full: {name}'s SCV waits for room")
             return 0
         tile = cc_tile or min(COMMAND_CENTRES, key=lambda t: (t[0] * 32 - cx) ** 2
                               + (t[1] * 32 - cy) ** 2)
@@ -1901,12 +1962,22 @@ def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
             return 0
         io.key("s")                     # build an SCV
         io.sleep(0.1)
+        # its rally point set on the screen, by the centre, with the same
+        # camera it is picked with later (trial 33: set on the minimap, it
+        # stood a tile or two off and was not found twice)
         wx, wy = b["x"] + SCV_WAIT[0] * 32, b["y"] + SCV_WAIT[1] * 32
-        io.click(*live.minimap_point(wx, wy), button="right")   # waits there
+        cam = look_at(io, b["x"], b["y"], wait=0.2)
+        sx, sy = live.on_screen(wx, wy, cam)
+        l, t, r, btm = live.GAME_AREA
+        if l + 40 < sx < r - 40 and t + 40 < sy < btm - 40:
+            io.click(sx, sy, button="right")
+        else:
+            io.click(*live.minimap_point(wx, wy), button="right")
         io.sleep(0.1)
         walk = ((b["x"] - cx) ** 2 + (b["y"] - cy) ** 2) ** 0.5 / 32 / SCV_SPEED
         st.depots[name] = {"stage": "training", "due": now + SCV_TRAIN + 2,
-                           "wait": (wx, wy), "walk": walk, "looks": 0}
+                           "wait": (wx, wy), "look": (b["x"], b["y"]),
+                           "walk": walk, "looks": 0}
         io.log(f"tax: no factory or starport left: an SCV is being made for "
                f"a depot at {name}; it is ordered there once it is out")
         return 1
@@ -1931,7 +2002,7 @@ def depot_by_order(io, mapdata, st, name, cx, cy, job, then_home=True):
     otherwise the next spot is tried."""
     now = io.now()
     wx, wy = job["wait"]
-    cam = look_at(io, *centred(wx, wy), wait=0.2)
+    cam = look_at(io, *job.get("look", centred(wx, wy)), wait=0.2)
     sx, sy = live.on_screen(wx, wy, cam)
     picked = False
     for dx, dy in SCV_PICK:             # the SCV alone, by a click
@@ -2177,7 +2248,8 @@ def tax_rounds(io, watch, mapdata, st, picture):
             continue                    # an ally's "@R tax" sees to it
         city = place(mapdata, name)
         cx, cy = city["x"], city["y"]
-        if st.depots.get(name, {}).get("stage") in ("training", "building"):
+        if st.depots.get(name, {}).get("stage") in ("supply", "training",
+                                                     "building"):
             sent += depot_at(io, watch, mapdata, st, name, ours)
             continue                    # an SCV is seeing to it
         # (our troops standing there do not tax it: a building must
@@ -2427,6 +2499,9 @@ class Battle:
 GATHER_LEAST = 3               # minimap pixels: a body this big is worth fetching
 GATHER_PER_PASS = 8            # bodies ordered to the mass in one pass at most
 STUCK_AFTER = 3                # orders to one body that never moves, then leave it
+STUCK_FORGET = 150             # seconds before such a spot is tried again: new
+                               # troops appear at the factories every round
+                               # (trial 33: their tanks and men never came)
 SHRANK = 2                     # minimap pixels a body must lose to have moved
 
 
@@ -2670,6 +2745,9 @@ def gather_idle(io, watch, mapdata, st, tried):
             # it got smaller since the last order: men are leaving it, a
             # dozen at a time (a big spawn takes many orders: trial 23)
             st.idle_orders[key] = 0
+        if st.idle_orders.get(key, 0) >= STUCK_AFTER and \
+                io.now() - st.idle_stuck.get(key, -1e9) > STUCK_FORGET:
+            st.idle_orders[key] = 0     # long enough: tried afresh
         st.idle_orders[key] = st.idle_orders.get(key, 0) + 1
         if st.idle_orders[key] > STUCK_AFTER:
             continue                    # ordered three times and never moved
@@ -2682,6 +2760,7 @@ def gather_idle(io, watch, mapdata, st, tried):
             orders += 1
             st.walking.append((io.now(), (cx, cy)))
             if st.idle_orders[key] == STUCK_AFTER:
+                st.idle_stuck[key] = io.now()
                 # it has not moved for two orders: keep a picture of it
                 # (to learn what it is) and leave it be from now on
                 x, y = live.from_drawn(cx, cy)
@@ -4451,32 +4530,37 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
     hostile = watch.others(picture, HOSTILE)
     if job["guard"]:
         st.guards[name] = io.now()      # the detachment stays, not gathered
-    if job["stage"] == "secure":
-        enemies = len(near(hostile, xy, TAX_ENEMY))
-        if enemies < ORDER_TAX_CLEAR:
-            job["stage"] = "depot"      # no enemy there: clear, on to the
-            release_guard(io, watch, mapdata, st, job)   # depot; no guard
-            return                      # needed while the SCV comes
-        elif enemies > TAX_HEAVY and not job["guard"]:
+    if job["stage"] in ("secure", "held"):
+        if io.now() - job.get("looked", -1e9) < CITY_LOOK_EVERY:
+            return
+        job["looked"] = io.now()
+        state, enemies = look_city(io, mapdata, name, ours, hostile)
+        if state == "clear":
+            # seen, and no enemy there: the SCV comes at once, and the
+            # detachment (if any) goes back (the repository owner)
+            job["stage"], job["since"] = "depot", io.now()
+            release_guard(io, watch, mapdata, st, job)
+            io.log(f"tax order: {name} seen clear: on to the depot")
+            return
+        if job["stage"] == "held":
+            # trial 32: Warsaw held in strength; it waits for a hit
+            if io.now() - job["since"] > ORDER_TAX_HELD:
+                return tax_order_end(io, watch, mapdata, st, job, ok=False)
+            return
+        if enemies > TAX_HEAVY and not job["guard"]:
             hold_tax(io, st, job, name, enemies)   # too strong for a few men
         elif not job["guard"]:
-            n = send_guard(io, watch, mapdata, st, name, picture)
-            if n and n < ORDER_TAX_LEAST:
+            # not seen (no one of ours there), or a few enemy: a
+            # detachment goes to look and to clear it
+            n = send_guard(io, watch, mapdata, st, name, picture,
+                           why="to look" if state == "unseen" else "")
+            if n and n < ORDER_TAX_LEAST and state != "unseen":
                 hold_tax(io, st, job, name, enemies, sent=n)
             elif n:
                 job["guard"] = True
+                job["since"] = io.now()     # its time counts from now
                 st.guards[name] = io.now()
         elif io.now() - job["since"] > ORDER_TAX_SECURE:
-            return tax_order_end(io, watch, mapdata, st, job, ok=False)
-        return
-    if job["stage"] == "held":
-        # trial 32: Warsaw held in strength; 7 men were sent and lost.
-        # Now it waits for a hit (or the Axis leaving) to clear it.
-        enemies = len(near(hostile, xy, TAX_ENEMY))
-        if enemies < ORDER_TAX_CLEAR:
-            job["stage"], job["since"] = "depot", io.now()
-            io.log(f"tax order: {name} is clear now: on to the depot")
-        elif io.now() - job["since"] > ORDER_TAX_HELD:
             return tax_order_end(io, watch, mapdata, st, job, ok=False)
         return
     if job["stage"] == "depot":
@@ -4509,6 +4593,32 @@ def release_guard(io, watch, mapdata, st, job):
         if len(group) >= 2 and select_group(io, group, st, watch, margin=45):
             attack_move(io, *back)
     st.guards.pop(name, None)
+
+
+CITY_LOOK_EVERY = 6            # seconds between looks at a city being taxed
+CITY_LOOK = 8                  # tiles round the beacon looked at on the screen
+
+
+def look_city(io, mapdata, name, ours, hostile):
+    """Is the city clear? "clear" when something of ours is there to see
+    it and neither the minimap nor a look at the screen shows any enemy;
+    "enemy" when enemies are known there; "unseen" when nothing of ours
+    sees it (the minimap does not show enemies in the fog). Also the
+    number of enemy minimap pixels there."""
+    city = place(mapdata, name)
+    xy = (city["x"], city["y"])
+    mm = len(near(hostile, xy, TAX_ENEMY))
+    if mm >= ORDER_TAX_CLEAR:
+        return "enemy", mm
+    if not near(ours, xy, TAX_ENEMY):
+        return "unseen", 0
+    cam = look_at(io, *centred(*xy), wait=0.2)
+    pic = io.shot("city-" + name.split()[0], keep=False)
+    if pic is None:
+        return "unseen", 0
+    sx, sy = live.on_screen(xy[0], xy[1], cam)
+    e = enemy_on_screen(pic, sx, sy, CITY_LOOK * 32 * live.ZOOM)
+    return ("clear", 0) if e == 0 else ("enemy", max(e, ORDER_TAX_CLEAR))
 
 
 def hold_tax(io, st, job, name, enemies, sent=0):

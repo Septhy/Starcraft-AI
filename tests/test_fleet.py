@@ -477,3 +477,22 @@ def test_back_first_version_sends_seven_groups_from_the_back_before_the_keys(mon
     assert calls[0] == ("sweep", trial.BACK_FORMATIONS, False)   # the back first
     assert calls[1] == ("keys",)
     assert trial.keys_style()
+
+
+def test_full_fleet_keys_are_counted_again_and_lost_scouts_make_room(monkeypatch):
+    """Trial 33: "every fleet key is full" for half the game, its Scouts
+    long dead, and the factories' new Scouts never went on a key."""
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": k, "scouts": trial.FLEET_SIZE, "ha": (0, 0)}
+                for k in "9087"]
+    counts = {"9": 12, "0": 3, "8": 12, "7": 12}    # key 0: 2 Scouts left
+    io.shot = lambda label, keep=True: label
+    pressed = []
+    io.key = lambda k: pressed.append(k)
+    monkeypatch.setattr(trial.live, "selected_count",
+                        lambda pic: counts[pressed[-1]] if pic == "fleet-count" else 2)
+    monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
+    monkeypatch.setattr(trial, "attack_move", lambda *a: None)
+    n = trial.add_selected_scouts(io, st, lambda: 2)
+    assert n == 2
+    assert st.fleet[1]["scouts"] == 2 + 2 and st.last_added_key == "0"

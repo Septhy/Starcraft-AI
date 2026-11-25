@@ -1197,3 +1197,27 @@ def test_our_own_buildings_red_lamps_are_not_counted_as_enemy():
     pic2.paste((150, 10, 10), (800, 400, 830, 430))         # blood
     pic2.paste((230, 200, 40), (900, 400, 930, 430))        # a gold Scout
     assert trial.enemy_on_screen(pic2, 900, 400, 400) == 0
+
+
+def test_a_stuck_spot_is_tried_again_later(monkeypatch):
+    """Trial 33: once a spot by a factory was "stuck", the tanks and men
+    the factory made there every round were never brought to the mass."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    f = trial.place(m, "Factory 1")
+    body = blob((f["x"] + 20 * 32, f["y"] + 20 * 32), 3)
+    watch = StubWatch(body, set())
+    sent = []
+    monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
+    monkeypatch.setattr(trial, "to_mass", lambda *a, **k: sent.append(1))
+    monkeypatch.setattr(trial, "reinforce_target", lambda io_, st_: None)
+    monkeypatch.setattr(trial, "scout_spots", lambda *a: set())
+    tried = {}
+    for _ in range(trial.STUCK_AFTER + 2):
+        io.t += trial.RETRY_IDLE + 1
+        trial.gather_idle(io, watch, m, st, tried)
+    assert len(sent) == trial.STUCK_AFTER           # then left alone
+    io.t += trial.STUCK_FORGET + 1
+    trial.gather_idle(io, watch, m, st, tried)
+    assert len(sent) == trial.STUCK_AFTER + 1       # tried afresh

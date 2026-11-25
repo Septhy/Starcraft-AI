@@ -1359,3 +1359,24 @@ second hit (the demo only shows how).
 - The repository owner: a tax city is clear when no enemy is there at
   all; the detachment then walks back at once, it need not stay while
   the SCV comes.
+
+## Trial 33
+
+- Right build; "@R commands" and "@R bring air" worked.
+- Tax orders: an SCV was never found by the command centre (Serbia,
+  Krakow): its rally point was set on the minimap, a tile or two off the
+  spot then looked at. Now it is set on the screen, and picked with the
+  same view; supply full makes it wait (up to 3 minutes) instead.
+- "@R tax romania" waited out a hit, sent its men 105 s later and gave
+  up 22 s after: the detachment's time now counts from when it is sent.
+- The repository owner: a city Russia can see (something of ours there)
+  is looked at on the screen; no enemy, and the SCV comes at once with
+  no detachment. Only a city no one of ours sees gets a detachment, to
+  look.
+- Ground troops not brought to the mass: once a spot by a factory had
+  been "stuck", it was left alone all game, though the factories make
+  tanks and men there every round. A stuck spot is now tried again
+  after 150 s.
+- Scouts: "every fleet key is full" from 20 minutes on: the count of
+  Scouts per key never went down when they died. Now the keys are
+  counted again when they look full.
