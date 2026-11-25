@@ -16,7 +16,8 @@ WINDOWS = [
 
 VIDEO = {
     "display_mode": "Windowed (Fullscreen)",
-    "gamma": (5, 8),             # the 6th notch of 8, from min
+    "gamma": (0.79, 7),          # between notches: 79% of the way to max,
+                                 # just short of the 6th of 7 notches
     "fps_cap": False,            # its slider is left at 300
     "sd_filter": (0, 4),         # Sharp
     "boxes": [("Enable Vertical Sync", False), ("HD Graphics", True),
@@ -90,14 +91,20 @@ def checkbox(x, y, label, on):
 
 
 def slider(x0, x1, y, picked, notches, line, pick):
+    """A slider with its notches; `picked` is a notch's number, or a
+    share of the way from left to right (0.0 to 1.0) for a knob that
+    sits between notches."""
     out = [("line", x0, y, x1, y, line, 3)]
+    if isinstance(picked, float):
+        at, picked = x0 + (x1 - x0) * picked, None
     for k in range(notches):
         x = x0 + (x1 - x0) * k / (notches - 1)
         if k == picked:
-            out.append(("oval", x - 10, y - 10, x + 10, y + 10, pick, BLACK))
-            out.append(("oval", x - 5, y - 5, x + 5, y + 5, pick, pick))
+            at = x
         else:
             out.append(("oval", x - 7, y - 7, x + 7, y + 7, DIM, BLACK))
+    out.append(("oval", at - 10, y - 10, at + 10, y + 10, pick, BLACK))
+    out.append(("oval", at - 5, y - 5, at + 5, y + 5, pick, pick))
     return out
 
 
