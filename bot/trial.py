@@ -187,9 +187,11 @@ class State:
         self.idle_orders = {}      # idle body spot -> times it was ordered
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
-        self.tax_job = None        # "@R tax <city>": the one try at it
+        self.tax_jobs = {}         # "@R tax <city>": city -> its one try
         self.upgrade_wanted = set()  # "@R upgrade": the upgrades still to start
         self.upgrade_level = {"weapons": 0, "armor": 0}
+        self.upgrade_next = {}     # upgrade -> when its next level may start
+        self.upgrades_done = False # 3/3 both: the bays are left alone
         self.last_upgrade_look = -1e9
         self.krakow_landed = False # Krakow's building is on the ground
         self.land_tries = 0
@@ -218,6 +220,7 @@ class State:
         self.moscow_done = set()   # the Moscow air spawns already fetched
         self.fleet_checks = 0
         self.fleet_task = None     # bring air: the ally the fleet is with
+        self.air_ping = None       # bring air: waiting for an ally's ping
         self.watch = None
         self.old_mass = None       # the massing place just left: its army moves
         self.strength_log = []     # (game clock, men for the next hit)
@@ -460,6 +463,16 @@ def train_everywhere(io, mapdata, st, check_supply=True):
     """Queue marines at the barracks, but only as many as the supply
     limit has room for. At the limit, nothing is queued at all."""
     room = room_for_marines(io) if check_supply else None
+    keep = tax_reserve(st)
+    if keep:
+        money = numbers.read_minerals(io.shot("money", keep=False))
+        if money is not None:
+            can = max(0, (money - keep) // MARINE_PRICE)
+            room = can if room is None else min(room, can)
+            if can < 3:
+                io.log(f"marines wait: {keep} minerals kept for the tax "
+                       f"the allies asked for")
+                return 0
     if room is not None and room < 3:
         if not st.capped:
             io.log("supply is at its limit: not training")
@@ -2174,7 +2187,7 @@ def tax_rounds(io, watch, mapdata, st, picture):
     for name in TAX_CITIES:
         if name != "Factory 7" and not due:
             continue
-        if st.tax_job is not None and st.tax_job["city"] == name:
+        if name in st.tax_jobs:
             continue                    # an ally's "@R tax" sees to it
         city = place(mapdata, name)
         cx, cy = city["x"], city["y"]
@@ -3956,11 +3969,21 @@ def follow_ally_air(io, watch, mapdata, st):
     air again; if it has moved, take the fleet after it by the safe way,
     else attack-move it on the same spot. Called from the massing loops,
     so the massing goes on in between."""
+    ping_step(io, watch, mapdata, st)
     task = st.fleet_task
     if task is None or io.now() - task["checked"] < ALLY_AIR_CHECK:
         return False
     task["checked"] = io.now()
     task["checks"] = task.get("checks", 0) + 1
+    if fleet_left(io, st) == 0:
+        # the planes are gone: no more following, back to the mass cycle
+        st.fleet_task = None
+        st.air_home = True
+        say(io, st, "my air is gone", force=True)
+        io.log("bring air: the fleet has been lost")
+        return False
+    if task.get("mode") == "attack":
+        return attack_ping_step(io, watch, mapdata, st, task)
     where = find_ally_air(io, watch, task["colour"], st, last=task["spot"],
                           recount=task["checks"] % ALLY_AIR_RECOUNT == 0)
     if where is None:
@@ -3985,29 +4008,129 @@ def follow_ally_air(io, watch, mapdata, st):
     return True
 
 
+# "@R bring air" (the repository owner): Russia asks for a ping on the
+# map. At a yellow ping it looks at the ground there: the allies' air
+# there, it follows it, attacking what is near, by a safe way; mostly
+# enemy there, it attacks them, and brings the air back once the place
+# is clear; nothing, it says it cannot find their air. Lost planes are
+# no longer followed or checked on; the mass cycle goes on throughout.
+PING_WAIT = 10                 # seconds to wait for the ping (the repository
+                               # owner: then "can't find ping")
+PING_LEAST = 4                 # new yellow minimap pixels that make a ping
+PING_ALLY_AIR = 2              # allied planes there that mean "follow them"
+PING_ENEMY = 4                 # enemy there that mean "attack them"
+PING_CLEAR = 1                 # enemy left there: cleared
+PING_LOOK = 10                 # tiles round the ping looked at on the screen
+
+
+def yellow_on_minimap(picture):
+    """The drawn minimap's bright yellow pixels (Spain's colour, and a
+    ping)."""
+    import numpy as np
+    d = live.DRAWN
+    a = np.asarray(picture.convert("RGB")).astype(int)[
+        d["top"]:d["top"] + d["height"], d["left"]:d["left"] + d["width"]]
+    ys, xs = np.nonzero((a[..., 0] > 200) & (a[..., 1] > 200) & (a[..., 2] < 120))
+    return set(zip(xs.tolist(), ys.tolist()))
+
+
+def watch_for_ping(st, picture):
+    """Called on every look while a ping is awaited: yellow on the
+    minimap that was not there when Russia asked is the ping."""
+    ask = st.air_ping
+    if ask is None or ask.get("at") is not None or picture is None:
+        return
+    yellow = yellow_on_minimap(picture)
+    new = {p for p in yellow if not any((p[0] + i, p[1] + j) in ask["base"]
+                                        for i in (-1, 0, 1) for j in (-1, 0, 1))}
+    groups = [g for g in live.clusters(new, 10, 10) if len(g) >= PING_LEAST]
+    if groups:
+        ask["at"] = middle(max(groups, key=len))
+
+
+def fleet_left(io, st):
+    """How many planes are left on the fleet keys (each key's Heavy
+    Artillery not counted); None if it cannot be told."""
+    left, read = 0, False
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.06)
+        pic = io.shot("fleet-count", keep=False)
+        if pic is None:
+            return None
+        read = True
+        left += max(0, live.selected_count(pic) - 1)
+    return left if read else None
+
+
 def bring_air(io, watch, mapdata, st, colour):
-    """"@R bring air": the whole fleet, by attack-move along a safe way,
-    to where that ally's air is thickest. It stays with them, through
-    Russia's own hits, until an ally says "@R return air" (or asks for it
-    again elsewhere)."""
+    """"@R bring air": ask for a ping, and act on it (ping_step)."""
     if not st.air_keys:
         say(io, st, "I have no air", force=True)
         return False
-    where = find_ally_air(io, watch, colour, st)
-    if where is None:
-        say(io, st, "I can't find your air", force=True)
-        io.log(f"bring air: no {colour} air found")
-        return False
+    pic = io.shot("ping-ask", keep=False)
+    st.air_ping = {"colour": colour, "since": io.now(), "at": None,
+                   "base": yellow_on_minimap(pic) if pic is not None else set()}
+    say(io, st, "ping the map", force=True)
+    io.log(f"bring air: {colour} asked; waiting for a ping")
+    return True
+
+
+def ping_step(io, watch, mapdata, st):
+    """Once the ping is seen, look at the ground there and decide."""
+    ask = st.air_ping
+    if ask is None:
+        return
+    if ask.get("at") is None:
+        if io.now() - ask["since"] > PING_WAIT:
+            st.air_ping = None
+            say(io, st, "can't find ping", force=True)
+        return
+    st.air_ping = None
+    at, colour = ask["at"], ask["colour"]
+    cam = look_at(io, *centred(*at), wait=0.3)
+    pic = io.shot("ping")
+    sx, sy = live.on_screen(at[0], at[1], cam)
+    allies = count_ally_air(io, st, pic, colour) if pic is not None else None
+    enemies = enemy_on_screen(pic, sx, sy, PING_LOOK * 32 * live.ZOOM) \
+        if pic is not None else 0
+    io.log(f"bring air: ping near {place_name(mapdata, *at)}: "
+           f"{allies if allies is not None else '?'} {colour} planes, "
+           f"about {enemies} enemy")
     start = fleet_spot() if st.air_home or not st.battle or \
         not st.battle.front else st.battle.front
-    stops = send_fleet(io, watch, st, start, where)
-    st.fleet_task = {"colour": colour, "spot": where, "since": io.now(),
-                     "checked": io.now()}
-    st.air_home = False
-    say(io, st, "air on its way to you", force=True)
-    io.log(f"bring air: the fleet sent to the {colour} air near "
-           f"{place_name(mapdata, *where)}, {len(stops)} stops")
-    return True
+    if allies is not None and allies >= PING_ALLY_AIR:
+        send_fleet(io, watch, st, start, at)       # by the safe way
+        st.fleet_task = {"colour": colour, "spot": at, "since": io.now(),
+                         "checked": io.now(), "mode": "follow"}
+        st.air_home = False
+        say(io, st, "following your air", force=True)
+        return
+    if enemies >= PING_ENEMY:
+        send_fleet(io, watch, st, start, at)       # attack-move, safe way
+        st.fleet_task = {"colour": colour, "spot": at, "since": io.now(),
+                         "checked": io.now(), "mode": "attack"}
+        st.air_home = False
+        say(io, st, "attacking at your ping", force=True)
+        return
+    say(io, st, "I can't find your air", force=True)
+
+
+def attack_ping_step(io, watch, mapdata, st, task):
+    """The fleet attacking at a ping: once the place is clear, back it
+    comes and the mass cycle has it again."""
+    at = task["spot"]
+    cam = look_at(io, *centred(*at), wait=0.2)
+    pic = io.shot("ping-check", keep=False)
+    if pic is None:
+        return False
+    sx, sy = live.on_screen(at[0], at[1], cam)
+    if enemy_on_screen(pic, sx, sy, PING_LOOK * 32 * live.ZOOM) <= PING_CLEAR:
+        st.fleet_task = None
+        park_fleet(io, st, "the pinged place is clear")
+        say(io, st, "area cleared, air coming back", force=True)
+        return True
+    return False
 
 
 def return_air(io, mapdata, st):
@@ -4051,6 +4174,7 @@ def hear(io, st, picture):
     if st.clock is None or io.now() - st.last_heard < HEAR_EVERY:
         return
     st.last_heard = io.now()
+    watch_for_ping(st, picture)
     now = st.clock.update(picture)
     ears = st.ears
     if ears is None:
@@ -4071,6 +4195,7 @@ def hear(io, st, picture):
 # Engineering Bay, infantry armor at the other, when there is the money;
 # if not, say so and do it once there is.
 UPGRADE_COST = [100, 175, 250]  # minerals (and as much gas) for levels 1-3
+GAS_FIELD = (1645, 10, 1760, 32)  # the gas figure at the top of the screen
 UPGRADES = [("weapons", "w"), ("armor", "a")]   # the Engineering Bay's keys
 UPGRADE_EVERY = 15             # seconds between looks at the money for them
 
@@ -4080,47 +4205,77 @@ def engineering_bays(mapdata):
             if b["type"] == "Engineering Bay"]
 
 
+UPGRADE_TIME = 240              # seconds an upgrade takes before the next level
+
+
 def upgrade_order(io, mapdata, st):
-    """"@R upgrade": both infantry upgrades, now if the money is there,
-    otherwise once it is."""
-    todo = [name for name, _ in UPGRADES if st.upgrade_level[name] < 3]
-    if not todo:
-        say(io, st, "infantry upgrades are all done", force=True)
+    """"@R upgrade": infantry weapons and armor, up to 3/3, each level
+    as soon as the money allows; then "all upgrades completed"."""
+    if st.upgrades_done:
+        say(io, st, "all upgrades completed", force=True)
         return
-    st.upgrade_wanted = set(todo)
+    st.upgrade_wanted = {name for name, _ in UPGRADES
+                         if st.upgrade_level[name] < 3}
     st.last_upgrade_look = -1e9
-    if not upgrade_step(io, mapdata, st, asked=True):
+    if not upgrade_step(io, mapdata, st):
         say(io, st, "I'll upgrade infantry when I have the resources",
             force=True)
 
 
-def upgrade_step(io, mapdata, st, asked=False):
-    """Start what upgrades the money allows; True if any was started."""
+def upgrade_step(io, mapdata, st):
+    """Start what upgrades the money allows; True if any was started.
+    The Engineering Bays are left alone once both are at 3."""
+    if st.upgrades_done:
+        return False
+    if all(st.upgrade_level[n] >= 3 for n, _ in UPGRADES):
+        if all(io.now() >= st.upgrade_next.get(n, 0) for n, _ in UPGRADES):
+            st.upgrades_done = True     # the last levels have finished
+            st.upgrade_wanted = set()
+            say(io, st, "all upgrades completed", force=True)
+        return False
     if not st.upgrade_wanted or \
             io.now() - st.last_upgrade_look < UPGRADE_EVERY:
         return False
     st.last_upgrade_look = io.now()
-    money = numbers.read_minerals(io.shot("money", keep=False))
+    ready = [name for name in st.upgrade_wanted
+             if io.now() >= st.upgrade_next.get(name, -1e9)]
+    if not ready:
+        return False                    # both busy upgrading
+    pic = io.shot("money", keep=False)
+    money = numbers.read_minerals(pic)
+    gas = numbers.read_text(pic, GAS_FIELD)
+    gas = int(gas) if gas and gas.isdigit() else None
     bays = engineering_bays(mapdata)
     started = []
     for k, (name, key) in enumerate(UPGRADES):
-        if name not in st.upgrade_wanted or k >= len(bays):
+        if name not in ready:
             continue
         cost = UPGRADE_COST[min(st.upgrade_level[name], 2)]
-        if money is None or money < cost:
+        if money is None or money - tax_reserve(st) < cost or \
+                (gas is not None and gas < cost):
             continue
-        if not select_building(io, bays[k]):
-            continue
-        io.key(key)                     # weapons (W) or armor (A)
-        io.sleep(0.2)
-        after = numbers.read_minerals(io.shot("money", keep=False))
-        if after is not None and after > money - cost // 2:
+        # its own Engineering Bay first, the other if that does not take
+        # it (trial 30: armor at the second bay never started)
+        for bay in ([bays[k]] if k < len(bays) else []) + \
+                [b for j, b in enumerate(bays) if j != k]:
+            if not select_building(io, bay):
+                continue
+            io.key(key)                 # weapons (W) or armor (A)
+            io.sleep(0.4)
+            after = numbers.read_minerals(io.shot("money", keep=False))
+            if after is not None and after > money - cost // 2:
+                continue                # not taken here
+            money = after if after is not None else money - cost
+            if gas is not None:
+                gas -= cost
+            st.upgrade_level[name] += 1
+            st.upgrade_next[name] = io.now() + UPGRADE_TIME
+            if st.upgrade_level[name] >= 3:
+                st.upgrade_wanted.discard(name)
+            started.append(f"{name} {st.upgrade_level[name]}")
+            break
+        else:
             io.log(f"upgrade: infantry {name} did not start")
-            continue                    # not taken: tried again later
-        money = after if after is not None else money - cost
-        st.upgrade_level[name] += 1
-        st.upgrade_wanted.discard(name)
-        started.append(name)
     if started:
         say(io, st, "upgrading infantry " + " and ".join(started), force=True)
         io.log(f"upgrade: infantry {' and '.join(started)} started")
@@ -4139,35 +4294,59 @@ ORDER_TAX_LEAST = 8             # men in the detachment at least
 BACK_NEAR = 6                   # tiles from the mass point it walks back to
 
 
+TAX_PRICE = 150                # an SCV (50) and a supply depot (100)
+MARINE_PRICE = 50
+
+
+def tax_reserve(st):
+    """Minerals kept back for the "@R tax" jobs still to pay their SCV
+    and depot: the marines never eat into it (trial 30: they did, and
+    the SCV never came)."""
+    return TAX_PRICE * sum(1 for j in st.tax_jobs.values()
+                           if not j.get("paid"))
+
+
 def tax_order(io, watch, mapdata, st, order):
-    """"@R tax <city>": start the one try at it."""
+    """"@R tax <city>": start the one try at it, if the money for its
+    SCV and depot can be kept, with every other city asked for."""
     from bot import places
     name = places.resolve(mapdata, order.place.strip())
     if name is None:
         say(io, st, "I can't find that place", force=True)
         return
     city = place(mapdata, name)
+    plain = places.plain(name)
     if not places.walkable(city["x"], city["y"]):
-        say(io, st, f"I can't reach {places.plain(name)}", force=True)
+        say(io, st, f"I can't reach {plain}", force=True)
         return
-    if st.tax_job is not None:
-        say(io, st, f"still taxing {places.plain(st.tax_job['city'])}",
+    if name in st.tax_jobs:
+        say(io, st, f"still taxing {plain}", force=True)
+        return
+    money = numbers.read_minerals(io.shot("money", keep=False))
+    need = tax_reserve(st) + TAX_PRICE
+    if money is not None and money < need:
+        say(io, st, f"not enough money to tax {plain}: ask me next tax turn",
             force=True)
+        io.log(f"{order.colour} said {order.said!r}: {money} minerals, "
+               f"{need} needed for every city asked: not now")
         return
     st.depots.pop(name, None)           # a fresh try
     st.depot_tries[name] = 0
-    st.tax_job = {"city": name, "stage": "secure", "since": io.now(),
-                  "guard": False}
-    say(io, st, f"taxing {places.plain(name)}", force=True)
-    io.log(f"{order.colour} said {order.said!r}: taxing {name}")
+    st.tax_jobs[name] = {"city": name, "stage": "secure", "since": io.now(),
+                         "guard": False}
+    say(io, st, f"taxing {plain}", force=True)
+    io.log(f"{order.colour} said {order.said!r}: taxing {name} "
+           f"({len(st.tax_jobs)} city(ies) being taxed, "
+           f"{tax_reserve(st)} minerals kept for them)")
 
 
 def tax_order_step(io, watch, mapdata, st, picture):
-    """One step of the "@R tax" job, from the massing loop."""
-    job = st.tax_job
-    if job is None:
-        return
-    from bot import places
+    """One step of every "@R tax" job, from the massing loop."""
+    for name in list(st.tax_jobs):
+        tax_job_step(io, watch, mapdata, st, picture, st.tax_jobs[name])
+
+
+def tax_job_step(io, watch, mapdata, st, picture, job):
     name = job["city"]
     city = place(mapdata, name)
     xy = (city["x"], city["y"])
@@ -4184,26 +4363,28 @@ def tax_order_step(io, watch, mapdata, st, picture):
                 job["guard"] = True
                 st.guards[name] = io.now()
         elif io.now() - job["since"] > ORDER_TAX_SECURE:
-            return tax_order_end(io, watch, mapdata, st, ok=False)
+            return tax_order_end(io, watch, mapdata, st, job, ok=False)
         return
     if job["stage"] == "depot":
         if job.get("started") and name not in st.depots:
-            return tax_order_end(io, watch, mapdata, st, ok=False)  # one try
+            return tax_order_end(io, watch, mapdata, st, job, ok=False)
         job["started"] = True
         depot_at(io, watch, mapdata, st, name, ours, cc_tile=MOSCOW_CC,
                  then_home=True)
         stage = st.depots.get(name, {}).get("stage")
+        if stage in ("building", "done"):
+            job["paid"] = True          # spent: no longer kept back
         if stage == "done":
-            return tax_order_end(io, watch, mapdata, st, ok=True)
+            return tax_order_end(io, watch, mapdata, st, job, ok=True)
         if stage is None:
-            return tax_order_end(io, watch, mapdata, st, ok=False)
+            return tax_order_end(io, watch, mapdata, st, job, ok=False)
 
 
-def tax_order_end(io, watch, mapdata, st, ok):
+def tax_order_end(io, watch, mapdata, st, job, ok):
     """The try is over: the detachment walks back near the mass point."""
     from bot import places
-    job, st.tax_job = st.tax_job, None
     name = job["city"]
+    st.tax_jobs.pop(name, None)
     if job["guard"]:
         city = place(mapdata, name)
         pic = io.shot("watch", keep=False)

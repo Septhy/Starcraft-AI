@@ -64,28 +64,49 @@ def test_the_way_keeps_to_friendly_ground_and_round_enemy_buildings():
             trial.ENEMY_NEAR, (c, r)
 
 
-def test_bring_air_attack_moves_the_whole_fleet_along_the_way(monkeypatch):
-    m = trial.load_map()
+def ping_picture(at=None):
+    """A screen whose minimap shows a yellow ping at drawn pixel `at`."""
+    from PIL import Image, ImageDraw
+    pic = Image.new("RGB", (1920, 1080))
+    if at:
+        d = live.DRAWN
+        x, y = d["left"] + at[0], d["top"] + at[1]
+        ImageDraw.Draw(pic).ellipse((x - 3, y - 3, x + 3, y + 3),
+                                    outline=(250, 240, 40))
+    return pic
+
+
+def asked(monkeypatch):
     said = []
     monkeypatch.setattr(trial, "say", lambda io, st, text, force=False:
                         said.append(text))
-    monkeypatch.setattr(trial, "find_ally_air",
-                        lambda *a, **k: (40 * 32, 60 * 32))
+    return said
+
+
+def test_bring_air_asks_for_a_ping_and_follows_the_allies_air_there(monkeypatch):
+    """The repository owner: "ping the map"; at the ping, allied air:
+    follow it by a safe way, attack-moving."""
+    m = trial.load_map()
+    said = asked(monkeypatch)
     io = StubIO()
-    io.shot = lambda label, keep=True: None
+    io.shot = lambda label, keep=True: ping_picture()
     st = trial.State()
     st.air_keys, st.air_home = ["9", "0"], True
     assert trial.bring_air(io, Watch(), m, st, "teal")
-    stops = trial.air_route(Watch(), None, trial.fleet_spot(), (40 * 32, 60 * 32))
-    assert io.keys.count("a") == 2 * len(stops)       # attack-move, both keys
-    assert io.keys[0] == "9" and "0" in io.keys
-    assert sum(1 for c in io.clicks if c[2] == "shift") == 2 * (len(stops) - 1)
-    assert st.fleet_task["colour"] == "teal" and not st.air_home
-    assert said == ["air on its way to you"]
+    assert said == ["ping the map"]
+    trial.watch_for_ping(st, ping_picture((60, 60)))      # the ping
+    at = st.air_ping["at"]
+    assert abs(live.to_drawn(*at)[0] - 60) <= 2
+    monkeypatch.setattr(trial, "count_ally_air", lambda *a: 5)
+    monkeypatch.setattr(trial, "enemy_on_screen", lambda *a, **k: 0)
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    trial.ping_step(io, Watch(), m, st)
+    assert said[-1] == "following your air"
+    assert st.fleet_task["mode"] == "follow" and not st.air_home
+    assert io.keys.count("a") >= 2                           # attack-move, both keys
     # while it is with them, the fleet is not steered back over the army
     st.battle = trial.Battle("Berlin 1000", 0)
     st.battle.front = (100 * 32, 90 * 32)
-    st.battle.samples = [(10, 100, 5, 20)]
     called = []
     monkeypatch.setattr(trial, "steer_fleet", lambda *a: called.append(1))
     st.air_moved = -1e9
@@ -93,16 +114,61 @@ def test_bring_air_attack_moves_the_whole_fleet_along_the_way(monkeypatch):
     assert called == []
 
 
-def test_no_air_found_is_said(monkeypatch):
+def test_at_a_ping_with_mostly_enemy_the_air_attacks_then_comes_back(monkeypatch):
     m = trial.load_map()
-    said = []
-    monkeypatch.setattr(trial, "say", lambda io, st, text, force=False:
-                        said.append(text))
-    monkeypatch.setattr(trial, "find_ally_air", lambda *a, **k: None)
+    said = asked(monkeypatch)
+    io = StubIO()
+    io.shot = lambda label, keep=True: ping_picture()
     st = trial.State()
     st.air_keys = ["9"]
-    assert not trial.bring_air(StubIO(), Watch(), m, st, "purple")
-    assert said == ["I can't find your air"] and st.fleet_task is None
+    trial.bring_air(io, Watch(), m, st, "orange")
+    trial.watch_for_ping(st, ping_picture((120, 80)))
+    monkeypatch.setattr(trial, "count_ally_air", lambda *a: 0)
+    enemy = iter([12, 6, 0])
+    monkeypatch.setattr(trial, "enemy_on_screen", lambda *a, **k: next(enemy))
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    monkeypatch.setattr(trial, "fleet_left", lambda io_, st_: 6)
+    trial.ping_step(io, Watch(), m, st)
+    assert said[-1] == "attacking at your ping" and st.fleet_task["mode"] == "attack"
+    io.t += trial.ALLY_AIR_CHECK
+    trial.follow_ally_air(io, Watch(), m, st)              # still enemy there
+    assert st.fleet_task is not None
+    io.t += trial.ALLY_AIR_CHECK
+    trial.follow_ally_air(io, Watch(), m, st)              # cleared
+    assert st.fleet_task is None and st.air_home
+    assert said[-1] == "area cleared, air coming back"
+
+
+def test_nothing_at_the_ping_no_ping_or_lost_planes(monkeypatch):
+    m = trial.load_map()
+    said = asked(monkeypatch)
+    io = StubIO()
+    io.shot = lambda label, keep=True: ping_picture()
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    # nothing there
+    st = trial.State()
+    st.air_keys = ["9"]
+    trial.bring_air(io, Watch(), m, st, "purple")
+    trial.watch_for_ping(st, ping_picture((100, 100)))
+    monkeypatch.setattr(trial, "count_ally_air", lambda *a: 0)
+    monkeypatch.setattr(trial, "enemy_on_screen", lambda *a, **k: 0)
+    trial.ping_step(io, Watch(), m, st)
+    assert said[-1] == "I can't find your air" and st.fleet_task is None
+    # no ping within ten minutes
+    trial.bring_air(io, Watch(), m, st, "purple")
+    io.t += trial.PING_WAIT + 1
+    trial.ping_step(io, Watch(), m, st)
+    assert said[-1] == "can't find ping" and st.air_ping is None
+    # following, and the planes are all lost: no more following
+    st.fleet_task = {"colour": "teal", "spot": (0, 0), "since": io.t,
+                     "checked": io.t - 99, "mode": "follow"}
+    monkeypatch.setattr(trial, "fleet_left", lambda io_, st_: 0)
+    trial.follow_ally_air(io, Watch(), m, st)
+    assert st.fleet_task is None and said[-1] == "my air is gone"
+    # no air at all
+    st2 = trial.State()
+    assert not trial.bring_air(io, Watch(), m, st2, "teal")
+    assert said[-1] == "I have no air"
 
 
 def test_the_fleet_stays_with_the_ally_through_hits_and_resets(monkeypatch):
@@ -168,6 +234,7 @@ def test_the_fleet_follows_the_allys_air_every_eight_seconds(monkeypatch):
                      "since": io.t, "checked": io.t}
     seen = iter([(40 * 32, 60 * 32), (70 * 32, 40 * 32), None])
     monkeypatch.setattr(trial, "find_ally_air", lambda *a, **k: next(seen))
+    monkeypatch.setattr(trial, "fleet_left", lambda io_, st_: 6)
     # not before 8 seconds
     io.t += 5
     assert not trial.follow_ally_air(io, Watch(), m, st)

@@ -401,7 +401,8 @@ otherwise as written. "@R mass home" or "@R mass at Smolensk": "home".
 - tax: the ally tells Russia to take a city's tax: "@R tax Warsaw", \
 "@R take tax at Kiev", "@R tax Krakow pls". Put the city in "place", as \
 one of the place names listed below if it is one of them, otherwise as \
-written.
+written. Several cities in one message ("@R tax Warsaw and Kiev") are \
+one tax order for each city.
 - upgrade: "@R upgrade", "@R upgrades", "@R get upgrades", "@R upgrade \
 infantry": the ally wants Russia's infantry weapons and armor upgraded.
 The front: "east" means the eastern front toward Germany (Berlin, \

@@ -58,6 +58,8 @@ def _load():
 
 def read_text(screen, field=FIELD):
     """The characters in the field, or None if any is not recognised."""
+    if screen is None:
+        return None
     out = ""
     for g in glyphs(text_mask(screen, field)):
         best = {}

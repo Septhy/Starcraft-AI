@@ -37,8 +37,9 @@ def test_upgrade_starts_both_when_the_money_is_there(monkeypatch):
                         lambda io_, b: picked.append((b["x"] // 32, b["y"] // 32)) or True)
     trial.upgrade_order(io, m, st)
     assert io.keys == ["w", "a"] and len(set(picked)) == 2   # one bay each
-    assert out == ["upgrading infantry weapons and armor"]
-    assert st.upgrade_level == {"weapons": 1, "armor": 1} and not st.upgrade_wanted
+    assert out == ["upgrading infantry weapons 1 and armor 1"]
+    assert st.upgrade_level == {"weapons": 1, "armor": 1}
+    assert st.upgrade_wanted == {"weapons", "armor"}     # on to levels 2 and 3
 
 
 def test_upgrade_waits_for_the_money_and_says_so(monkeypatch):
@@ -55,7 +56,7 @@ def test_upgrade_waits_for_the_money_and_says_so(monkeypatch):
     assert io.keys == [] and st.upgrade_wanted == {"weapons", "armor"}
     io.t += trial.UPGRADE_EVERY                     # the money has come
     assert trial.upgrade_step(io, m, st)
-    assert io.keys == ["w", "a"] and out[-1] == "upgrading infantry weapons and armor"
+    assert io.keys == ["w", "a"] and out[-1] == "upgrading infantry weapons 1 and armor 1"
 
 
 def test_tax_order_secures_the_city_then_builds_a_depot_then_comes_back(monkeypatch):
@@ -81,7 +82,7 @@ def test_tax_order_secures_the_city_then_builds_a_depot_then_comes_back(monkeypa
     monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
     monkeypatch.setattr(trial, "attack_move", lambda io_, x, y: back.append((x, y)))
     trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
-    assert out == ["taxing Warsaw"] and st.tax_job["city"] == "Warsaw 200"
+    assert out == ["taxing Warsaw"] and "Warsaw 200" in st.tax_jobs
     # enemies there: a detachment first
     watch = StubWatch(blob(xy, 2), blob(xy, 3))
     trial.tax_order_step(io, watch, m, st, None)
@@ -94,7 +95,7 @@ def test_tax_order_secures_the_city_then_builds_a_depot_then_comes_back(monkeypa
     # the depot stands: taxed; the detachment walks back near the mass
     st.depots["Warsaw 200"]["stage"] = "done"
     trial.tax_order_step(io, StubWatch(blob(xy, 3), set()), m, st, None)
-    assert out[-1] == "Warsaw taxed" and st.tax_job is None
+    assert out[-1] == "Warsaw taxed" and not st.tax_jobs
     assert back and all(abs(x - trial.MASS[0]) <= trial.BACK_NEAR * 32
                         and abs(y - trial.MASS[1]) <= trial.BACK_NEAR * 32
                         for x, y in back)
@@ -119,7 +120,7 @@ def test_a_failed_tax_order_is_said_and_not_tried_again(monkeypatch):
     trial.tax_order_step(io, watch, m, st, None)    # the SCV goes
     st.depots.clear()                               # ... and never builds
     trial.tax_order_step(io, watch, m, st, None)
-    assert out[-1] == "couldn't tax Ukraine" and st.tax_job is None
+    assert out[-1] == "couldn't tax Ukraine" and not st.tax_jobs
     trial.tax_order_step(io, watch, m, st, None)    # nothing more
     assert len(calls) == 1
 
@@ -154,3 +155,60 @@ def test_the_scv_builds_by_the_beacon_and_then_goes_home_to_moscow(monkeypatch):
     mx, my = trial.MOSCOW_CC
     home = trial.live.minimap_point(mx * 32, my * 32)
     assert io.keys[-1] == "m" and io.clicks[-1] == (*home, "shift")
+
+
+def test_tax_orders_keep_money_for_every_city_and_marines_wait(monkeypatch):
+    """Trial 30: marines spent everything and the SCV never came. Each
+    city asked for keeps 150 back (an SCV and a depot); without enough,
+    the ally is told to ask next tax turn."""
+    m = trial.load_map()
+    out = said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    money = [320]
+    monkeypatch.setattr(trial.numbers, "read_minerals", lambda pic: money[0])
+    trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
+    trial.tax_order(io, None, m, st, O("tax", "Kiev"))
+    trial.tax_order(io, None, m, st, O("tax", "Krakow"))
+    assert out == ["taxing Warsaw", "taxing Ukraine",
+                   "not enough money to tax Krakow: ask me next tax turn"]
+    assert trial.tax_reserve(st) == 2 * trial.TAX_PRICE
+    # 320 minerals, 300 kept: no marines now
+    monkeypatch.setattr(trial, "room_for_marines", lambda io_: 100)
+    assert trial.train_everywhere(io, m, st) == 0
+    # once a depot is paid for, its money is free again
+    st.tax_jobs["Warsaw 200"]["paid"] = True
+    assert trial.tax_reserve(st) == trial.TAX_PRICE
+
+
+def test_all_three_levels_then_all_upgrades_completed(monkeypatch):
+    m = trial.load_map()
+    out = said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    spent = {"m": 5000}
+
+    def minerals(pic):
+        return spent["m"]
+    monkeypatch.setattr(trial.numbers, "read_minerals", minerals)
+
+    def key(name):
+        io.keys.append(name)
+        if name in ("w", "a"):
+            spent["m"] -= 300
+    io.key = key
+    monkeypatch.setattr(trial, "select_building", lambda io_, b: True)
+    trial.upgrade_order(io, m, st)
+    for _ in range(2):                              # levels 2 and 3
+        io.t += trial.UPGRADE_TIME
+        trial.upgrade_step(io, m, st)
+    assert st.upgrade_level == {"weapons": 3, "armor": 3}
+    io.t += trial.UPGRADE_TIME                      # the last levels finish
+    trial.upgrade_step(io, m, st)
+    assert out[-1] == "all upgrades completed" and st.upgrades_done
+    keys = len(io.keys)
+    io.t += 100
+    trial.upgrade_step(io, m, st)                   # the bays left alone
+    assert len(io.keys) == keys
+    trial.upgrade_order(io, m, st)
+    assert out[-1] == "all upgrades completed"

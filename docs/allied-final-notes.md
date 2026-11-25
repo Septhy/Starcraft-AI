@@ -1283,3 +1283,30 @@ second hit (the demo only shows how).
   upgrade infantry when I have the resources", and it is done once there
   is (looked at every 15 s). Started: "upgrading infantry weapons and
   armor". The Engineering Bays are no longer floated for tax.
+
+## Trial 30: the new orders reworked
+
+- Tax money: each city an ally asks to tax keeps 150 minerals back (an
+  SCV and a depot) until its depot is placed; marines never eat into it
+  (trial 30: they spent everything, the SCV never came; a picture shows
+  0 minerals and 1,650 gas, so gas is NOT always the same as minerals).
+  Several cities may be taxed at once (st.tax_jobs); one that the money
+  cannot cover with the others is answered "not enough money to tax
+  <city>: ask me next tax turn". The chat reader makes one tax order
+  per city named.
+- Upgrades go on to 3/3: each level as soon as minerals (less the tax
+  money) and gas (read when it can be) cover it, the next level of one
+  upgrade no sooner than 240 s after the last; a bay that does not take
+  it, the other is tried (trial 30: armor never started at the second
+  bay). Both at 3 and finished: "all upgrades completed", and the bays
+  are left alone.
+- "@R bring air" redone (the repository owner): Russia types "ping the
+  map" and watches every look for new yellow on the minimap (10 s, then
+  "can't find ping"). At the ping it looks at the ground: the ally's air
+  there (counted by the model, 2+): "following your air", the fleet goes
+  by the safe way and follows it, attack-moving; mostly enemy (4+):
+  "attacking at your ping", and once the place is clear "area cleared,
+  air coming back"; nothing: "I can't find your air". Every check-up
+  counts the planes left on the fleet keys; none: "my air is gone", no
+  more following. The mass cycle goes on throughout. The ping colour and
+  size are a guess: no picture of a ping yet.
