@@ -105,6 +105,9 @@ def main(keys_version=False, rel_version=False, back_version=False):
         check_key()
 
     tk.Button(root, text="Set Claude API key", command=set_key).pack(pady=(0, 6))
+    from bot import settings_view
+    tk.Button(root, text="Recommended settings",
+              command=lambda: settings_view.show(root, tk)).pack(pady=(0, 6))
     check_key()                         # the saved key is checked at start
     refresh()
     labels = {text: model for model, text in general_module.CHOICES}
@@ -176,8 +179,9 @@ def selftest(path):
     trial.load_map()
     numbers._load()
     clock.templates()
-    from bot import places
+    from bot import places, settings_view
     places.reachable()
+    settings_view.layout()
     open(path, "w").write("ok " + anthropic.__version__)
 
 

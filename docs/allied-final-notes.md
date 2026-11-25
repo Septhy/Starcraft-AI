@@ -1310,3 +1310,9 @@ second hit (the demo only shows how).
   counts the planes left on the fleet keys; none: "my air is gone", no
   more following. The mass cycle goes on throughout. The ping colour and
   size are a guess: no picture of a ping yet.
+- The app has a "Recommended settings" button (bot/settings_view.py):
+  a page laid out like the game's Options > Video screen, with the
+  repository owner's settings (Windowed (Fullscreen), gamma 6th of 8,
+  FPS cap off, SD filter Sharp, HD Graphics, Smooth Unit Turning and
+  Shadow Stacking on, the rest off) and Windows at 1920 x 1080, 100%
+  scale. A picture of it: docs/recommended-settings.png.
