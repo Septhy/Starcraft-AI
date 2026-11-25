@@ -71,8 +71,8 @@ def ping_picture(at=None):
     if at:
         d = live.DRAWN
         x, y = d["left"] + at[0], d["top"] + at[1]
-        ImageDraw.Draw(pic).ellipse((x - 3, y - 3, x + 3, y + 3),
-                                    outline=(250, 240, 40))
+        ImageDraw.Draw(pic).rectangle((x - 20, y - 20, x + 20, y + 20),
+                                      outline=(250, 235, 85), width=4)
     return pic
 
 
@@ -346,3 +346,40 @@ def test_while_following_their_air_is_counted_again_now_and_then(monkeypatch):
         io.t += trial.ALLY_AIR_CHECK
         trial.follow_ally_air(io, Watch(), m, st)
     assert asked == [False, False, True, False, False, True]
+
+
+def minimap_screen(name):
+    from PIL import Image
+    import os
+    pic = Image.new("RGB", (1920, 1080))
+    pic.paste(Image.open(os.path.join(os.path.dirname(__file__), "data",
+                                      name + ".png")).convert("RGB"), (0, 780))
+    return pic
+
+
+def test_the_real_ping_is_found_and_spains_yellow_is_not():
+    """The repository owner's recording: a ping is a hollow yellow
+    square on the minimap, first four bars closing in."""
+    base = trial.yellow_on_minimap(minimap_screen("ping_before"))
+    at = trial.find_ping(minimap_screen("ping_square"), base)
+    c, r = live.to_drawn(*at)
+    assert abs(c - 107) <= 3 and abs(r - 117) <= 3        # over Germany
+    bars = trial.find_ping(minimap_screen("ping_bars"), base)
+    bc, br = live.to_drawn(*bars)
+    assert abs(bc - 107) <= 14 and abs(br - 117) <= 14   # roughly there
+    assert trial.find_ping(minimap_screen("ping_before"), base) is None
+
+
+def test_the_bars_wait_for_the_square(monkeypatch):
+    from bot import team
+    st = trial.State()
+    io = StubIO()
+    st.clock = team.GameClock(io.now)
+    st.clock.value = 100
+    base = trial.yellow_on_minimap(minimap_screen("ping_before"))
+    st.air_ping = {"colour": "teal", "since": 100, "at": None, "base": base}
+    trial.watch_for_ping(st, minimap_screen("ping_bars"))
+    assert st.air_ping["at"] is None and st.air_ping["bars"]
+    trial.watch_for_ping(st, minimap_screen("ping_square"))
+    c, r = live.to_drawn(*st.air_ping["at"])
+    assert abs(c - 107) <= 3 and abs(r - 117) <= 3

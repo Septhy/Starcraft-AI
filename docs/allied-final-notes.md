@@ -1316,3 +1316,11 @@ second hit (the demo only shows how).
   FPS cap off, SD filter Sharp, HD Graphics, Smooth Unit Turning and
   Shadow Stacking on, the rest off) and Windows at 1920 x 1080, 100%
   scale. A picture of it: docs/recommended-settings.png.
+- The ping, from the repository owner's recording (tests/data/ping_*.png):
+  a hollow yellow square on the minimap about 40 pixels across with a
+  thick edge, after four yellow bars sweep in from the map's edges.
+  find_ping takes only new yellow (not there when Russia asked), joined
+  up: a square-ish outline (8-45 px a side, mostly on its edge, 24+
+  px), or, before it, two upright and two lying bars, whose middle is
+  near the ping; the bars wait up to 2 s for the square, which is exact.
+  Spain's moving units (small blobs of new yellow) are not taken.

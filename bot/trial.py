@@ -4016,7 +4016,7 @@ def follow_ally_air(io, watch, mapdata, st):
 # no longer followed or checked on; the mass cycle goes on throughout.
 PING_WAIT = 10                 # seconds to wait for the ping (the repository
                                # owner: then "can't find ping")
-PING_LEAST = 4                 # new yellow minimap pixels that make a ping
+PING_LEAST = 24                # new yellow minimap pixels that make a ping
 PING_ALLY_AIR = 2              # allied planes there that mean "follow them"
 PING_ENEMY = 4                 # enemy there that mean "attack them"
 PING_CLEAR = 1                 # enemy left there: cleared
@@ -4040,12 +4040,80 @@ def watch_for_ping(st, picture):
     ask = st.air_ping
     if ask is None or ask.get("at") is not None or picture is None:
         return
-    yellow = yellow_on_minimap(picture)
-    new = {p for p in yellow if not any((p[0] + i, p[1] + j) in ask["base"]
-                                        for i in (-1, 0, 1) for j in (-1, 0, 1))}
-    groups = [g for g in live.clusters(new, 10, 10) if len(g) >= PING_LEAST]
-    if groups:
-        ask["at"] = middle(max(groups, key=len))
+    found = find_ping(picture, ask["base"], with_kind=True)
+    now = st.clock.time() if st.clock else 0
+    if found is None:
+        if ask.get("bars") and now - ask["bars"][1] >= PING_SETTLE:
+            ask["at"] = ask["bars"][0]  # the square never showed: the bars'
+        return
+    at, kind = found
+    if kind == "square":
+        ask["at"] = at                  # the square: exactly where it is
+    elif not ask.get("bars"):
+        ask["bars"] = (at, now)         # the bars: wait a moment for the square
+
+
+PING_SIDE = (8, 45)            # minimap pixels: how wide the ping's square is
+PING_HOLLOW = 0.6              # at most this share of its box is yellow
+PING_EDGE = 0.8                # at least this share of it on the box's edge
+PING_BAR = (7, 25)             # a bar: at most this thick, at least this long
+PING_SETTLE = 2                # seconds to wait after the bars for the square
+
+
+def find_ping(picture, base, with_kind=False):
+    """Where a ping is on the minimap (map pixels), or None. A ping is a
+    hollow yellow square (the repository owner's recording): new yellow,
+    joined up, about as wide as tall, empty inside. Spain's units are
+    yellow too but are dots and blobs; the lines a ping starts with sweep
+    across the whole map and are not a square yet."""
+    from collections import deque
+    new = {p for p in yellow_on_minimap(picture)
+           if not any((p[0] + i, p[1] + j) in base
+                      for i in (-1, 0, 1) for j in (-1, 0, 1))}
+    seen, best, bars = set(), None, []
+    for p in new:
+        if p in seen:
+            continue
+        part, todo = [], deque([p])
+        seen.add(p)
+        while todo:
+            c, r = todo.popleft()
+            part.append((c, r))
+            for i in (-2, -1, 0, 1, 2):
+                for j in (-2, -1, 0, 1, 2):
+                    q = (c + i, r + j)
+                    if q in new and q not in seen:
+                        seen.add(q)
+                        todo.append(q)
+        xs, ys = [q[0] for q in part], [q[1] for q in part]
+        w, h = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+        if min(w, h) <= PING_BAR[0] and max(w, h) >= PING_BAR[1]:
+            # one of the four bars a ping starts with
+            bars.append(("v" if h > w else "h", (min(xs) + max(xs)) / 2,
+                         (min(ys) + max(ys)) / 2))
+            continue
+        if not (PING_SIDE[0] <= w <= PING_SIDE[1] and
+                PING_SIDE[0] <= h <= PING_SIDE[1]):
+            continue
+        if max(w, h) > 1.5 * min(w, h) or len(part) > PING_HOLLOW * w * h:
+            continue                    # not square, or filled in
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        edge = sum(1 for c, r in part if min(c - x0, x1 - c, r - y0, y1 - r) <= 5)
+        if edge < PING_EDGE * len(part) or len(part) < PING_LEAST:
+            continue                    # not an outline: units, not a ping
+        if best is None or len(part) > best[0]:
+            best = (len(part), ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2))
+    if best:
+        at = live.from_drawn(*best[1])
+        return (at, "square") if with_kind else at
+    # the start of a ping: two upright bars and two lying ones closing
+    # in on it from all sides; it is between them
+    ups = sorted(b[1] for b in bars if b[0] == "v")
+    flats = sorted(b[2] for b in bars if b[0] == "h")
+    if len(ups) >= 2 and len(flats) >= 2:
+        at = live.from_drawn((ups[0] + ups[-1]) / 2, (flats[0] + flats[-1]) / 2)
+        return (at, "bars") if with_kind else at
+    return None
 
 
 def fleet_left(io, st):
