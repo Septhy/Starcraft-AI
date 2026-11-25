@@ -25,6 +25,7 @@ jobs:
         run: python -c "import hands.win, ctypes; print(ctypes.sizeof(hands.win.INPUT))"
       - name: Build the apps
         run: |
+          python -c "import os; open('data/build.txt', 'w').write(os.environ['GITHUB_SHA'][:7])"
           pyinstaller --onefile --windowed --name StarcraftRecorder recorder/recorder.py
           pyinstaller --onefile --windowed --name StarcraftTrial --paths . --add-data "data;data" --collect-submodules anthropic bot/app.py
       - name: Check the trial app has everything packed in

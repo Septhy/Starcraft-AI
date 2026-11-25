@@ -37,6 +37,7 @@ API key, Claude is shown the fight every few seconds and advises
 (bot/general.py): keep massing, hit now, or pull back, and where.
 """
 import json
+import re
 
 from eyes import live, numbers
 from bot import team as team_rules
@@ -1846,7 +1847,7 @@ def send_guard(io, watch, mapdata, st, name, picture):
     st.guards[name] = io.now()
     io.log(f"tax: enemies near {name}: a detachment of {n} sent to "
            f"secure it")
-    return True
+    return n
 
 
 COMMAND_CENTRES = [(157, 51), (209, 49)]   # tiles: Russia's two command centres
@@ -3791,8 +3792,8 @@ ALLY_AIR = {"orange": ("Wraith", 5), "purple": ("Scout", 5),
                                # mass is 5 allied Wraiths or Scouts at least,
                                # all allies' together
 # Allied planes on the game screen by their colour, when the model cannot
-# count them (trial 31: twenty teal Wraiths, "? teal planes"). Purple is
-# left out: too much of the ground is near it.
+# count them (trial 31: twenty teal Wraiths, "? teal planes"). Teal only:
+# purple is too near the ground's colours and orange the fires'.
 AIR_COLOUR_PATCH = 6           # pixels of their colour that may be a plane
 AIR_LOOKS_AT = 4               # places looked at for an ally's air at most
 NEAR_LAST = 12                 # minimap pixels from where their air was last
@@ -3828,7 +3829,7 @@ def count_ally_air(io, st, picture, colour):
 
 def ally_air_by_colour(picture):
     """Allied planes on the game screen counted by colour alone: teal
-    and orange patches over the view (the minimap's corner left out).
+    patches over the view (the kill list's corner left out).
     Rough, but never nothing when the sky is full of them."""
     import numpy as np
     if picture is None:
@@ -3837,13 +3838,9 @@ def ally_air_by_colour(picture):
     a = np.asarray(picture.convert("RGB").crop((l, t, r, b))).astype(int)
     R, G, B = a[..., 0], a[..., 1], a[..., 2]
     teal = (G > 120) & (B > 100) & (R < 90) & (G - R > 60) & \
-        (np.abs(G - B) < 60)
-    orange = np.abs(a - np.array((248, 140, 20))).max(axis=2) < 40
-    n = 0
-    for mask in (teal, orange):
-        mask[:240, :400] = False
-        n += len([p for p in patches(mask) if p[0] >= AIR_COLOUR_PATCH])
-    return n
+        (G - B > 8) & (G - B < 60)      # greener than the beacons' cyan
+    teal[:240, :400] = False            # the kill list's corner
+    return len([p for p in patches(teal) if p[0] >= AIR_COLOUR_PATCH])
 
 
 def allied_air_at(io, st, picture, colour):
@@ -4279,6 +4276,9 @@ def hear(io, st, picture):
     ears.listen(picture, now)
     for when, colour, text in ears.lines(now):
         io.log(f"chat [{colour}] {text}")
+        said = text.split(":", 1)[-1].strip() if ":" in text else text
+        if colour in ALLY_SLOTS and COMMANDS_ASKED.match(said):
+            list_commands(io, st)       # read here too: one word is enough
     for order in ears.orders(now):
         st.team.heard(order, now)
 
@@ -4384,6 +4384,7 @@ def upgrade_step(io, mapdata, st):
 MOSCOW_CC = (209, 49)           # tiles: Moscow's command centre
 ORDER_TAX_SECURE = 120          # seconds the detachment has to clear the city
 ORDER_TAX_LEAST = 8             # men in the detachment at least
+ORDER_TAX_HELD = 480            # seconds a strongly held city is waited for
 BACK_NEAR = 6                   # tiles from the mass point it walks back to
 
 
@@ -4451,11 +4452,26 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
         enemies = len(near(hostile, xy, TAX_ENEMY))
         if enemies < TAX_ENEMY_LEAST:
             job["stage"] = "depot"      # clear: on to the depot
+        elif enemies > TAX_HEAVY and not job["guard"]:
+            hold_tax(io, st, job, name, enemies)   # too strong for a few men
         elif not job["guard"]:
-            if send_guard(io, watch, mapdata, st, name, picture):
+            n = send_guard(io, watch, mapdata, st, name, picture)
+            if n and n < ORDER_TAX_LEAST:
+                hold_tax(io, st, job, name, enemies, sent=n)
+            elif n:
                 job["guard"] = True
                 st.guards[name] = io.now()
         elif io.now() - job["since"] > ORDER_TAX_SECURE:
+            return tax_order_end(io, watch, mapdata, st, job, ok=False)
+        return
+    if job["stage"] == "held":
+        # trial 32: Warsaw held in strength; 7 men were sent and lost.
+        # Now it waits for a hit (or the Axis leaving) to clear it.
+        enemies = len(near(hostile, xy, TAX_ENEMY))
+        if enemies < TAX_ENEMY_LEAST:
+            job["stage"], job["since"] = "depot", io.now()
+            io.log(f"tax order: {name} is clear now: on to the depot")
+        elif io.now() - job["since"] > ORDER_TAX_HELD:
             return tax_order_end(io, watch, mapdata, st, job, ok=False)
         return
     if job["stage"] == "depot":
@@ -4471,6 +4487,19 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
             return tax_order_end(io, watch, mapdata, st, job, ok=True)
         if stage is None:
             return tax_order_end(io, watch, mapdata, st, job, ok=False)
+
+
+def hold_tax(io, st, job, name, enemies, sent=0):
+    """The city is held too strongly for a detachment: the order waits
+    (ORDER_TAX_HELD) for it to be cleared by a hit, and the ally is
+    told."""
+    from bot import places
+    job["stage"], job["since"] = "held", io.now()
+    say(io, st, f"Axis hold {places.plain(name)}: I'll tax it once it's clear",
+        force=True)
+    io.log(f"tax order: about {enemies} enemy pixels at {name}"
+           + (f", only {sent} men to send" if sent else "")
+           + f": waiting up to {ORDER_TAX_HELD} s for it to be cleared")
 
 
 def tax_order_end(io, watch, mapdata, st, job, ok):
@@ -4496,8 +4525,27 @@ def tax_order_end(io, watch, mapdata, st, job, ok):
                f"until an ally asks")
 
 
+def build_id():
+    """The commit the app was built from (written by the build), or
+    "local"."""
+    try:
+        with open(live.data_path("build.txt")) as f:
+            return f.read().strip()[:12] or "local"
+    except OSError:
+        return "local"
+
+
+COMMANDS_ASKED = re.compile(r"\s*@(r|russ|russia)\s+(commands?|help)\b",
+                            re.IGNORECASE)
+COMMANDS_AGAIN = 30            # seconds before the list is typed again
+
+
 def list_commands(io, st):
-    """"@R commands": every order Russia takes, a line each."""
+    """"@R commands": every order Russia takes, a line each (once, though
+    the chat reader and the model may both pass it on)."""
+    if io.now() - getattr(st, "commands_listed", -1e9) < COMMANDS_AGAIN:
+        return False
+    st.commands_listed = io.now()
     for line in team_rules.COMMANDS:
         say(io, st, line, force=True)
         io.sleep(0.3)
@@ -4511,6 +4559,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     reads the allies' chat (bot/team.py); without it Russia still
     announces its hits but cannot hear the answers."""
     mapdata = mapdata or load_map()
+    io.log(f"build {build_id()}")       # which download this is
     side = mapdata["slots"][SLOT]
     first = io.shot("start")
     watch = live.Watch(first, side["structures"], side["units"])

@@ -42,7 +42,8 @@ def main(keys_version=False, rel_version=False, back_version=False):
     root.title("StarCraft bot: first trial"
                + (" (line ahead)" if keys_version else "")
                + (" (line beside)" if rel_version else "")
-               + (" (back first)" if back_version else ""))
+               + (" (back first)" if back_version else "")
+               + f" - build {trial.build_id()}")
     root.attributes("-topmost", True)
     root.resizable(False, False)
     status = tk.StringVar(value="Get into a game as Russia, then press F9.\n"

@@ -1339,3 +1339,20 @@ second hit (the demo only shows how).
   depot as soon as it is out. Not seen at the second look: "couldn't tax
   <city>".
 - New "@R commands": lists every order, a line each.
+
+## Trial 32
+
+- The game was played with the build before the trial 31 fixes: the ping
+  log still read "? teal planes", which the new code cannot write, and
+  "@R commands" was not known. The app now shows its build in the window
+  title and the log's first lines, so this can be checked.
+- "@R commands" is also read straight from the chat line, not only from
+  the model's orders; it is typed once even if both pass it on.
+- The colour count of allied planes is teal only and greener than the
+  beacons' cyan (a beacon and fires were counted as planes).
+- "@R tax Warsaw": Warsaw was held by about twenty Axis after a stalled
+  hit; seven men were sent, lost, and two minutes later "couldn't tax".
+  Now a city held that strongly (or with fewer than 8 men to send) gets
+  no detachment: the ally is told "Axis hold Warsaw: I'll tax it once
+  it's clear", and the depot follows once a hit clears it (up to 8
+  minutes).

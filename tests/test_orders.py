@@ -70,7 +70,7 @@ def test_tax_order_secures_the_city_then_builds_a_depot_then_comes_back(monkeypa
 
     def guard(io_, watch, mapdata, st_, name, picture):
         guards.append(name)
-        return True
+        return 12
     monkeypatch.setattr(trial, "send_guard", guard)
 
     def depot(io_, watch, mapdata, st_, name, ours, cc_tile=None, then_home=False):
@@ -250,3 +250,68 @@ def test_r_commands_lists_every_order_in_short_lines(monkeypatch):
                  "return air", "status", "reset", "commands"):
         assert word in text
     assert "commands" in team.CHAT_SYSTEM
+
+
+def test_r_commands_is_read_from_the_chat_line_itself_and_typed_once(monkeypatch):
+    """Trial 32: "@R Commands" was read but no list came. The line alone
+    is enough now; the model's order coming as well types nothing more."""
+    out = said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    assert trial.COMMANDS_ASKED.match("@R Commands")
+    assert trial.COMMANDS_ASKED.match("@russia help")
+    assert not trial.COMMANDS_ASKED.match("@Reset commands")
+    trial.list_commands(io, st)
+    trial.list_commands(io, st)                     # the model's copy
+    assert out == team.COMMANDS
+    io.t += trial.COMMANDS_AGAIN + 1
+    trial.list_commands(io, st)
+    assert len(out) == 2 * len(team.COMMANDS)
+
+
+def test_a_city_held_in_strength_waits_for_a_hit_to_clear_it(monkeypatch):
+    """Trial 32: Warsaw was held by about 20 Axis; seven men were sent,
+    lost, and two minutes later "couldn't tax". Now no detachment is
+    thrown at it: the ally is told, and the depot follows once a hit has
+    cleared it."""
+    m = trial.load_map()
+    out = said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    warsaw = trial.place(m, "Warsaw 200")
+    xy = (warsaw["x"], warsaw["y"])
+    sent, depots = [], []
+    monkeypatch.setattr(trial, "send_guard", lambda *a: sent.append(1) or 12)
+    monkeypatch.setattr(trial, "depot_at", lambda *a, **k: depots.append(1) or 0)
+    trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
+    heavy = StubWatch(set(), blob(xy, 5))
+    assert len(trial.near(heavy.others(None, trial.HOSTILE), xy,
+                          trial.TAX_ENEMY)) > trial.TAX_HEAVY
+    trial.tax_order_step(io, heavy, m, st, None)
+    assert sent == [] and st.tax_jobs["Warsaw 200"]["stage"] == "held"
+    assert out[-1].startswith("Axis hold Warsaw")
+    io.t += trial.ORDER_TAX_SECURE + 10             # still held: it waits
+    trial.tax_order_step(io, heavy, m, st, None)
+    assert "Warsaw 200" in st.tax_jobs
+    trial.tax_order_step(io, StubWatch(set(), set()), m, st, None)   # cleared
+    assert st.tax_jobs["Warsaw 200"]["stage"] == "depot"
+    trial.tax_order_step(io, StubWatch(set(), set()), m, st, None)
+    assert depots
+    # never cleared: given up in the end
+    st.tax_jobs.clear()
+    trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
+    trial.tax_order_step(io, heavy, m, st, None)
+    io.t += trial.ORDER_TAX_HELD + 1
+    trial.tax_order_step(io, heavy, m, st, None)
+    assert out[-1] == "couldn't tax Warsaw" and not st.tax_jobs
+
+
+def test_too_few_men_to_send_waits_as_well(monkeypatch):
+    m = trial.load_map()
+    out = said(monkeypatch)
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    xy = (trial.place(m, "Warsaw 200")["x"], trial.place(m, "Warsaw 200")["y"])
+    monkeypatch.setattr(trial, "send_guard", lambda *a: 5)
+    trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
+    trial.tax_order_step(io, StubWatch(set(), blob(xy, 2)), m, st, None)
+    assert st.tax_jobs["Warsaw 200"]["stage"] == "held"
