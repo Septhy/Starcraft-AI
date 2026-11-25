@@ -4790,6 +4790,15 @@ LOSING_HALF = 0.5              # share of the Scouts left: the fight is lost
 QUIET_END = 6                  # looks with no enemy, once it has fought: done
 LOST_SIGHT = 4                 # looks without seeing the fleet: done
 ENEMY_LEAST = 20               # enemy-colour pixels that make one enemy patch
+# Cover (the repository owner): the Scouts fight only while enough of our
+# ground army stands under them to protect them. Checked on the minimap
+# with every count: our pixels round the fleet (less the Scouts' own
+# few) against the enemy's there.
+COVER_REACH = 7                # minimap pixels round the fleet (about 6 tiles)
+COVER_LEAST = 6                # our ground pixels there at the least
+COVER_ODDS = 0.5               # and at least half as many as the enemy's
+COVER_FLEET = 4                # our pixels the Scouts themselves make there
+COVER_THIN = 2                 # counts in a row without cover: home
 FLEET_SEEN = 3                 # gold patches together that make the fleet
 OWN_GOLD = 150                 # screen pixels round our buildings: their lamps
 
@@ -4920,6 +4929,24 @@ def attack_target(io, st, target, cam):
     return True
 
 
+def ground_cover(watch, picture, fleet_xy):
+    """Our ground army under the fleet and the enemy there, as minimap
+    pixels: (ours, theirs). None if it cannot be told."""
+    if watch is None or picture is None:
+        return None
+    ours = len(near(watch.units(picture), fleet_xy, COVER_REACH))
+    theirs = len(near(watch.others(picture, HOSTILE), fleet_xy, COVER_REACH))
+    return max(0, ours - COVER_FLEET), theirs
+
+
+def covered(cover):
+    """Enough of our ground under the Scouts to protect them."""
+    if cover is None:
+        return True                     # cannot tell: carry on
+    ours, theirs = cover
+    return ours >= COVER_LEAST and ours >= COVER_ODDS * theirs
+
+
 def dogfight(io, watch, mapdata, st, target):
     """Work the air alone, once most of the hit has been sent: the
     camera on the fleet, short bursts of hops round the edge of the
@@ -4942,6 +4969,7 @@ def dogfight(io, watch, mapdata, st, target):
     fought = False
     last_scan, focus_until = -1e9, -1e9   # the scans for targets
     to_shoot, hop_back = [], False        # targets left from the last scan
+    thin = 0                              # counts in a row without cover
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
         cam = look_at(io, *centred(*fleet_xy), wait=0.1)
@@ -4962,6 +4990,19 @@ def dogfight(io, watch, mapdata, st, target):
         anchor = army_anchor(watch, pic, goal) or fleet_xy
         # the Scouts counted every few seconds
         if io.now() - last_count >= COUNT_EVERY:
+            # our ground under the Scouts: enough to protect them?
+            # (judged once it has met the enemy: on the way out it may be
+            # over empty ground behind the army)
+            cover = ground_cover(watch, pic, fleet_xy) if fought else None
+            thin = 0 if covered(cover) else thin + 1
+            if thin >= COVER_THIN:
+                why = (f"too little of our ground army under the Scouts "
+                       f"({cover[0]} of ours to {cover[1]} enemy on the "
+                       f"minimap)")
+                st.fleet_task = None
+                park_fleet(io, st, "dogfight without cover")
+                io.log(f"dogfight: {why}: the fleet goes home")
+                return orders
             n = fleet_left(io, st)
             last_count = io.now()
             if n is not None:

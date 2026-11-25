@@ -754,3 +754,51 @@ def test_in_the_dogfight_one_target_then_a_hop_back_then_the_next(monkeypatch):
     trial.dogfight(io, None, m, st, "Warsaw 200")
     assert not any("focus fire" in l for l in io.lines)
     assert io.keys.count("h") >= 2 and "a" not in io.keys[:20]
+
+
+class CoverWatch:
+    """The minimap round the fleet: our pixels and the enemy's."""
+    def __init__(self, ours, theirs):
+        self.ours, self.theirs = ours, theirs
+
+    def units(self, picture):
+        return set(self.ours)
+
+    def others(self, picture, slots):
+        return set(self.theirs)
+
+
+def blob_at(xy, n):
+    c, r = trial.live.to_drawn(*xy)
+    return {(int(c) + i % 5, int(r) + i // 5) for i in range(n)}
+
+
+def test_cover_is_our_ground_under_the_scouts_against_the_enemy_there():
+    xy = (4000, 2400)
+    ours, theirs = blob_at(xy, 20), blob_at(xy, 10)
+    assert trial.ground_cover(CoverWatch(ours, theirs), "pic", xy) == (16, 10)
+    assert trial.covered((16, 10))
+    assert not trial.covered((4, 2))           # too few of ours
+    assert not trial.covered((8, 30))          # far fewer than theirs
+    assert trial.covered(None)                 # cannot tell: carry on
+
+
+def test_the_scouts_go_home_when_the_ground_under_them_is_too_thin(monkeypatch):
+    """The repository owner: the Scouts need enough of our ground army
+    under them; without it two counts in a row, they go home."""
+    m = trial.load_map()
+    fleet = trial.live.CENTRE
+    enemy = (fleet[0] + 300, fleet[1])
+    looks = [(fleet, [enemy])] * 200
+    st, io = fight_setup(monkeypatch, looks)
+    watch = CoverWatch(set(), blob_at((4000, 2400), 25))
+    monkeypatch.setattr(trial, "ground_cover", lambda w, pic, xy: (2, 25))
+    trial.dogfight(io, watch, m, st, "Warsaw 200")
+    assert any("too little of our ground army under the Scouts" in l
+               for l in io.lines)
+    assert st.air.state == "parked"
+    # with cover, it fights on
+    st, io = fight_setup(monkeypatch, looks[:60] + [(fleet, [])] * 10)
+    monkeypatch.setattr(trial, "ground_cover", lambda w, pic, xy: (30, 10))
+    trial.dogfight(io, watch, m, st, "Warsaw 200")
+    assert not any("too little" in l for l in io.lines)

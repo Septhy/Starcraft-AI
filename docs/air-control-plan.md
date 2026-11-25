@@ -112,6 +112,12 @@ Step 3 (dogfight, version 1), in the build after 00f01a1:
   with no hops so the Scouts shoot it, then a hop back, then the next
   (up to 3 from one scan). None found: only hops and Holds. Without the
   model (no API key), every ninth order is a click on the nearest enemy.
+- Cover (the repository owner): once the fleet has met the enemy, at
+  every count it checks our ground army under it on the minimap
+  (`ground_cover`, `covered`): at least 6 of our pixels within about 6
+  tiles (less the Scouts' own few) and at least half as many as the
+  enemy's there. Two counts in a row without that cover (about 8 s), the
+  fleet goes home.
 - No enemy near: the fleet attack-moves a few tiles over our army's
   front; once it has fought, 6 looks without an enemy end the dogfight.
 - The Scouts counted every 4 s: 3 or more lost since the last count, a
