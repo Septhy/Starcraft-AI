@@ -1560,3 +1560,23 @@ second hit (the demo only shows how).
   (`choose_park`, checked at each air upkeep).
 - The repository owner: a hit needs 20 fewer men (at least 120, normally
   160, 220 after a lost or stalled hit).
+
+## Trial 38 (build 5da43d6)
+
+- The repository owner: once Romania has no enemy left and our men have got
+  past it to (150, 146) (BALKS_POINT), with Serbia (Belgrade, Factory 7)
+  not yet taken, every man of the hit goes into Serbia at once, moving or
+  not, however few (`into_serbia`). Before, it waited for 20 idle pixels
+  there and for enough men to go on alone (17 s in this game).
+- Men left idle round (150, 146) and elsewhere in the Balkans: small
+  bodies (2 minimap pixels) are sent on too. With no Balkan hit on, the
+  Balkans are swept for idle men of earlier hits at the start of every
+  massing cycle, every 5 s during it, and before a new hit goes: they go on
+  to the road's next stop (Romania, Belgrade, then Amsterdam;
+  `sweep_balkans`, `balkan_objective`). They are never gathered home.
+- Tax: the command centre was clicked again and again and no SCV came. A
+  click counted as picking it when any building was selected, and S was
+  never checked. Now S is checked by the minerals dropping by 50; if not,
+  the SCV button itself is clicked; if still not, a picture 'no-scv' is
+  kept and no SCV is waited for. If one centre is not found, the other is
+  tried.

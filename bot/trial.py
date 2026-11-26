@@ -206,6 +206,7 @@ class State:
         self.idle_stuck = {}       # idle body spot -> when it was given up on
         self.idle_sizes = {}       # idle body spot -> its size at the last order
         self.last_choke = -1e9
+        self.last_balks_sweep = -1e9
         self.tax_jobs = {}         # "@R tax <city>": city -> its one try
         self.upgrade_wanted = set()  # "@R upgrade": the upgrades still to start
         self.upgrade_level = {"weapons": 0, "armor": 0}
@@ -2197,12 +2198,17 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     keys version the keyed line goes first."""
     orders = 0
     regroup_fleet(io, st)               # every Scout parked on a key first
-    if team_rules.front_of(target) == "balks":
-        # the last hit's troops still in the choke go on first, so the
-        # new hit does not pile up behind them
+    a = pic = None
+    if watch is not None:
         a = watch.units(io.shot("watch", keep=False))
         io.sleep(1.0)
         pic = io.shot("watch", keep=False)
+        # men of earlier hits idle in the Balkans go on first (trial 38)
+        orders += sweep_balkans(io, watch, mapdata, st, a & watch.units(pic),
+                                pic, force=True)
+    if team_rules.front_of(target) == "balks" and watch is not None:
+        # the last hit's troops still in the choke go on first, so the
+        # new hit does not pile up behind them
         orders += clear_choke(io, watch, mapdata, st, a & watch.units(pic),
                               pic, force=True)
     keyed = st.mass_keyed if keys_style() and st.mass_keyed and \
@@ -2586,6 +2592,30 @@ def supply_full(io):
     return bool(supply) and supply[0] >= supply[1]
 
 
+SCV_BUTTON = (1659, 845)       # the command card's first button: a centre's SCV
+SCV_PRICE = 50
+
+
+def start_scv(io):
+    """With the command centre selected, start an SCV and check that it
+    started: the minerals drop by its price (trial 38: the centre was
+    clicked again and again and no SCV came; a click near it had picked
+    another building, or S did nothing). S first, then the button
+    itself. True if started, or if the minerals cannot be read."""
+    before = read_money(io)
+    io.key("s")                         # build an SCV
+    io.sleep(0.15)
+    if before is None:
+        return True
+    after = read_money(io)
+    if after is None or before - after >= SCV_PRICE - 10:
+        return True
+    io.click(*SCV_BUTTON)               # the button, in case S did nothing
+    io.sleep(0.15)
+    after = read_money(io)
+    return after is None or before - after >= SCV_PRICE - 10
+
+
 def read_money(io):
     """The minerals at the top of the screen, or None if not read."""
     try:
@@ -2636,17 +2666,27 @@ def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
             st.depots[name] = {"stage": "supply", "since": now}
             io.log(f"tax: supply is full: {name}'s SCV waits for room")
             return 0
-        tile = cc_tile or min(COMMAND_CENTRES, key=lambda t: (t[0] * 32 - cx) ** 2
-                              + (t[1] * 32 - cy) ** 2)
-        b = next((b for b in mapdata["slots"][SLOT]["buildings"]
-                  if b["type"] == "Command Center"
-                  and (b["x"] // 32, b["y"] // 32) == tile), None)
+        tiles = sorted(COMMAND_CENTRES, key=lambda t: (t[0] * 32 - cx) ** 2
+                       + (t[1] * 32 - cy) ** 2)
+        if cc_tile:
+            tiles = [cc_tile] + [t for t in tiles if t != cc_tile]
         st.depot_tries[name] = st.depot_tries.get(name, 0) + 1
-        if b is None or not select_building(io, b):
+        b = None
+        for tile in tiles:              # the other centre if one is not found
+            c = next((c for c in mapdata["slots"][SLOT]["buildings"]
+                      if c["type"] == "Command Center"
+                      and (c["x"] // 32, c["y"] // 32) == tile), None)
+            if c is not None and select_building(io, c):
+                b = c
+                break
+        if b is None:
             io.log(f"tax: the command centre for {name}'s SCV was not found")
             return 0
-        io.key("s")                     # build an SCV
-        io.sleep(0.1)
+        if not start_scv(io):
+            io.shot("no-scv")
+            io.log(f"tax: the command centre did not start an SCV for {name} "
+                   f"(picture 'no-scv')")
+            return 0
         # its rally point set on the screen, by the centre, with the same
         # camera it is picked with later (trial 33: set on the minimap, it
         # stood a tile or two off and was not found twice)
@@ -3394,9 +3434,9 @@ def gather_idle(io, watch, mapdata, st, tried):
     still = a & b
     idle = still - at_mass(b) - scout_spot(io, st, b)
     idle -= in_battle(st, mapdata, idle)
-    if balkan_hit_on(st):
-        # in the Balkans they go on with the hit (advance_front), not home
-        idle -= in_balkans(idle)
+    # in the Balkans they go on (advance_front with a Balkan hit, else
+    # sweep_balkans), never home to the mass (trial 38)
+    idle -= balkan_units(st, mapdata, idle)    # (guards: left out below too)
     idle -= guarding(st, mapdata, idle, io.now())
     idle -= near(idle, fleet_spot(), 6)  # the fleet waits there: not a body
     idle -= scout_spots(io, mapdata, st, idle)   # new Scouts: for the fleet
@@ -3477,6 +3517,108 @@ def gather_idle(io, watch, mapdata, st, tried):
     return orders, b_picture, still
 
 
+BALKS_LEAST = 2                # minimap pixels: a small body in the Balkans is
+                               # still sent on (trial 38: some were left)
+SERBIA = "Factory 7"           # Belgrade
+PAST_ROMANIA = 4               # our minimap pixels at BALKS_POINT: got past it
+
+
+def balkan_units(st, mapdata, pixels, now=None):
+    """Our pixels of the Balkan road: round Romania, past it
+    (BALKS_POINT), in the choke and anywhere in the Balkans; not the
+    mass, the Middle East spawn or a tax detachment."""
+    r = place(mapdata, "Romania 300")
+    out = near(pixels, (r["x"], r["y"]), 14) | near(pixels, BALKS_POINT, 14) \
+        | in_balkans(pixels) | in_choke(mapdata, pixels)
+    out -= at_mass(pixels) | near(pixels, MIDDLE_EAST, 8)
+    if now is None:
+        return out
+    return out - guarding(st, mapdata, out, now)
+
+
+def into_serbia(io, watch, mapdata, st, picture):
+    """The repository owner (trial 38): once Romania has no enemy left
+    and our troops have got past it (BALKS_POINT), with Serbia not yet
+    taken, every man of the hit goes on into Serbia at once: moving or
+    not, however few. True if they were sent."""
+    battle = st.battle
+    if battle is None or battle.target != "Romania 300" or \
+            SERBIA in st.reached or picture is None:
+        return False
+    w = place(mapdata, "Romania 300")
+    hostile = watch.others(picture, HOSTILE)
+    if len(near(hostile, (w["x"], w["y"]), 8)) >= CLEARED:
+        return False
+    ours = watch.units(picture)
+    if len(near(ours, BALKS_POINT, 9)) < PAST_ROMANIA:
+        return False
+    st.reached.add("Romania 300")
+    st.outcomes.append(f"hit at Romania 300: through, sent on into {SERBIA}")
+    io.log(f"Romania 300 clear and our troops past it: the whole hit goes "
+           f"on into Serbia ({SERBIA})")
+    st.battle = Battle(SERBIA, io.now())
+    st.sent_at.append(SERBIA)
+    st.last_advance = io.now()
+    s = place(mapdata, SERBIA)
+    men = balkan_units(st, mapdata, ours, io.now()) - near(ours, (s["x"], s["y"]), 6)
+    orders = 0
+    for group in front_to_back(live.clusters(men, 4, 4), (s["x"], s["y"]),
+                               lambda g: live.from_drawn(*g[0]))[:30]:
+        if len(group) >= BALKS_LEAST and \
+                select_group(io, group, st, watch, margin=45):
+            send_at(io, mapdata, st, SERBIA)
+            orders += 1
+    io.log(f"  {orders} groups sent on into Serbia")
+    return True
+
+
+def balkan_objective(st):
+    """Where men left on the Balkan road go next: the first stop of the
+    road not yet taken (Romania, Belgrade, then on toward Amsterdam)."""
+    name = "Romania 300"
+    seen = set()
+    while name in st.reached and name in NEXT and name not in seen:
+        seen.add(name)
+        name = NEXT[name]
+    return name
+
+
+BALKS_SWEEP_EVERY = 5          # seconds between sweeps of the Balkans for idle men
+
+
+def sweep_balkans(io, watch, mapdata, st, still, picture, force=False):
+    """The repository owner (trial 38): men of earlier hits idle in the
+    Balkans (round BALKS_POINT, Romania, Serbia, Greece) are sent on to
+    the next stop of the Balkan road, however few: at the start of every
+    massing cycle, every few seconds during it, and before a new hit
+    goes. While a Balkan hit is on, advance_front sends them with it.
+    Returns the orders given."""
+    if balkan_hit_on(st) or picture is None:
+        return 0
+    if not force and io.now() - st.last_balks_sweep < BALKS_SWEEP_EVERY:
+        return 0
+    st.last_balks_sweep = io.now()
+    idle = balkan_units(st, mapdata, still, io.now())
+    objective = balkan_objective(st)
+    o = place(mapdata, objective)
+    idle -= near(idle, (o["x"], o["y"]), 6)
+    if len(idle) < BALKS_LEAST:
+        return 0
+    hostile = watch.others(picture, HOSTILE)
+    orders = 0
+    for group in front_to_back(live.clusters(idle, 4, 4), (o["x"], o["y"]),
+                               lambda g: live.from_drawn(*g[0]))[:24]:
+        if len(group) < BALKS_LEAST or in_contact(group, hostile):
+            continue
+        if select_group(io, group, st, watch, margin=45):
+            send_at(io, mapdata, st, objective)
+            orders += 1
+    if orders:
+        io.log(f"  {orders} idle groups left in the Balkans sent on to "
+               f"{objective}")
+    return orders
+
+
 def in_contact(group, hostile, reach=4):
     return sum((c + i, r + j) in hostile for c, r in group
                for i in range(-reach, reach + 1)
@@ -3513,6 +3655,8 @@ def advance_front(io, watch, mapdata, st, still, picture):
     if battle is None or io.now() - st.last_advance < every:
         return 0
     w = place(mapdata, battle.target)
+    if into_serbia(io, watch, mapdata, st, picture):
+        return 1
     # only the troops of this hit: those around its target or its front.
     # Troops holding somewhere else, such as Berlin, are left alone.
     idle = forward_units(still, mapdata)
@@ -3583,8 +3727,9 @@ def advance_front(io, watch, mapdata, st, still, picture):
         else back_to_front
     groups = order(live.clusters(idle, 4, 4), (o["x"], o["y"]),
                    lambda g: live.from_drawn(*g[0]))
+    least = BALKS_LEAST if team_rules.front_of(objective) == "balks" else 4
     for group in groups[:24]:
-        if len(group) < 4 or fighting(group):
+        if len(group) < least or fighting(group):
             continue
         # a tight box: wide ones overlap and pick the same troops again
         if select_group(io, group, st, watch, margin=45):
@@ -4286,6 +4431,10 @@ def build_big_mass(io, watch, mapdata, st, t0, battle=None, general=None):
             break
         advance_front(io, watch, mapdata, st, still, picture)
         clear_choke(io, watch, mapdata, st, still, picture)
+        # at the start of the cycle, and every few seconds: men of earlier
+        # hits idle in the Balkans go on to the road's next stop first
+        sweep_balkans(io, watch, mapdata, st, still, picture,
+                      force=io.now() - began < 5)
         battle = st.battle              # it may have moved on to a new objective
         # The minimap gives a rough figure cheaply, and says when it is
         # worth counting properly. It jumps about as troops arrive, so

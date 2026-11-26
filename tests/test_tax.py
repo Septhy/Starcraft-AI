@@ -515,3 +515,83 @@ def test_the_corner_button_tells_buildings_from_units():
     assert trial.corner_button(_screen_with_card("card_lifted"))
     assert trial.corner_button(_screen_with_card("card_grounded"))
     assert not trial.corner_button(_screen_with_card("card_units"))
+
+
+def sent_points(sent):
+    return [p for p in sent if isinstance(p, tuple)]
+
+
+def near_place(m, name, points, tiles=12):
+    c = trial.place(m, name)
+    return points and all(abs(x - c["x"]) < tiles * 32 and
+                          abs(y - c["y"]) < tiles * 32 for x, y in points)
+
+
+def test_romania_clear_and_men_past_it_the_whole_hit_goes_into_serbia(monkeypatch):
+    """Trial 38 (the repository owner): Romania has no enemy left and our
+    men have reached (150, 146), Serbia not yet taken: every man of the
+    hit goes into Serbia at once, moving or not."""
+    m = trial.load_map()
+    past = blob(trial.BALKS_POINT, 3)
+    romania = at(m, "Romania 300", 3)
+    m, st, io, watch, sent = choke_setup(monkeypatch, past | romania)
+    st.battle = trial.Battle("Romania 300", io.now())
+    # none of them standing still: they are sent all the same
+    assert trial.advance_front(io, watch, m, st, set(), "pic") == 1
+    assert st.battle.target == "Factory 7" and "Romania 300" in st.reached
+    assert near_place(m, "Factory 7", sent_points(sent))
+    assert any(p & past for p in sent if isinstance(p, set))
+    # with Serbia taken already: not again
+    st2 = trial.State()
+    st2.battle = trial.Battle("Romania 300", io.now())
+    st2.reached.add("Factory 7")
+    assert not trial.into_serbia(io, watch, m, st2, "pic")
+    # enemy still in Romania: not yet
+    st3 = trial.State()
+    st3.battle = trial.Battle("Romania 300", io.now())
+    w = StubWatch(past, at(m, "Romania 300", 4))
+    assert not trial.into_serbia(io, w, m, st3, "pic")
+
+
+def test_men_left_in_the_balkans_go_on_before_the_mass_cycle(monkeypatch):
+    """Trial 38: men of an earlier hit idle round (150, 146) while the
+    next hit massed; they go on to the road's next stop, however few,
+    and are never called home."""
+    m = trial.load_map()
+    left = blob(trial.BALKS_POINT, 2)
+    m, st, io, watch, sent = choke_setup(monkeypatch, left)
+    st.reached |= {"Romania 300"}
+    st.battle = trial.Battle("Berlin 1000", io.now())     # a hit elsewhere
+    assert trial.balkan_objective(st) == "Factory 7"
+    assert trial.sweep_balkans(io, watch, m, st, left, "pic", force=True) >= 1
+    assert near_place(m, "Factory 7", sent_points(sent))
+    # not again at once, unless forced (the start of a cycle, a new hit)
+    sent.clear()
+    assert trial.sweep_balkans(io, watch, m, st, left, "pic") == 0
+    st.reached.add("Factory 7")
+    assert trial.balkan_objective(st) == "Amsterdam 100"
+    # never gathered home to the mass
+    picked = []
+    monkeypatch.setattr(trial, "select_group",
+                        lambda io_, pixels, st_, watch_=None, margin=None:
+                        picked.append(set(pixels)) or True)
+    trial.gather_idle(io, watch, m, st, {})
+    assert not any(p & left for p in picked)
+
+
+def test_an_scv_is_checked_to_have_started(monkeypatch):
+    """Trial 38: the command centre was clicked again and again and no
+    SCV came. S is checked by the minerals dropping; if not, the button
+    itself; if still not, no SCV is waited for."""
+    io = StubIO()
+    money = iter([500, 500, 450])                  # S did nothing; the button did
+    monkeypatch.setattr(trial, "read_money", lambda io_: next(money))
+    assert trial.start_scv(io)
+    assert io.keys == ["s"] and io.clicks[-1][:2] == trial.SCV_BUTTON
+    io = StubIO()
+    money = iter([500, 500, 500])
+    monkeypatch.setattr(trial, "read_money", lambda io_: next(money))
+    assert not trial.start_scv(io)
+    io = StubIO()
+    monkeypatch.setattr(trial, "read_money", lambda io_: None)   # cannot tell
+    assert trial.start_scv(io) and not io.clicks
