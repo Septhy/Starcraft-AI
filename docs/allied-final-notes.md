@@ -1457,3 +1457,18 @@ second hit (the demo only shows how).
 - The fleet went with the hit 38 s after the ground started: it waited
   for every sweep, the last ones one box each. It now goes after the
   first pass, which sends most of the mass.
+
+## Trial 36
+
+- The repository owner: right after the allied chat, the Heavy Defensive
+  Artillery at Moscow (by Capital City 13) is picked and put on every air
+  key at once (Ctrl + 9, 0, 8). The air keys are 9, 0 and 8; the ground
+  keeps 1 to 7.
+- Key 0 started without its gun and its Scouts were added with Shift + 0,
+  which does nothing to a key not yet made: key 0 stayed empty and those
+  Scouts sat at the parking spot unkeyed. A new key's first Scouts now make
+  it with Ctrl.
+- The repository owner: before each hit, every Scout at the parking spot is
+  keyed afresh (boxed a dozen at a time onto 9, 0, 8, each keyed box
+  stepping aside, the Moscow gun added back), so the whole air goes with
+  the hit and the dogfight follows one fleet.

@@ -103,8 +103,8 @@ TRIES = [(0, 0), (40, 80), (-60, 0), (60, 0), (0, -70), (0, 150), (-90, 90)]
 MARGIN = 100                   # screen pixels added round a group for the box
 GROUP = (8, 4)                 # a group is at most this many minimap pixels wide, tall
 CELLS = (8, 3)                 # the view is cut into this many boxes at the mass
-GROUND_KEYS = list("12345678")
-AIR_KEYS = list("9087")         # the fleet keys: 9 and 0, then 8 and 7 are
+GROUND_KEYS = list("1234567")   # (the repository owner: 8 is an air key)
+AIR_KEYS = list("908")         # the fleet keys: 9 and 0, then 8 and 7 are
                                # taken from the ground keys if needed
 # The repository owner: Russia's air is kept apart from the spawns, on
 # its own number keys, as one fleet: up to eleven Scouts ("Light
@@ -115,6 +115,9 @@ AIR_KEYS = list("9087")         # the fleet keys: 9 and 0, then 8 and 7 are
 # ground army.
 FLEET_SIZE = 11                # Scouts on one fleet key
 HEAVY_ARTILLERY = [(5684, 2489), (5231, 1701), (6796, 1665), (7458, 2443)]
+MOSCOW_HA = (6796, 1665)       # the Heavy Defensive Artillery at Moscow: the
+                               # same gun on keys 9, 0 and 8 (the repository
+                               # owner), keyed right after the allied chat
 FLEET_PARK = (21 * 32, -11 * 32)  # map pixels from the mass: where the fleet waits,
                                  # clear of the sweeps of the massing place
 FLEET_MOVE_AFTER = 40          # seconds: the fleet's first order (the Middle East
@@ -248,6 +251,7 @@ class State:
         self.air_home = False      # the air has been pulled back to the mass
         self.air = None            # the air brain: AirStats
         self.ha_gone = set()       # Heavy Artillery spots known to be empty
+        self.ha_keys = set()       # air keys holding the Moscow artillery
         self.key_pictures = 0      # pictures of a pressed fleet key kept
         self.looks_kept = 0
 
@@ -619,29 +623,125 @@ def pick_ha(io, st, x, y):
     return False
 
 
+def key_moscow_ha(io, st):
+    """Right after the allied chat is set (the repository owner): the
+    Heavy Defensive Artillery at Moscow is picked and put on every air
+    key (Ctrl + 9, 0, 8), so each key starts with it."""
+    if pick_ha(io, st, *MOSCOW_HA):
+        for key in AIR_KEYS:
+            io.combo("ctrl", key)
+            io.sleep(0.04)
+        st.ha_keys = set(AIR_KEYS)
+        for key in AIR_KEYS:
+            if key in st.ground_keys:
+                st.ground_keys.remove(key)
+        io.shot("moscow-artillery")
+        io.log(f"fleet: the Heavy Artillery at Moscow on keys "
+               f"{' '.join(AIR_KEYS)}")
+        return True
+    io.shot("moscow-artillery")
+    io.log("fleet: the Heavy Artillery at Moscow was not picked; the keys "
+           "start without it and it is tried again later")
+    return False
+
+
 def open_fleet_key(io, st):
-    """Start the next fleet key with its own Heavy Artillery (click it,
-    Ctrl + key). False if there is no key or artillery left."""
-    if len(st.fleet) >= len(AIR_KEYS) or len(st.fleet) >= len(HEAVY_ARTILLERY):
+    """Start the next fleet key: it already holds the Moscow Heavy
+    Artillery if that was keyed at the start; otherwise its first Scouts
+    make it (Ctrl + key: Shift + key does nothing to a key not yet made,
+    trial 36). False if there is no key left."""
+    if len(st.fleet) >= len(AIR_KEYS):
         return False
     key = AIR_KEYS[len(st.fleet)]
-    ha = sorted(HEAVY_ARTILLERY, key=lambda p: (p[0] - HOME_MASS[0]) ** 2
-                + (p[1] - HOME_MASS[1]) ** 2)[len(st.fleet)]
-    found = pick_ha(io, st, *ha)
-    if found:
-        io.combo("ctrl", key)            # the Heavy Artillery starts the key
-        io.sleep(0.04)
-    else:
-        # the Scouts still start the key (Shift + key makes it); the
-        # artillery is tried again at the next upkeep
-        io.log(f"fleet: the Heavy Artillery at {ha} was not picked: key "
-               f"{key} starts without it")
-    io.shot(f"key-{key}-artillery")      # what was keyed (trial 34, 35)
-    st.fleet.append({"key": key, "scouts": 0, "ha": ha, "ha_dead": not found})
-    if found:
+    has_gun = key in st.ha_keys
+    st.fleet.append({"key": key, "scouts": 0, "ha": MOSCOW_HA,
+                     "ha_dead": not has_gun, "new": not has_gun})
+    if has_gun:
         key_in_use(st, key)
-    io.log(f"fleet: key {key} started")
+    io.log(f"fleet: key {key} started" + ("" if has_gun else
+                                          " (without the artillery)"))
     return True
+
+
+def add_to_key(io, st, entry):
+    """The selection onto a fleet key: Ctrl + key the first time if the
+    key is not made yet, Shift + key after."""
+    if entry.get("new"):
+        io.combo("ctrl", entry["key"])
+        entry["new"] = False
+    else:
+        io.combo("shift", entry["key"])
+    io.sleep(0.04)
+    key_in_use(st, entry["key"])
+
+
+REGROUP_REACH = 700            # screen pixels round the parking spot looked at
+REGROUP_STEP = 4               # tiles a keyed group steps aside, so the
+                               # next box takes the others
+
+
+def regroup_fleet(io, st):
+    """Before a hit (the repository owner: every brown plane keyed and sent
+    with the hit): the Scouts at the parking spot are boxed, a dozen at a
+    time, and put on the air keys afresh (Ctrl + key), each key then
+    getting the Moscow Heavy Artillery again; a keyed box steps aside so
+    the next box takes the rest (trial 36: an unkeyed squadron sat at the
+    parking spot and the dogfight's camera jumped between the two)."""
+    a = getattr(st, "air", None)
+    if not st.fleet or (a is not None and a.state != "parked"):
+        return 0
+    park = fleet_spot()
+    entries, keyed = [], 0
+    for key in AIR_KEYS:
+        cam = look_at(io, *centred(*park), wait=0.25)
+        pic = io.shot("regroup", keep=False)
+        if pic is None:
+            break
+        px, py = live.on_screen(park[0], park[1], cam)
+        gold = gold_on_screen(pic, px, py, REGROUP_REACH)
+        if not gold:
+            break
+        # the thickest bunch of gold: the nearest to the first, a box round it
+        g0 = gold[0]
+        bunch = [p for p in gold if (p[0] - g0[0]) ** 2 + (p[1] - g0[1]) ** 2
+                 <= 300 ** 2]
+        l, t, r, b = live.GAME_AREA
+        box = (max(l + 3, min(p[0] for p in bunch) - 50),
+               max(t + 3, min(p[1] for p in bunch) - 50),
+               min(r - 3, max(p[0] for p in bunch) + 50),
+               min(b - 3, max(p[1] for p in bunch) + 50))
+        io.drag(*box)
+        io.sleep(0.08)
+        n = live.selected_count(io.shot("regroup-box", keep=False))
+        if n == 0 or not picked_are_scouts(io, st, n):
+            break
+        if n > FLEET_SIZE:
+            n = trim_selection(io, FLEET_SIZE)
+        io.combo("ctrl", key)           # the key afresh: these Scouts
+        io.sleep(0.04)
+        entries.append({"key": key, "scouts": n, "ha": MOSCOW_HA,
+                        "ha_dead": True, "new": False})
+        keyed += n
+        # aside, so the next box does not take them again
+        side = (park[0] + REGROUP_STEP * 32 * len(entries), park[1])
+        io.click(*live.minimap_point(*side), button="right")
+        io.sleep(0.8)
+    if not entries:
+        return 0
+    st.fleet = entries
+    st.air_keys = []
+    for e in entries:
+        key_in_use(st, e["key"])
+    st.ha_keys = set()
+    if pick_ha(io, st, *MOSCOW_HA):     # the gun back on every key made
+        for e in entries:
+            io.combo("shift", e["key"])
+            io.sleep(0.04)
+            e["ha_dead"] = False
+            st.ha_keys.add(e["key"])
+    io.log(f"fleet: {keyed} Scouts at the parking spot keyed afresh on "
+           f"{' '.join(e['key'] for e in entries)} before the hit")
+    return keyed
 
 
 def key_in_use(st, key):
@@ -663,10 +763,8 @@ def add_to_fleet(io, st, x, y, kind="Scout"):
     if not click_scout(io, st, x, y, reach=2):
         io.log(f"fleet: no Scout found at {x}, {y}: not added")
         return False
-    io.combo("shift", entry["key"])      # added to the key
-    io.sleep(0.04)
+    add_to_key(io, st, entry)            # added to the key
     entry["scouts"] += 1
-    key_in_use(st, entry["key"])
     return True
 
 
@@ -820,10 +918,8 @@ def add_selected_scouts(io, st, reselect, depth=0):
         n = trim_selection(io, room)
         if n == 0 or n > room:
             return 0
-    io.combo("shift", entry["key"])
-    io.sleep(0.04)
+    add_to_key(io, st, entry)
     entry["scouts"] += n
-    key_in_use(st, entry["key"])
     st.last_added_key = entry["key"]
     attack_move(io, *fleet_spot())      # off to the fleet, out of the mass
     if whole > n and depth < 2:
@@ -1780,6 +1876,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     """Send the mass at the target as a wall, the fleet with it. In the
     keys version the keyed line goes first."""
     orders = 0
+    regroup_fleet(io, st)               # every Scout parked on a key first
     if team_rules.front_of(target) == "balks":
         # the last hit's troops still in the choke go on first, so the
         # new hit does not pile up behind them
@@ -4909,35 +5006,22 @@ def locate_fleet(io, st):
 
 
 def replace_ha(io, st, e):
-    """A key whose Heavy Artillery is gone gets another one (Shift +
-    key), if one of the four is not on a key yet and still stands;
-    otherwise it goes on with its Scouts alone."""
-    # its own first (a key started without it: trial 35), then any of
-    # the four not on another key
-    others = {tuple(f["ha"]) for f in st.fleet if f is not e}
-    gone = set(st.ha_gone)
+    """A key without the Moscow Heavy Artillery gets it (Shift + key; the
+    same gun is on every air key). Tried a few times, then left."""
     tries = st.__dict__.setdefault("ha_tries", {})
-    for ha in [e["ha"]] + [h for h in HEAVY_ARTILLERY if h != e["ha"]]:
-        if tuple(ha) in others or tuple(ha) in gone:
-            continue
-        if not pick_ha(io, st, *ha):
-            tries[tuple(ha)] = tries.get(tuple(ha), 0) + 1
-            if tries[tuple(ha)] >= 2:
-                st.ha_gone.add(tuple(ha))   # not there: not tried again
-            continue
-        io.combo("shift", e["key"])
-        io.sleep(0.04)
-        key_in_use(st, e["key"])
-        if ha != e["ha"]:
-            st.ha_gone.add(tuple(e["ha"]))
-        io.log(f"air: key {e['key']} got its Heavy Artillery, at {ha}")
-        e["ha"], e["ha_dead"] = ha, False
-        return True
-    if not e.get("ha_told"):
-        e["ha_told"] = True
-        io.log(f"air: no spare Heavy Artillery for key {e['key']}: it goes "
-               f"on with its Scouts alone")
-    return False
+    if tries.get(e["key"], 0) >= 3:
+        return False
+    tries[e["key"]] = tries.get(e["key"], 0) + 1
+    if not pick_ha(io, st, *MOSCOW_HA):
+        if tries[e["key"]] >= 3:
+            io.log(f"air: the Moscow Heavy Artillery could not be picked for "
+                   f"key {e['key']}: it goes on with its Scouts alone")
+        return False
+    add_to_key(io, st, e)
+    e["ha"], e["ha_dead"] = MOSCOW_HA, False
+    st.ha_keys.add(e["key"])
+    io.log(f"air: key {e['key']} got the Moscow Heavy Artillery")
+    return True
 
 
 def air_upkeep(io, watch, mapdata, st):
@@ -5846,6 +5930,7 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     result = {"trained": 0, "gathered": 0, "hits": []}
     try:
         opening(raw, st)                    # name, and allied chat, first
+        key_moscow_ha(io, st)               # then at once the gun on 9, 0, 8
         consult(io, watch, mapdata, st)     # the general's say on the opening
         build_fleet(io, mapdata, st)        # before anything moves
         send_scout(io, mapdata, st)

@@ -557,42 +557,33 @@ def test_leftover_scouts_go_on_the_next_key_or_to_the_fleet_never_the_mass(monke
     assert any("without a key" in line for line in io.lines)
 
 
-def test_a_missing_heavy_artillery_is_seen_on_the_key_and_replaced(monkeypatch):
-    monkeypatch.setattr(trial, "HA_BY_PICTURE", True)   # off for now: trial 34
-    """The repository owner: press the key and look at its unit
-    pictures; if none of them is not a Scout, the Heavy Artillery is
-    gone, and another one goes on the key if there is one to spare."""
+def test_a_key_without_the_moscow_gun_gets_it_at_the_upkeep(monkeypatch):
     m = trial.load_map()
     st, io = trial.State(), StubIO()
-    ha9, ha0 = trial.HEAVY_ARTILLERY[0], trial.HEAVY_ARTILLERY[1]
-    st.fleet = [{"key": "9", "scouts": 5, "ha": ha9}]
+    st.fleet = [{"key": "9", "scouts": 5, "ha": trial.MOSCOW_HA, "ha_dead": True}]
     st.air_keys = ["9"]
-    a = trial.air_stats(io, st)
+    trial.air_stats(io, st)
     io.t += trial.AIR_UPKEEP + 1
     io.shot = lambda label, keep=True: label
-    monkeypatch.setattr(trial, "read_key", lambda st_, pic: (5, 5, False))
-    clicked = []
-    # its own is gone (not picked); a spare one is
-    monkeypatch.setattr(trial, "pick_ha",
-                        lambda io_, st_, x, y: clicked.append((x, y)) or (x, y) != ha9)
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 5)
     monkeypatch.setattr(trial, "locate_fleet", lambda io_, st_: None)
+    picked = []
+    monkeypatch.setattr(trial, "pick_ha",
+                        lambda io_, st_, x, y: picked.append((x, y)) or True)
     assert trial.air_upkeep(io, None, m, st)
-    e = st.fleet[0]
-    assert a.counts[-1][1] == 5                     # five Scouts, no artillery
-    assert clicked[0] == ha9 and clicked[1] != ha9  # its own first, then a spare
-    assert e["ha"] != ha9 and not e["ha_dead"]
-    assert ("shift", "9") in io.combos
-    assert any("got its Heavy Artillery" in l for l in io.lines)
+    assert picked == [trial.MOSCOW_HA] and not st.fleet[0]["ha_dead"]
+    assert ("shift", "9") in io.combos and "9" in st.ha_keys
 
 
-def test_with_no_spare_heavy_artillery_the_key_goes_on_alone(monkeypatch):
+def test_the_moscow_gun_is_tried_three_times_then_left(monkeypatch):
     st, io = trial.State(), StubIO()
-    st.fleet = [{"key": k, "scouts": 3, "ha": ha}
-                for k, ha in zip("9087", trial.HEAVY_ARTILLERY)]
-    st.fleet[2]["ha_dead"] = True
+    e = {"key": "0", "scouts": 3, "ha": trial.MOSCOW_HA, "ha_dead": True}
+    st.fleet = [e]
     monkeypatch.setattr(trial, "pick_ha", lambda *a, **k: False)
-    assert not trial.replace_ha(io, st, st.fleet[2])
-    assert any("no spare Heavy Artillery" in l for l in io.lines)
+    for _ in range(5):
+        assert not trial.replace_ha(io, st, e)
+    assert st.ha_tries["0"] == 3
+    assert any("Scouts alone" in l for l in io.lines)
 
 
 def test_a_keys_pictures_tell_its_scouts_from_its_artillery(monkeypatch):
@@ -865,25 +856,29 @@ def test_no_marines_while_the_air_is_out_with_a_hit(monkeypatch):
 
 def test_a_missed_click_never_keys_the_scouts_as_the_artillery(monkeypatch):
     """Trial 35: the click by the Heavy Artillery missed, the Scouts
-    selected before stayed selected, and Ctrl + 9 keyed them. Only one
-    unit, not a Scout, counts as picked; not picked, the key starts
-    without it and it is tried again later."""
+    selected before stayed selected, and Ctrl + 9 keyed them. Only a
+    gun's buttons (no Move) count as picked; not picked, the keys start
+    without it, and a new key's first Scouts make it with Ctrl (trial 36:
+    Shift + 0 on a key not yet made did nothing)."""
     from tests.test_trial import screen
     st, io = trial.State(), StubIO()
     io.shot = lambda label, keep=True: label
     io.card = lambda: trial.live.card_cell(screen("units"))   # still the Scouts
     monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
     assert not trial.pick_ha(io, st, 5684, 2489)
-    # a gun's buttons, no Move: picked
     from PIL import Image
     io.card = lambda: Image.new("RGB", (92, 90), (200, 190, 40))
     assert trial.pick_ha(io, st, 5684, 2489)
     io.card = lambda: trial.live.card_cell(screen("units"))
+    assert not trial.key_moscow_ha(io, st)
+    assert not any(c[0] == "ctrl" for c in io.combos)
     assert trial.open_fleet_key(io, st)
-    assert ("ctrl", "9") not in io.combos
-    assert st.fleet[0]["ha_dead"]
-    assert any("starts without it" in l for l in io.lines)
-
+    e = st.fleet[0]
+    assert e["ha_dead"] and e["new"] and st.air_keys == []   # nothing on it yet
+    trial.add_to_key(io, st, e)
+    assert io.combos[-1] == ("ctrl", "9") and st.air_keys == ["9"]
+    trial.add_to_key(io, st, e)
+    assert io.combos[-1] == ("shift", "9")
 
 def test_a_hop_off_the_screen_goes_by_the_minimap_not_to_the_corner():
     """Trial 35: hop points off the screen were squeezed onto its edge,
@@ -897,3 +892,33 @@ def test_a_hop_off_the_screen_goes_by_the_minimap_not_to_the_corner():
     assert button == "right" and (x, y) != (30, 730)
     m = trial.live.MINIMAP
     assert m["left"] <= x < m["left"] + m["width"] and y >= m["top"]
+
+
+def test_before_a_hit_every_parked_scout_is_keyed_afresh(monkeypatch):
+    """Trial 36: an unkeyed squadron sat at the parking spot, and the
+    dogfight's camera jumped between it and the keyed one. Before a hit
+    the parked Scouts are boxed a dozen at a time onto 9, 0, 8 (Ctrl),
+    each keyed box stepping aside, then the Moscow gun goes back on."""
+    st, io = trial.State(), StubIO()
+    st.fleet = [{"key": "9", "scouts": 6, "ha": trial.MOSCOW_HA}]
+    st.air_keys = ["9"]
+    trial.air_stats(io, st)                       # parked
+    io.shot = lambda label, keep=True: label
+    io.drag = lambda *box: None
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    bunches = iter([[(900, 400), (950, 420)], [(1200, 400)], []])
+    monkeypatch.setattr(trial, "gold_on_screen", lambda pic, x, y, r: next(bunches))
+    counts = iter([12, 4])
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: next(counts))
+    monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
+    monkeypatch.setattr(trial, "pick_ha", lambda *a: True)
+    assert trial.regroup_fleet(io, st) == 15
+    assert [e["key"] for e in st.fleet] == ["9", "0"]
+    assert [e["scouts"] for e in st.fleet] == [trial.FLEET_SIZE, 4]
+    assert ("ctrl", "9") in io.combos and ("ctrl", "0") in io.combos
+    assert ("shift", "9") in io.combos and ("shift", "0") in io.combos   # the gun
+    assert st.air_keys == ["9", "0"]
+    # not while the fleet is out
+    trial.set_air_state(io, st, "with the army", "out")
+    assert trial.regroup_fleet(io, st) == 0

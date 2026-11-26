@@ -374,8 +374,9 @@ def test_opening_masses_fast_and_hits_berlin(monkeypatch):
         assert g.m_elsewhere == 0                   # never M on something else
         # the scout reached the Middle East early, and the event fired
         assert g.spawned_at is not None and g.spawned_at < 40, error
-        # eight ground groups on number keys, and they were used to hit
-        assert len(g.groups) >= 8 and g.key_orders >= 8, (error, result)
+        # seven ground groups on number keys (8 is an air key now), and
+        # they were used to hit
+        assert len(g.groups) >= 7 and g.key_orders >= 7, (error, result)
         # most of the starting army is massed when the first hit goes
         assert seen["t"] <= 100, (error, seen)
         # (the massing place is a little wider since the mass is spread out)
@@ -952,28 +953,32 @@ def test_a_balkans_hit_reaches_paris_only_through_the_netherlands():
 
 
 def test_the_fleet_is_scouts_and_one_heavy_artillery_on_its_own_key():
-    """Scouts and a Heavy Artillery, added with Shift + key; never the
-    Battlecruisers. A full key goes on to the next."""
+    """The repository owner: right after the allied chat, the Moscow Heavy
+    Artillery goes on every air key (9, 0, 8); the Scouts are added with
+    Shift + key; never the Battlecruisers. A full key goes on to the next,
+    which already holds the gun."""
     m = trial.load_map()
     g = FakeGame(m)
     st = trial.State()
+    assert trial.key_moscow_ha(g, st)
+    assert st.ha_keys == {"9", "0", "8"} and "8" not in st.ground_keys
     added = trial.build_fleet(g, m, st)
     scouts = [a for a in m["slots"]["5"]["air"] if a["type"] == "Scout"]
     assert added == len(scouts) == 6
     assert st.air_keys == ["9"] and st.fleet[0]["scouts"] == 6
-    ha = st.fleet[0]["ha"]
-    assert ha in trial.HEAVY_ARTILLERY
+    assert st.fleet[0]["ha"] == trial.MOSCOW_HA and not st.fleet[0]["ha_dead"]
     group = g.groups["9"]
     assert len(group) == 7                          # 6 Scouts + the artillery
     ships = [(a["x"], a["y"]) for a in m["slots"]["5"]["air"]
              if a["type"] == "Battlecruiser"]
     assert not any(u["from"] in ships for u in group)
-    # a full key: the next Scouts go on the next key, with its artillery
+    # a full key: the next Scouts go on the next key, with the same gun
     st.fleet[0]["scouts"] = trial.FLEET_SIZE
     s = scouts[0]
     assert trial.add_to_fleet(g, st, s["x"], s["y"])
     assert st.air_keys == ["9", "0"] and st.fleet[1]["scouts"] == 1
-    assert st.fleet[1]["ha"] != ha
+    gun = [u for u in g.groups["9"] if tuple(u["from"]) == trial.MOSCOW_HA]
+    assert gun and gun[0] in g.groups["0"]
 
 
 def fleet_state(scouts=6):
