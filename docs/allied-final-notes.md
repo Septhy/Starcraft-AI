@@ -1498,3 +1498,13 @@ second hit (the demo only shows how).
   283, 228, 274. No toggle (the repository owner): the old way is kept as a
   backup in docs/archive/ (old-hit-boxes.md, old_hit_boxes.py) and on the
   branch backup/minimap-hit-boxes.
+- Found while testing: a Romania hit attack-moves on, queued, past Romania
+  toward Serbia (BALKS_POINT), so its men stood past Romania and it never
+  counted as reached; every sweep sent them back at Romania and out again,
+  and the hit stalled. Men at BALKS_POINT now count as at Romania. And while
+  a Balkan hit is on, idle men in the Balkans are left to it (sent on), not
+  also called home to the mass.
+- The builds from c9b419f to 911cd6f failed their tests (this stall), so
+  none of them was published: the last published build was 9f57b19.
+- The tests' games last 8 minutes (tests/conftest.py); scripts comparing
+  versions must set trial.TRIAL_SECONDS = 480 too.

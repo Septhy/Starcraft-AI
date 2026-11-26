@@ -3138,6 +3138,9 @@ def gather_idle(io, watch, mapdata, st, tried):
     still = a & b
     idle = still - at_mass(b) - scout_spot(io, st, b)
     idle -= in_battle(st, mapdata, idle)
+    if balkan_hit_on(st):
+        # in the Balkans they go on with the hit (advance_front), not home
+        idle -= in_balkans(idle)
     idle -= guarding(st, mapdata, idle, io.now())
     idle -= near(idle, fleet_spot(), 6)  # the fleet waits there: not a body
     idle -= scout_spots(io, mapdata, st, idle)   # new Scouts: for the fleet
@@ -3224,6 +3227,22 @@ def in_contact(group, hostile, reach=4):
                for j in range(-reach, reach + 1)) >= 6
 
 
+def in_balkans(pixels):
+    """Our minimap pixels in the Balkans (Greece, Serbia, Romania's south)."""
+    x0, y0, x1, y1 = BALKS_AREA
+    out = set()
+    for c, r in pixels:
+        x, y = live.from_drawn(c, r)
+        if x0 <= x / 32 < x1 and y0 <= y / 32 < y1:
+            out.add((c, r))
+    return out
+
+
+def balkan_hit_on(st):
+    return st.battle is not None and \
+        team_rules.front_of(st.battle.target) == "balks"
+
+
 def advance_front(io, watch, mapdata, st, still, picture):
     """Keep the troops forward from standing idle.
 
@@ -3249,11 +3268,7 @@ def advance_front(io, watch, mapdata, st, still, picture):
         # and anyone idle in the Balkans (trial 36: men left round Greece;
         # Greece is farther from Berlin than the mass, so they counted as
         # at home and were never sent on)
-        x0, y0, x1, y1 = BALKS_AREA
-        for c, r in still - at_mass(still) - near(still, MIDDLE_EAST, 8):
-            x, y = live.from_drawn(c, r)
-            if x0 <= x / 32 < x1 and y0 <= y / 32 < y1:
-                mine.add((c, r))
+        mine |= in_balkans(still - at_mass(still) - near(still, MIDDLE_EAST, 8))
     for name in taken_on_the_way(st, battle.target):
         c = place(mapdata, name)         # left behind at a city taken earlier
         mine |= near(idle, (c["x"], c["y"]), 12)
@@ -3273,6 +3288,11 @@ def advance_front(io, watch, mapdata, st, still, picture):
                    for i in range(-reach, reach + 1)
                    for j in range(-reach, reach + 1)) >= 6
     at_target = near(idle, (w["x"], w["y"]), 9)
+    if battle.target == "Romania 300":
+        # a Romania hit goes on, queued, past it toward Serbia (BALKS_POINT):
+        # there it has taken Romania (trial 36: never counted as there, the
+        # men were sent back at Romania again and again and the hit stalled)
+        at_target |= near(idle, BALKS_POINT, 9)
     objective = battle.target
     enemy_left = len(near(hostile, (w["x"], w["y"]), 8))
     if enemy_left >= CLEARED and (battle.arrived
