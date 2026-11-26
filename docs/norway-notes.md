@@ -53,12 +53,36 @@ Shetland."
 - Supply depots in the far north-east: for safety.
 - Shetland: the drop goes at once, with the starting Dropship.
 
+- The Barracks lands next to the Heavy Industry (the "Factory 10"
+  building in Finland), our marines moved out of the way first; landed
+  there it taxes Helsinki and Factory 10.
+- Russia's Starport at Murmansk is destroyed by the marines, right after
+  Finland is taken.
+- Russia's bot does not need to lift its Murmansk Starport.
+- Chat commands: "@N ...", as "@R ..." for Russia.
+
+## After the opening, in the sample games
+
+Regions are rough boxes of tiles; drops weigh three times an attack-move.
+
+- 5-10 min: marines in numbers (about 45 a game in these five minutes,
+  then 50-80 a round), some Firebats, more Barracks (14 built in the 17
+  games), Dropships to about 15 in all. Drops start: the east front
+  (Konigsberg, the German invasion area), the UK and Ireland, Italy, the
+  Balkans (Belgrade, Hungary, Sarajevo), now and then the Middle East.
+- 10-15 min: mostly the UK and Ireland (Scotland, London), then the
+  Balkans (Romania, Odessa) and the east front (Warsaw).
+- 15-20 min: back home to Norway and Sweden in half the games (Oslo,
+  Sweden; the map's German invasion of Norway), the rest the UK, the
+  Balkans or the Middle East.
+- Later: the east front (the German invasion area, Konigsberg), the UK,
+  Sweden.
+- Every player differs: one went mostly to the UK, one mostly east and
+  to the Balkans, one to the Middle East. The common thread: Norway is
+  the Allies' fire brigade, dropping marines wherever an ally or a city
+  needs them, and going home when Norway itself is invaded.
+
 ## Open questions for the repository owner
 
-- Where exactly the Barracks floats to tax Helsinki and Factory 10 at
-  once.
-- Which units destroy Russia's Starport at Murmansk.
-- Should Russia's bot move its Murmansk Starport away at the start when
-  Norway is played.
-- What Norway does after the opening.
-- Its opening chat line and its chat commands.
+- Which of these Norway should do after the opening, and when.
+- Its opening chat line.
