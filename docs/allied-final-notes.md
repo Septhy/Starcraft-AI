@@ -1495,5 +1495,5 @@ second hit (the demo only shows how).
 - Test game, first hit from start to end: minimap boxes 38.8 s and 39.0 s,
   screen boxes 35.5 s and 29.2 s (two camera variants). Troops sent at a
   target by the end, four variants: minimap 243, 299, 233, 185; screen 286,
-  283, 228, 274. `HIT_BOXES` ("screen" or "minimap") switches back, and the
-  app has a checkbox for it ("Hits: plan boxes on the minimap").
+  283, 228, 274. No toggle in the app (the repository owner); the old way is
+  kept in the code (`HIT_BOXES = "minimap"`) only to go back to if needed.
