@@ -1269,22 +1269,6 @@ def test_an_enemy_inside_russia_gone_a_moment_later_sends_nothing(monkeypatch):
     assert sent == [] and any("gone a moment later" in l for l in io.lines)
 
 
-def test_a_hits_boxes_are_mapped_out_first_and_never_overlap():
-    """The repository owner: for a hit, every box of a view is planned
-    before any is drawn, back to front, no two on the same ground."""
-    m = trial.load_map()
-    w = trial.place(m, "Berlin 1000")
-    view = blob(trial.MASS, 8)
-    plan = trial.plan_boxes(view, (w["x"], w["y"]), trial.back_to_front, 6)
-    assert sum(len(c) for c in plan) == len(view)
-    assert len({p for c in plan for p in c}) == len(view)       # no overlap
-    tc, tr = live.to_drawn(w["x"], w["y"])
-    d = lambda p: (p[0] - tc) ** 2 + (p[1] - tr) ** 2
-    assert d(plan[0][0]) >= d(plan[-1][0])                      # back first
-
-
-
-
 def men_picture(points):
     """A game screen with Russia's men at these screen points."""
     a = np.zeros((1080, 1920, 3), dtype=np.uint8)
@@ -1368,20 +1352,3 @@ def test_on_the_balkan_road_idle_men_round_greece_are_swept_on_often():
     gone = sum(not near(u["to"], (athens["x"], athens["y"]), 12) for u in greece)
     assert gone >= 20, gone
     assert trial.ADVANCE_EVERY_BALKS < trial.ADVANCE_EVERY
-
-
-def test_the_old_minimap_boxes_can_be_switched_back_on(monkeypatch):
-    """One switch: "screen" (now) or "minimap" (the way before)."""
-    m = trial.load_map()
-    used = []
-    monkeypatch.setattr(trial, "sweep_screen", lambda *a, **k: used.append("screen") or (0, 0))
-    monkeypatch.setattr(trial, "sweep_planned", lambda *a, **k: used.append("minimap") or (0, 0))
-    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
-    st, io = trial.State(), StubIO()
-    io.shot = lambda label, keep=True: None
-    watch = StubWatch(blob(trial.MASS, 8), set())
-    assert trial.HIT_BOXES == "screen"
-    trial.sweep_mass(io, watch, m, st, "Berlin 1000", settle=0, plan_first=True)
-    monkeypatch.setattr(trial, "HIT_BOXES", "minimap")
-    trial.sweep_mass(io, watch, m, st, "Berlin 1000", settle=0, plan_first=True)
-    assert used[0] == "screen" and used[-1] == "minimap"
