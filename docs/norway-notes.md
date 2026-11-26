@@ -114,6 +114,10 @@ before each drop:
 - The first drop is at 3 to 4.5 minutes, then one with Russia every
   2 to 5 minutes.
 
+The repository owner accepted: the bot cannot tell which of Russia's
+units to follow on the minimap, so the Dropships fly to where Russia's
+army is thickest, looked at every few seconds, instead of "Follow".
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,
