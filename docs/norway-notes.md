@@ -91,11 +91,23 @@ Regions are rough boxes of tiles; drops weigh three times an attack-move.
   Russia (wherever Russia's hits go). The others are situational.
 - Opening chat line: "AF Norway AI v0.01". Allies' orders: "@N ...".
 
-## Open questions for the repository owner
+- Situational jobs start both ways: Norway sees the need itself and
+  types its plan in the allied chat, and a player can always override it
+  with "@N ...".
+- The map's German invasion of Norway: Norway goes home to defend,
+  unless a player overrides it with "@N ...".
+- Northern Germany drops go to Kiel.
 
-- What makes each situational job start: an ally's "@N ..." order only,
-  or also what Norway sees (the UK invaded, an opening in Spain, France
-  or northern Germany)?
-- Home defence when the map's German invasion of Norway comes (the
-  samples went home at 15-20 min): always, never, or only when asked?
-- Where "northern Germany" drops go (Kiel, Hamburg, the coast?).
+## Build plan
+
+1. The parts Russia and Norway share split out of bot/trial.py; a
+   Russia or Norway choice in the app. Russia plays exactly as before.
+2. Norway v0.01: the opening (chat line, buildings lifted, Shetland drop
+   with the starting Dropship, Finland cleared and the Barracks landed by
+   the Heavy Industry before 3:25, Russia's Murmansk Starport destroyed
+   and Norway's landed on its Control Tower, Factory and Engineering Bay
+   to Shetland, Command Center to Kiruna, depots in the far north-east).
+3. Norway v0.02: marines and Dropships, drops with Russia's hits (east
+   front or Balkans, from Russia's "gone east" / "gone balks").
+4. Norway v0.03: the situational jobs (UK, Spain, France, Kiel, home
+   defence), its plan typed in chat, and "@N ..." orders.
