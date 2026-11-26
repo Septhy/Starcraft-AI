@@ -49,8 +49,8 @@ SLOT = "5"                     # Russia
 # replays Russia turns south early mostly when the Axis is busy in the
 # Balkans, so the bot looks: enough Axis colour there, and it goes south.
 TARGETS = ["Berlin 1000", "Romania 300", "Factory 7"]
-# Cities on the way to Berlin. A hit that stalls is aimed at the one
-# nearest to where it stalled, to break the line there first.
+# Cities on the way to Berlin. East hits are always aimed at Berlin itself,
+# even after a stall here (the repository owner, trial 37).
 EAST_FRONT = ["Konigsberg 200", "Warsaw 200", "Krakow 200"]
 AXIS = [0, 1, 7]               # Germany, Italy, Spain: Russia's enemies
 # Who Russia's troops actually fight: the Axis, and the computer player
@@ -1621,12 +1621,9 @@ def target_for_front(st, mapdata, front, battle=None):
     where Russia has got to, or toward Berlin in the east."""
     if front == "balks":
         return south_next(st)
-    if battle and battle.front and \
-            battle.verdict()[0] in ("stalled", "losing"):
-        fx, fy = battle.front
-        cities = [place(mapdata, n) for n in EAST_FRONT]
-        return min(cities, key=lambda c: (c["x"] - fx) ** 2
-                   + (c["y"] - fy) ** 2)["name"]
+    # east is always Berlin itself (the repository owner, trial 37), even
+    # after a hit stalled at Warsaw or Krakow; an ally who wants a city on
+    # the way names it ("@R hit Warsaw")
     return east_next(st)
 
 
@@ -3073,11 +3070,9 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
     """Where the next hit should go.
 
     The general's choice comes first. Otherwise the plan by the clock:
-    south when qororo98 and penny[eef] go south. Otherwise: if the last
-    hit stalled or was lost short of its target, aim at the city nearest
-    to where that happened. Otherwise south if the Axis has grown in the
-    Balkans since the start (Germany starts with troops there), and
-    Berlin if not."""
+    south when qororo98 and penny[eef] go south. Otherwise south if the
+    Axis has grown in the Balkans since the start (Germany starts with
+    troops there), and Berlin itself if not (never a city on the way)."""
     if st.advised and io.now() - st.advised[1] <= 40:
         name = road_start(st, st.advised[0])
         io.log(f"next target {name} (the general's choice of front)")

@@ -329,3 +329,19 @@ def test_the_targets_are_pointed_out_in_screen_pixels():
     found = ears.find_targets(Image.new("RGB", (1920, 1080)))
     assert found == [{"kind": "battlecruiser", "x": 960.0, "y": 400.0}]
     assert "bunker" in seen[0][2]["system"]
+
+
+def test_an_east_hit_always_goes_to_berlin_itself():
+    """Trial 37 (the repository owner): east is Berlin itself, even after
+    a hit stalled at Warsaw or Krakow."""
+    from bot import trial
+
+    class Stalled:
+        front = (4400, 3200)                        # by Krakow
+
+        def verdict(self):
+            return ("stalled", {})
+    m = trial.load_map()
+    st = trial.State()
+    assert trial.target_for_front(st, m, "east", Stalled()) == "Berlin 1000"
+    assert trial.target_for_front(st, m, "east") == "Berlin 1000"

@@ -1542,8 +1542,10 @@ second hit (the demo only shows how).
   both in the model's answer (an owner colour per target) and on the screen
   (Axis colour round it, more than brown; `enemy_target`).
 - "gone east" means the Berlin front. Hits at Berlin stalled at Warsaw and
-  Krakow (the Axis line); after a stall the next east hit is aimed at the
-  city where it stalled (Krakow at 27:45), so the army fought round Warsaw.
+  Krakow (the Axis line); after a stall an ally's "@R hit east" was aimed at
+  the city where it stalled (Krakow at 27:45), so the army fought round
+  Warsaw. The repository owner: east is always Berlin itself now (a city
+  on the way only when an ally names it, "@R hit Warsaw").
 - "hold, regrouping" removed: once announced, a hit goes at its time, ready
   or not.
 - Factory 3 (by Moscow): its tanks never left. The minimap reading leaves
