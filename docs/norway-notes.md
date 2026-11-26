@@ -82,7 +82,20 @@ Regions are rough boxes of tiles; drops weigh three times an attack-move.
   the Allies' fire brigade, dropping marines wherever an ally or a city
   needs them, and going home when Norway itself is invaded.
 
+## The repository owner's plan for Norway after the opening
+
+- Norway can do all of these: defend the UK, help on the eastern front,
+  help in the Balkans, drop on Spain, drop on France, drop on northern
+  Germany.
+- Its main job, in most games: the eastern front or the Balkans, with
+  Russia (wherever Russia's hits go). The others are situational.
+- Opening chat line: "AF Norway AI v0.01". Allies' orders: "@N ...".
+
 ## Open questions for the repository owner
 
-- Which of these Norway should do after the opening, and when.
-- Its opening chat line.
+- What makes each situational job start: an ally's "@N ..." order only,
+  or also what Norway sees (the UK invaded, an opening in Spain, France
+  or northern Germany)?
+- Home defence when the map's German invasion of Norway comes (the
+  samples went home at 15-20 min): always, never, or only when asked?
+- Where "northern Germany" drops go (Kiel, Hamburg, the coast?).
