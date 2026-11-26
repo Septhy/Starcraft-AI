@@ -13,11 +13,15 @@ from bot.trial import Stopped
 
 GAME_WINDOW = "Brood War"
 STOP_KEY = 0x78            # F9
-SCAN = {"m": 0x32, "a": 0x1E, "esc": 0x01, "shift": 0x2A, "ctrl": 0x1D,
+SCAN = {"esc": 0x01, "shift": 0x2A, "ctrl": 0x1D, "alt": 0x38,
+        "enter": 0x1C, "space": 0x39, "tab": 0x0F, "backspace": 0x0E,
         "1": 0x02, "2": 0x03, "3": 0x04, "4": 0x05, "5": 0x06, "6": 0x07,
-        "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B, "l": 0x26,
-        "h": 0x23, "y": 0x15, "enter": 0x1C, "s": 0x1F, "b": 0x30,
-        "w": 0x11}
+        "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B}
+# every letter (trial 39: Norway's Dropship unload, U, was missing and
+# the game stopped at once)
+SCAN.update(dict(zip("qwertyuiop", range(0x10, 0x1A))))
+SCAN.update(dict(zip("asdfghjkl", range(0x1E, 0x27))))
+SCAN.update(dict(zip("zxcvbnm", range(0x2C, 0x33))))
 
 ULONG_PTR = ctypes.c_size_t
 

@@ -199,3 +199,27 @@ def test_the_app_can_play_either_country(tmp_path, monkeypatch):
     assert memory.load_country() == "Norway"
     memory.save_country("Atlantis")
     assert memory.load_country() == "Russia"
+
+
+def test_every_key_the_bots_press_can_be_pressed():
+    """Trial 39: Norway pressed U (unload) and the input layer had no U:
+    the game stopped at once. Every key named in the bots must exist."""
+    import pathlib
+    import re
+    root = pathlib.Path(__file__).resolve().parent.parent
+    src = (root / "hands" / "win.py").read_text()
+    start = src.index("SCAN = {")
+    end = src.index("\n", src.index('SCAN.update(dict(zip("zxcvbnm"')) + 1
+    ns = {}
+    exec(src[start:end], ns)
+    scan = ns["SCAN"]
+    used = set()
+    for name in ("trial.py", "norway.py"):
+        code = (root / "bot" / name).read_text()
+        used |= set(re.findall(r'\.key\("([^"]+)"\)', code))
+        used |= {k for pair in re.findall(r'\.combo\("([^"]+)", "([^"]+)"\)', code)
+                 for k in pair}
+        used |= set(re.findall(r'click_with\("([^"]+)"', code))
+    used |= set(norway.KEYS.values()) | set(trial.AIR_KEYS)
+    missing = sorted(k for k in used if k not in scan)
+    assert not missing, missing
