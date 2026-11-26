@@ -100,6 +100,16 @@ Regions are rough boxes of tiles; drops weigh three times an attack-move.
 
 ## Build plan
 
+Step 2 (v0.01, the opening) is in `bot/norway.py`; the app has a Russia
+or Norway choice (remembered in country.txt beside the lessons). Norway
+reuses the Russia bot's camera, clicks, building picks, chat and minimap
+reading from `bot/trial.py`, so Russia's play is unchanged (step 1 is
+done by that reuse for now; a fuller split can follow). Keys: Barracks
+6, Starport 7, Command Center 8 while they fly. Not yet seen in a real
+game: the Land button (taken to be the lifted building's bottom-right
+button), the Dropship's U then a minimap click, the SCVs' depots, and
+the attack on Russia's Starport.
+
 1. The parts Russia and Norway share split out of bot/trial.py; a
    Russia or Norway choice in the app. Russia plays exactly as before.
 2. Norway v0.01: the opening (chat line, buildings lifted, Shetland drop

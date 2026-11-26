@@ -4297,16 +4297,17 @@ def allies_chosen(picture):
     return int(((a[..., 0] > 180) & (a[..., 1] > 160) & (a[..., 2] < 120)).sum()) >= 40
 
 
-def opening(io, st):
+def opening(io, st, line=None):
     """Before anything else: the name line to everyone, then allied chat
     set in the Messaging window. Returns True if allied chat was set."""
+    line = line or OPENING_LINE
     io.key("enter")
     io.sleep(0.15)
-    io.type_text(OPENING_LINE)
+    io.type_text(line)
     io.sleep(0.1)
     io.key("enter")
     io.sleep(0.2)
-    io.log(f"chat to everyone: {OPENING_LINE}")
+    io.log(f"chat to everyone: {line}")
     for _ in range(OPENING_TRIES):
         io.click(*MESSAGING_BUTTON)
         io.sleep(0.5)

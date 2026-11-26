@@ -46,7 +46,8 @@ def main(keys_version=False, rel_version=False, back_version=False):
                + f" - build {trial.build_id()}")
     root.attributes("-topmost", True)
     root.resizable(False, False)
-    status = tk.StringVar(value="Get into a game as Russia, then press F9.\n"
+    status = tk.StringVar(value="Get into a game as the country chosen below,\n"
+                                "then press F9.\n"
                                 "It will use your mouse and keyboard.\n"
                                 "This window hides while it plays.\n"
                                 "Press F9 again to stop it.")
@@ -116,6 +117,10 @@ def main(keys_version=False, rel_version=False, back_version=False):
     chosen = tk.StringVar(value=by_model.get(
         memory.load_model(general_module.MODEL),
         by_model[general_module.MODEL]))
+    country = tk.StringVar(value=memory.load_country())
+    tk.Label(root, text="Which country the bot plays:").pack()
+    tk.OptionMenu(root, country, *memory.COUNTRIES,
+                  command=lambda c: memory.save_country(c)).pack(pady=(0, 8))
     tk.Label(root, text="Which Claude model commands:").pack()
     tk.OptionMenu(root, chosen, *labels,
                   command=lambda text: (memory.save_model(labels[text]),
@@ -139,7 +144,11 @@ def main(keys_version=False, rel_version=False, back_version=False):
                         key, lessons=memory.load(),
                         model=memory.load_model(general_module.MODEL))
                     from bot import team
-                    result = trial.run(io, general=advisor,
+                    play = trial
+                    if country.get() == "Norway":
+                        from bot import norway as play
+                    io.log(f"playing {country.get()}")
+                    result = play.run(io, general=advisor,
                                        save_lessons=memory.save,
                                        ears=team.make_ears(key))
                     io.log(f"finished: {result}")
@@ -173,7 +182,7 @@ def selftest(path):
     """Used by the build to check that everything needed is packed in."""
     import anthropic
 
-    from bot import general, team, trial
+    from bot import general, norway, team, trial
     from eyes import clock, numbers
     general.General(anthropic.Anthropic(api_key="not-a-real-key"))
     team.ChatEars(anthropic.Anthropic(api_key="not-a-real-key"))
