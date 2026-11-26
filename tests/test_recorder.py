@@ -111,3 +111,31 @@ def test_the_inputs_go_into_the_zip(tmp_path):
     log.feed(rec.t0 + 1, [0x53], [1, 1], True)
     names, _ = read(rec.finish(extra=[log.save(str(tmp_path))]))
     assert "inputs.json" in names
+
+
+def test_the_screen_setup_is_kept_at_the_start_and_the_end(tmp_path):
+    """The repository owner: a recording also keeps the window resolution,
+    the scale and the rest of the screen setup."""
+    import json
+    import zipfile
+    from PIL import Image
+    from recorder import recorder
+    calls = []
+
+    def setup():
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError("gone")      # never stops a recording
+        return {"screen": [1920, 1080], "system_scale": 1.25,
+                "window_in_front": {"picture_size": [1920, 1080],
+                                    "full_screen": True}}
+    rec = recorder.Recorder(lambda: Image.new("RGB", (1920, 1080)),
+                            str(tmp_path), max_frames=2, setup=setup,
+                            clock=iter([0.0, 0.5, 1.0]).__next__)
+    rec.tick()
+    paths = rec.finish()
+    with zipfile.ZipFile(paths[0]) as z:
+        info = json.loads(z.read("info.json"))
+    assert info["setup_start"]["system_scale"] == 1.25
+    assert info["setup_start"]["window_in_front"]["full_screen"]
+    assert "error" in info["setup_end"]

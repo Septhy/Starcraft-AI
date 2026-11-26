@@ -6,8 +6,11 @@ a second it keeps the whole screen, with the mouse position, for up to
 mouse click and drag and every key pressed (hotkeys, commands), with
 the time, so they line up with the pictures. What is typed into the
 chat is never noted: from the Enter that opens it to the Enter or Esc
-that closes it, keys are skipped. It packs everything into zip files on
-the Desktop.
+that closes it, keys are skipped. It also notes the screen setup at the
+start and the end (each monitor's resolution, Windows display scale and
+refresh rate, the game window's size, scale and whether it is full
+screen), and with every picture the window in front and its scale. It
+packs everything into zip files on the Desktop.
 
 It only looks and listens. It does not touch the game, the mouse or the
 keyboard.
@@ -39,8 +42,11 @@ class Recorder:
     """Takes the pictures and packs them. Knows nothing about Windows."""
 
     def __init__(self, grab, out_dir, info=lambda: {}, max_frames=MAX_FRAMES,
-                 png_every=PNG_EVERY, clock=time.time, full_every=FULL_EVERY):
+                 png_every=PNG_EVERY, clock=time.time, full_every=FULL_EVERY,
+                 setup=lambda: {}):
         self.grab, self.info, self.clock = grab, info, clock
+        self.setup = setup
+        self.setup_start = safe(setup)  # the screen and the game's window
         self.out_dir, self.max_frames, self.png_every = \
             out_dir, max_frames, png_every
         self.full_every = full_every
@@ -82,10 +88,20 @@ class Recorder:
         (with `extra` files already in the folder, such as the inputs)."""
         with open(os.path.join(self.out_dir, "info.json"), "w",
                   encoding="utf-8") as f:
-            json.dump({"frames": self.frames}, f, indent=1)
+            json.dump({"setup_start": self.setup_start,
+                       "setup_end": safe(self.setup),
+                       "frames": self.frames}, f, indent=1)
         names = ["info.json"] + list(extra) + \
             [n for e in self.frames for n in e["files"]]
         return pack(self.out_dir, names, part_bytes)
+
+
+def safe(read):
+    """What `read()` gives, or the problem: notes never stop a recording."""
+    try:
+        return read()
+    except Exception as e:
+        return {"error": repr(e)}
 
 
 def pack(out_dir, names, part_bytes=PART_BYTES):
@@ -215,12 +231,120 @@ def windows_info():
     user.GetClientRect(hwnd, ctypes.byref(client))
     origin = wintypes.POINT(0, 0)
     user.ClientToScreen(hwnd, ctypes.byref(origin))
+    try:
+        dpi = user.GetDpiForWindow(hwnd)
+    except Exception:
+        dpi = None
     return {"mouse": [pt.x, pt.y],
+            "window_scale": round(dpi / 96, 2) if dpi else None,
             "mouse_left": bool(user.GetAsyncKeyState(0x01) & 0x8000),
             "mouse_right": bool(user.GetAsyncKeyState(0x02) & 0x8000),
             "window": title.value,
             "window_rect": [rect.left, rect.top, rect.right, rect.bottom],
             "game_area": [origin.x, origin.y, client.right, client.bottom]}
+
+
+def setup_info():
+    """The screen as the recording starts and ends: every monitor (its
+    resolution, place, Windows display scale and refresh rate), the
+    whole desktop, and the game's window if it is in front (its size,
+    the size of the picture inside it, its scale, which monitor, full
+    screen or not). The game's own settings are not readable from
+    outside; its window size is what it draws at."""
+    import ctypes
+    import platform
+    from ctypes import wintypes
+    user = ctypes.windll.user32
+    out = {"windows": platform.platform(),
+           "screen": [user.GetSystemMetrics(0), user.GetSystemMetrics(1)],
+           "desktop": [user.GetSystemMetrics(76), user.GetSystemMetrics(77),
+                       user.GetSystemMetrics(78), user.GetSystemMetrics(79)]}
+    try:
+        out["system_scale"] = round(user.GetDpiForSystem() / 96, 2)
+    except Exception:
+        pass
+
+    class MONITORINFOEX(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD),
+                    ("szDevice", wintypes.WCHAR * 32)]
+
+    class DEVMODE(ctypes.Structure):
+        _fields_ = [("dmDeviceName", wintypes.WCHAR * 32),
+                    ("dmSpecVersion", wintypes.WORD),
+                    ("dmDriverVersion", wintypes.WORD),
+                    ("dmSize", wintypes.WORD),
+                    ("dmDriverExtra", wintypes.WORD),
+                    ("dmFields", wintypes.DWORD),
+                    ("dmPosition", wintypes.LONG * 2),
+                    ("dmDisplayOrientation", wintypes.DWORD),
+                    ("dmDisplayFixedOutput", wintypes.DWORD),
+                    ("dmColor", wintypes.SHORT), ("dmDuplex", wintypes.SHORT),
+                    ("dmYResolution", wintypes.SHORT),
+                    ("dmTTOption", wintypes.SHORT),
+                    ("dmCollate", wintypes.SHORT),
+                    ("dmFormName", wintypes.WCHAR * 32),
+                    ("dmLogPixels", wintypes.WORD),
+                    ("dmBitsPerPel", wintypes.DWORD),
+                    ("dmPelsWidth", wintypes.DWORD),
+                    ("dmPelsHeight", wintypes.DWORD),
+                    ("dmDisplayFlags", wintypes.DWORD),
+                    ("dmDisplayFrequency", wintypes.DWORD)]
+    monitors = []
+
+    def one(hmon, hdc, rect, data):
+        info = MONITORINFOEX()
+        info.cbSize = ctypes.sizeof(MONITORINFOEX)
+        user.GetMonitorInfoW(hmon, ctypes.byref(info))
+        r = info.rcMonitor
+        m = {"device": info.szDevice,
+             "rect": [r.left, r.top, r.right, r.bottom],
+             "size": [r.right - r.left, r.bottom - r.top],
+             "primary": bool(info.dwFlags & 1)}
+        try:
+            dx, dy = wintypes.UINT(), wintypes.UINT()
+            ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(dx),
+                                                  ctypes.byref(dy))
+            m["scale"] = round(dx.value / 96, 2)
+        except Exception:
+            pass
+        try:
+            mode = DEVMODE()
+            mode.dmSize = ctypes.sizeof(DEVMODE)
+            if user.EnumDisplaySettingsW(info.szDevice, -1,
+                                         ctypes.byref(mode)):
+                m["mode"] = [mode.dmPelsWidth, mode.dmPelsHeight]
+                m["refresh_hz"] = mode.dmDisplayFrequency
+                m["colour_bits"] = mode.dmBitsPerPel
+        except Exception:
+            pass
+        monitors.append(m)
+        return True
+    proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,
+                              ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+    user.EnumDisplayMonitors(None, None, proc(one), 0)
+    out["monitors"] = monitors
+    hwnd = user.GetForegroundWindow()
+    title = ctypes.create_unicode_buffer(200)
+    user.GetWindowTextW(hwnd, title, 200)
+    rect, client = wintypes.RECT(), wintypes.RECT()
+    user.GetWindowRect(hwnd, ctypes.byref(rect))
+    user.GetClientRect(hwnd, ctypes.byref(client))
+    win = {"title": title.value, "is_game": is_game(title.value),
+           "rect": [rect.left, rect.top, rect.right, rect.bottom],
+           "picture_size": [client.right, client.bottom]}
+    try:
+        win["scale"] = round(user.GetDpiForWindow(hwnd) / 96, 2)
+    except Exception:
+        pass
+    full = [m for m in monitors if m["rect"] == win["rect"]]
+    win["full_screen"] = bool(full)
+    on = [m["device"] for m in monitors
+          if m["rect"][0] <= (rect.left + rect.right) // 2 < m["rect"][2]
+          and m["rect"][1] <= (rect.top + rect.bottom) // 2 < m["rect"][3]]
+    win["monitor"] = on[0] if on else None
+    out["window_in_front"] = win
+    return out
 
 
 def main():
@@ -262,7 +386,9 @@ def main():
                     shot = sct.grab(mon)
                     return Image.frombytes("RGB", shot.size, shot.bgra,
                                            "raw", "BGRX")
-                rec = Recorder(grab, out_dir, info=windows_info)
+                rec = Recorder(grab, out_dir, info=windows_info,
+                               setup=setup_info)
+                rec.setup_start["recorded_monitor"] = dict(mon)
                 rec.t0 = time.time()
                 inputs = InputLog(rec.t0)
                 listener = threading.Thread(target=listen, args=(inputs,),
