@@ -1425,3 +1425,15 @@ second hit (the demo only shows how).
 - At the end, 8 groups went to meet "Axis inside Russia" west of Moscow;
   no picture showed why. The enemy is now looked at again 1.5 s later
   (a picture kept) before anyone is sent.
+- The repository owner: for a hit, each view's boxes are mapped out
+  before any is drawn (`plan_boxes`, `sweep_planned`): back to front, no
+  two on the same ground. A box that comes out short may reach into
+  ground not yet boxed, and the rest is mapped out again with a better
+  size; a full box's far half is planned again once, after the rest.
+  Planned from the minimap (where our troops stand in that view); the
+  game screen only tells how many each box caught.
+- "East of Moscow" at the end was the "Axis inside Russia" response
+  (attack-clicks just east of Moscow at 834-839 s); now looked at twice.
+- The Heavy Artillery was logged as keyed at 11 s but not seen on the
+  key by the repository owner: a picture is now kept right after it is
+  put on a key, to see what was clicked.

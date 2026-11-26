@@ -1243,3 +1243,41 @@ def test_an_enemy_inside_russia_gone_a_moment_later_sends_nothing(monkeypatch):
     monkeypatch.setattr(trial, "select_group", lambda *a, **k: sent.append(1) or True)
     assert trial.defend_home(io, StubWatch(set(), set()), m, st, "first", set()) == 0
     assert sent == [] and any("gone a moment later" in l for l in io.lines)
+
+
+def test_a_hits_boxes_are_mapped_out_first_and_never_overlap():
+    """The repository owner: for a hit, every box of a view is planned
+    before any is drawn, back to front, no two on the same ground."""
+    m = trial.load_map()
+    w = trial.place(m, "Berlin 1000")
+    view = blob(trial.MASS, 8)
+    plan = trial.plan_boxes(view, (w["x"], w["y"]), trial.back_to_front, 6)
+    assert sum(len(c) for c in plan) == len(view)
+    assert len({p for c in plan for p in c}) == len(view)       # no overlap
+    tc, tr = live.to_drawn(w["x"], w["y"])
+    d = lambda p: (p[0] - tc) ** 2 + (p[1] - tr) ** 2
+    assert d(plan[0][0]) >= d(plan[-1][0])                      # back first
+
+
+def test_a_hit_sweep_draws_the_planned_boxes_in_order(monkeypatch):
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    st.box_px = 6
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    drawn = []
+
+    def select(io_, st_, seed, pool, cam):
+        chunk = pool[:6]
+        drawn.append(set(chunk))
+        return chunk, 10
+    monkeypatch.setattr(trial, "select_full", select)
+    monkeypatch.setattr(trial, "send_at", lambda *a, **k: None)
+    watch = StubWatch(blob(trial.MASS, 8), set())
+    n, found = trial.sweep_mass(io, watch, m, st, "Berlin 1000", settle=0,
+                                plan_first=True)
+    assert n == len(drawn) and n >= 4
+    for i, a in enumerate(drawn):                # never the same ground twice
+        for b in drawn[:i]:
+            assert not (a & b)
+    assert any("boxes mapped out for this view" in l for l in io.lines)
