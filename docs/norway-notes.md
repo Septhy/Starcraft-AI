@@ -35,14 +35,30 @@ The repository owner (trial 38): "0-2 min requires taking and taxing
 Finland, lifting key buildings from Norway to Russia and the taking of
 Shetland."
 
+## The repository owner's rules for the opening
+
+- Finland: every red (Germany) building there destroyed and cleared, and
+  Norway's Barracks floating over Finland, before 3:25 on the top timer
+  (the round countdown, 5:00 at the start of the game). In the map data
+  Germany's buildings in Finland are: Barracks (143, 31); supply depots
+  (145, 20), (146, 29), (139, 32), (137, 43); bunkers (134, 36), (140,
+  39); missile turrets (131, 40), (133, 44), (141, 45), (137, 45) (tiles).
+- Then Norway destroys Russia's Starport at Murmansk (tile 156, 5) and
+  lands its own Starport there (154, 4), taking the Control Tower. If
+  Russia has moved its Starport away, Norway just lands there.
+- Copy the most common choices of the sample games (Factory and
+  Engineering Bay floated to Shetland, Command Center to Kiruna).
+- Tax in Finland: Helsinki and Factory 10, both taxed at once by one
+  floating building.
+- Supply depots in the far north-east: for safety.
+- Shetland: the drop goes at once, with the starting Dropship.
+
 ## Open questions for the repository owner
 
-- Is the reading above right; anything missing or in the wrong order?
-- Copy the most common choices (Starport to Murmansk (154, 4), Factory
-  and Engineering Bay to Shetland, Command Center to Kiruna, Barracks to
-  Finland), or other spots?
-- Which cities are "Finland" for the tax (Helsinki, Kiruna, Murmansk,
-  Factory 10)? Which ones are taxed by a floating building, which by a
-  depot?
-- Why the depots in the far north-east (by "Place Artillery" and
-  Arkhangelsk): supply room, or tax?
+- Where exactly the Barracks floats to tax Helsinki and Factory 10 at
+  once.
+- Which units destroy Russia's Starport at Murmansk.
+- Should Russia's bot move its Murmansk Starport away at the start when
+  Norway is played.
+- What Norway does after the opening.
+- Its opening chat line and its chat commands.
