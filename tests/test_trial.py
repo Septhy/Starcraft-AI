@@ -212,8 +212,16 @@ class FakeGame:
     def sleep(self, s):
         self.time += s
 
+    def sieged(self):
+        """One Heavy Artillery selected: buttons, but no Move."""
+        sel = self.selected
+        return isinstance(sel, list) and len(sel) == 1 and \
+            tuple(sel[0].get("from", ())) in {tuple(p) for p in trial.HEAVY_ARTILLERY}
+
     def card(self):
         self.time += 0.01
+        if self.sieged():
+            return Image.new("RGB", (92, 90), (200, 190, 40))
         if self.selected == "starport" and self.lifted:   # in the air: Move
             return live.card_cell(screen("units"))
         if self.selected == "starport":              # some other button

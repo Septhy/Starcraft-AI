@@ -572,16 +572,17 @@ def test_a_missing_heavy_artillery_is_seen_on_the_key_and_replaced(monkeypatch):
     io.shot = lambda label, keep=True: label
     monkeypatch.setattr(trial, "read_key", lambda st_, pic: (5, 5, False))
     clicked = []
-    monkeypatch.setattr(trial, "click_unit",
-                        lambda io_, x, y, movable=True: clicked.append((x, y)) or (1, 1))
+    # its own is gone (not picked); a spare one is
+    monkeypatch.setattr(trial, "pick_ha",
+                        lambda io_, st_, x, y: clicked.append((x, y)) or (x, y) != ha9)
     monkeypatch.setattr(trial, "locate_fleet", lambda io_, st_: None)
     assert trial.air_upkeep(io, None, m, st)
     e = st.fleet[0]
     assert a.counts[-1][1] == 5                     # five Scouts, no artillery
-    assert clicked and clicked[0] != ha9            # a spare one, not the lost one
+    assert clicked[0] == ha9 and clicked[1] != ha9  # its own first, then a spare
     assert e["ha"] != ha9 and not e["ha_dead"]
     assert ("shift", "9") in io.combos
-    assert any("got another Heavy Artillery" in l for l in io.lines)
+    assert any("got its Heavy Artillery" in l for l in io.lines)
 
 
 def test_with_no_spare_heavy_artillery_the_key_goes_on_alone(monkeypatch):
@@ -589,7 +590,7 @@ def test_with_no_spare_heavy_artillery_the_key_goes_on_alone(monkeypatch):
     st.fleet = [{"key": k, "scouts": 3, "ha": ha}
                 for k, ha in zip("9087", trial.HEAVY_ARTILLERY)]
     st.fleet[2]["ha_dead"] = True
-    monkeypatch.setattr(trial, "click_unit", lambda *a, **k: pytest.fail("clicked"))
+    monkeypatch.setattr(trial, "pick_ha", lambda *a, **k: False)
     assert not trial.replace_ha(io, st, st.fleet[2])
     assert any("no spare Heavy Artillery" in l for l in io.lines)
 
@@ -842,7 +843,7 @@ def test_no_marines_while_the_air_is_out_with_a_hit(monkeypatch):
     st, io = trial.State(), StubIO()
     st.air_keys = ["9"]
     st.hit_sent = io.t
-    trial.set_air_state(io, st, "with the army", "over our troops")
+    trial.set_air_state(io, st, "with the hit", "Berlin")
     monkeypatch.setattr(trial, "select_barracks", lambda *a: pytest.fail("trained"))
     assert trial.train_everywhere(io, m, st, check_supply=False) == 0
     assert any("the air is still out with the hit" in l for l in io.lines)
@@ -851,8 +852,48 @@ def test_no_marines_while_the_air_is_out_with_a_hit(monkeypatch):
     monkeypatch.setattr(trial, "select_barracks", lambda *a: trained.append(1) or False)
     trial.train_everywhere(io, m, st, check_supply=False)
     assert trained                                   # back: the barracks go on
-    trial.set_air_state(io, st, "with the army", "out again")
+    trial.set_air_state(io, st, "with the army", "over the army after the fight")
+    trained.clear()
+    trial.train_everywhere(io, m, st, check_supply=False)
+    assert trained                                   # the fight is over: on
+    trial.set_air_state(io, st, "fighting", "out again")
     io.t += trial.AIR_OUT_MAX + 1
     trained.clear()
     trial.train_everywhere(io, m, st, check_supply=False)
     assert trained                                   # a stalled hit: not forever
+
+
+def test_a_missed_click_never_keys_the_scouts_as_the_artillery(monkeypatch):
+    """Trial 35: the click by the Heavy Artillery missed, the Scouts
+    selected before stayed selected, and Ctrl + 9 keyed them. Only one
+    unit, not a Scout, counts as picked; not picked, the key starts
+    without it and it is tried again later."""
+    from tests.test_trial import screen
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: label
+    io.card = lambda: trial.live.card_cell(screen("units"))   # still the Scouts
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    assert not trial.pick_ha(io, st, 5684, 2489)
+    # a gun's buttons, no Move: picked
+    from PIL import Image
+    io.card = lambda: Image.new("RGB", (92, 90), (200, 190, 40))
+    assert trial.pick_ha(io, st, 5684, 2489)
+    io.card = lambda: trial.live.card_cell(screen("units"))
+    assert trial.open_fleet_key(io, st)
+    assert ("ctrl", "9") not in io.combos
+    assert st.fleet[0]["ha_dead"]
+    assert any("starts without it" in l for l in io.lines)
+
+
+def test_a_hop_off_the_screen_goes_by_the_minimap_not_to_the_corner():
+    """Trial 35: hop points off the screen were squeezed onto its edge,
+    and the Scouts were sent to the corner (30, 730)."""
+    st, io = trial.State(), StubIO()
+    st.air_keys = ["9"]
+    st.dogfight_cam = (4000, 2000)
+    far = trial.live.on_screen(4000 - 40 * 32, 2000 + 20 * 32, st.dogfight_cam)
+    trial.order_fleet(io, st, far)
+    x, y, button = io.clicks[-1]
+    assert button == "right" and (x, y) != (30, 730)
+    m = trial.live.MINIMAP
+    assert m["left"] <= x < m["left"] + m["width"] and y >= m["top"]

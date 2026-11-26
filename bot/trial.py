@@ -141,7 +141,8 @@ HIT_GAP = 90                   # seconds after a hit before the next, unless it
                                # was lost or has arrived
 RETRY_IDLE = 30                # seconds before the same idle group is tried again
 BIG_MASS = WANT_HIT
-RETRAIN_EVERY = 55             # seconds between rounds of the barracks
+RETRAIN_EVERY = 25             # seconds between rounds of the barracks (the
+                               # repository owner: more often between hits)
 FIRST_HIT_SWEEPS = 3           # passes over the massing place at the first hit
 HIT_SWEEPS = 4                 # and at the later ones, stopping once it is empty
 
@@ -465,7 +466,8 @@ def rally_spot(mapdata, b):
     return MASS[0] + dx * 32, MASS[1] + dy * 32
 
 
-AIR_OUT_STATES = ("with the hit", "fighting", "with the army")
+AIR_OUT_STATES = ("with the hit", "fighting")   # (trial 35: not "with the
+                               # army" too: that held the barracks 145 s)
 AIR_OUT_MAX = 150              # seconds after a hit when training goes on
                                # anyway (a stalled hit can keep the air out)
 
@@ -586,6 +588,37 @@ def fleet_room(st):
     return FLEET_SIZE - st.fleet[-1]["scouts"] if st.fleet else 0
 
 
+# where the gun shows is a little off the estimate (the same offset
+# TRIES allows for, 40 right and 80 down): a grid round that, nearest first
+HA_SPOTS = list(TRIES) + [(40 + dx, 80 + dy) for dx in (-35, 0, 35)
+                          for dy in (-35, 0, 35) if (dx, dy) != (0, 0)]
+
+
+def pick_ha(io, st, x, y):
+    """Select the sieged Heavy Artillery standing at a map point: clicks
+    round it, nearest first, until what is selected has command buttons
+    but no Move button, as a sieged gun has (trial 35: a click that
+    missed left the Scouts selected, and they were keyed in its place).
+    True if picked."""
+    l, t, r, b = live.GAME_AREA
+    cam = look_at(io, x, y, wait=0.15)
+    px, py = live.on_screen(x, y, cam)
+    for dx, dy in HA_SPOTS:
+        sx, sy = px + dx, py + dy
+        if not (l + 5 < sx < r - 5 and t + 5 < sy < b - 5):
+            continue
+        io.click(sx, sy)
+        io.sleep(0.08)
+        card = io.card()
+        # a sieged Heavy Artillery has command buttons but no Move; the
+        # Scouts left selected by a missed click have Move (trial 35)
+        if live._first_button_is(card, "blank_card.png") or \
+                live.units_selected(card):
+            continue
+        return True
+    return False
+
+
 def open_fleet_key(io, st):
     """Start the next fleet key with its own Heavy Artillery (click it,
     Ctrl + key). False if there is no key or artillery left."""
@@ -594,19 +627,30 @@ def open_fleet_key(io, st):
     key = AIR_KEYS[len(st.fleet)]
     ha = sorted(HEAVY_ARTILLERY, key=lambda p: (p[0] - HOME_MASS[0]) ** 2
                 + (p[1] - HOME_MASS[1]) ** 2)[len(st.fleet)]
-    if not click_unit(io, *ha, movable=False):
-        io.log(f"fleet: the Heavy Artillery at {ha} was not found")
-        return False
-    io.combo("ctrl", key)                # the Heavy Artillery starts the key
-    io.sleep(0.04)
-    io.shot(f"key-{key}-artillery")      # what was clicked and keyed (trial 34:
-                                         # no Heavy Artillery was seen on it)
-    st.fleet.append({"key": key, "scouts": 0, "ha": ha})
-    st.air_keys.append(key)
-    if key in st.ground_keys:           # 8 or 7: no longer a ground key
-        st.ground_keys.remove(key)
+    found = pick_ha(io, st, *ha)
+    if found:
+        io.combo("ctrl", key)            # the Heavy Artillery starts the key
+        io.sleep(0.04)
+    else:
+        # the Scouts still start the key (Shift + key makes it); the
+        # artillery is tried again at the next upkeep
+        io.log(f"fleet: the Heavy Artillery at {ha} was not picked: key "
+               f"{key} starts without it")
+    io.shot(f"key-{key}-artillery")      # what was keyed (trial 34, 35)
+    st.fleet.append({"key": key, "scouts": 0, "ha": ha, "ha_dead": not found})
+    if found:
+        key_in_use(st, key)
     io.log(f"fleet: key {key} started")
     return True
+
+
+def key_in_use(st, key):
+    """A fleet key with something on it: ordered with the fleet from now
+    on, no longer a ground key (an empty one is never pressed)."""
+    if key not in st.air_keys:
+        st.air_keys.append(key)
+    if key in st.ground_keys:           # 8 or 7: no longer a ground key
+        st.ground_keys.remove(key)
 
 
 def add_to_fleet(io, st, x, y, kind="Scout"):
@@ -622,6 +666,7 @@ def add_to_fleet(io, st, x, y, kind="Scout"):
     io.combo("shift", entry["key"])      # added to the key
     io.sleep(0.04)
     entry["scouts"] += 1
+    key_in_use(st, entry["key"])
     return True
 
 
@@ -778,6 +823,7 @@ def add_selected_scouts(io, st, reselect, depth=0):
     io.combo("shift", entry["key"])
     io.sleep(0.04)
     entry["scouts"] += n
+    key_in_use(st, entry["key"])
     st.last_added_key = entry["key"]
     attack_move(io, *fleet_spot())      # off to the fleet, out of the mass
     if whole > n and depth < 2:
@@ -1065,7 +1111,8 @@ def build_fleet(io, mapdata, st):
     if scouts:
         learn_scout(io, st, mapdata)
     added = sum(add_to_fleet(io, st, a["x"], a["y"]) for a in scouts)
-    io.log(f"fleet: {added} Scouts and {len(st.fleet)} Heavy Artillery on "
+    guns = sum(1 for e in st.fleet if not e.get("ha_dead"))
+    io.log(f"fleet: {added} Scouts and {guns} Heavy Artillery on "
            f"key {' '.join(st.air_keys) or 'none'}")
     return added
 
@@ -1772,17 +1819,23 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     # steering in between, no fetching of far bodies (they come on as
     # reinforcements, straight to the hit), short pauses
     start = None
+    fleet_sent = False
     for sweep in range(sweeps):
         n, found = sweep_mass(io, watch, mapdata, st, target, steer=False,
                               settle=HIT_SETTLE_LOOK, plan_first=True)
         orders += n
         start = start or max(found, 1)
+        if not fleet_sent and n:
+            # the first pass has sent most of the mass: the fleet goes
+            # now, not after the tail (trial 35: 38 s later), as one
+            # stack over the army's back (the repository owner)
+            orders += send_fleet_with_hit(io, mapdata, st, target)
+            fleet_sent = True
         if n == 0 or found < 0.1 * start:
             break
         io.sleep(0.4)
-    # the fleet goes once most of the hit has been sent (the repository
-    # owner), as one stack over the army's back
-    orders += send_fleet_with_hit(io, mapdata, st, target)
+    if not fleet_sent:
+        orders += send_fleet_with_hit(io, mapdata, st, target)
     if DOGFIGHT and own_fleet_keys(st):
         # most of the hit is out: now only the air (the repository owner)
         dogfight(io, watch, mapdata, st, target)
@@ -4859,18 +4912,25 @@ def replace_ha(io, st, e):
     """A key whose Heavy Artillery is gone gets another one (Shift +
     key), if one of the four is not on a key yet and still stands;
     otherwise it goes on with its Scouts alone."""
-    used = {tuple(f["ha"]) for f in st.fleet}   # its own lost one too
+    # its own first (a key started without it: trial 35), then any of
+    # the four not on another key
+    others = {tuple(f["ha"]) for f in st.fleet if f is not e}
     gone = set(st.ha_gone)
-    for ha in HEAVY_ARTILLERY:
-        if tuple(ha) in used or tuple(ha) in gone:
+    tries = st.__dict__.setdefault("ha_tries", {})
+    for ha in [e["ha"]] + [h for h in HEAVY_ARTILLERY if h != e["ha"]]:
+        if tuple(ha) in others or tuple(ha) in gone:
             continue
-        if click_unit(io, *ha, movable=False) is None:
-            st.ha_gone.add(tuple(ha))   # not there either
+        if not pick_ha(io, st, *ha):
+            tries[tuple(ha)] = tries.get(tuple(ha), 0) + 1
+            if tries[tuple(ha)] >= 2:
+                st.ha_gone.add(tuple(ha))   # not there: not tried again
             continue
         io.combo("shift", e["key"])
         io.sleep(0.04)
-        st.ha_gone.add(tuple(e["ha"]))
-        io.log(f"air: key {e['key']} got another Heavy Artillery, at {ha}")
+        key_in_use(st, e["key"])
+        if ha != e["ha"]:
+            st.ha_gone.add(tuple(e["ha"]))
+        io.log(f"air: key {e['key']} got its Heavy Artillery, at {ha}")
         e["ha"], e["ha_dead"] = ha, False
         return True
     if not e.get("ha_told"):
@@ -5003,10 +5063,18 @@ def clamp_to(point, centre, reach):
 
 def order_fleet(io, st, screen_point, hold=False):
     """Every fleet key: a right-click there (a move, or an attack if on
-    an enemy), then Hold if asked."""
+    an enemy), then Hold if asked. A point off the game area is clicked
+    on the minimap instead (trial 35: squeezed onto the screen's edge, the
+    hops went to its corner)."""
     l, t, r, b = live.GAME_AREA
-    x = min(max(int(screen_point[0]), l + 30), r - 30)
-    y = min(max(int(screen_point[1]), t + 30), b - 30)
+    x, y = int(screen_point[0]), int(screen_point[1])
+    if not (l + 20 < x < r - 20 and t + 20 < y < b - 20):
+        cam = getattr(st, "dogfight_cam", None)
+        if cam is not None:
+            x, y = live.minimap_point(*screen_to_map(x, y, cam))
+        else:
+            x = min(max(x, l + 30), r - 30)
+            y = min(max(y, t + 30), b - 30)
     for key in st.air_keys:
         io.key(key)
         io.sleep(0.02)
@@ -5038,7 +5106,11 @@ def scan_targets(io, st, picture, fleet, cam):
     ears = st.ears
     if ears is None or not hasattr(ears, "find_targets"):
         return None
-    found = ears.find_targets(picture)
+    return rank_targets(io, ears.find_targets(picture), fleet, cam)
+
+
+def rank_targets(io, found, fleet, cam):
+    """The model's targets in the order they are shot (see scan_targets)."""
     if found is None:
         return None
     rank = {k: i for i, k in enumerate(TARGET_PRIORITY)}
@@ -5051,6 +5123,43 @@ def scan_targets(io, st, picture, fleet, cam):
             for k in TARGET_PRIORITY if any(f["kind"] == k for f in near_)))
     return [{"kind": f["kind"], "xy": screen_to_map(f["x"], f["y"], cam)}
             for f in near_]
+
+
+class Scanner:
+    """The model's looks for targets, in the background: the fight goes on
+    while it looks (trial 35: each look held the Scouts still 5 s)."""
+
+    def __init__(self, ears):
+        from concurrent.futures import ThreadPoolExecutor
+        self.ears = ears
+        self.pool = ThreadPoolExecutor(1) if ears is not None and \
+            hasattr(ears, "find_targets") else None
+        self.job = None
+
+    def busy(self):
+        return self.job is not None
+
+    def start(self, picture, fleet, cam):
+        if self.pool is None or self.job is not None:
+            return False
+        self.job = (self.pool.submit(self.ears.find_targets, picture), fleet, cam)
+        return True
+
+    def result(self, io):
+        """The ranked targets once the look is done, else None."""
+        if self.job is None or not self.job[0].done():
+            return None
+        future, fleet, cam = self.job
+        self.job = None
+        try:
+            found = future.result()
+        except Exception:
+            found = None
+        return rank_targets(io, found, fleet, cam) or []
+
+    def close(self):
+        if self.pool is not None:
+            self.pool.shutdown(wait=False)
 
 
 def attack_target(io, st, target, cam):
@@ -5117,10 +5226,12 @@ def dogfight(io, watch, mapdata, st, target):
     seen_at = io.now()                    # when the fleet was last seen
     last_scan, focus_until = -1e9, -1e9   # the scans for targets
     to_shoot, hop_back = [], False        # targets left from the last scan
+    scanner = Scanner(st.ears)
     thin = 0                              # counts in a row without cover
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
         cam = look_at(io, *centred(*fleet_xy), wait=0.1)
+        st.dogfight_cam = cam
         pic = io.shot("dogfight", keep=False)
         if pic is None:
             break
@@ -5157,6 +5268,7 @@ def dogfight(io, watch, mapdata, st, target):
                 st.fleet_task = None
                 park_fleet(io, st, "dogfight without cover")
                 io.log(f"dogfight: {why}: the fleet goes home")
+                scanner.close()
                 return orders
             n = fleet_left(io, st)
             last_count = io.now()
@@ -5166,6 +5278,7 @@ def dogfight(io, watch, mapdata, st, target):
                     st.fleet_task = None
                     park_fleet(io, st, "dogfight lost")
                     io.log(f"dogfight: {why}: the fleet goes home")
+                    scanner.close()
                     return orders
                 if last_n - n >= LOSING_FAST:
                     back = toward(fleet_xy, MASS, HOP * 2)
@@ -5212,9 +5325,13 @@ def dogfight(io, watch, mapdata, st, target):
             orders += 1
             io.sleep(TICK)
             continue
-        if not to_shoot and io.now() - last_scan >= TARGET_LOOK:
-            last_scan = io.now()
-            to_shoot = (scan_targets(io, st, pic, fleet, cam) or [])[:FOCUS_MAX]
+        if not to_shoot:
+            got = scanner.result(io)
+            if got:
+                to_shoot = got[:FOCUS_MAX]
+            elif not scanner.busy() and io.now() - last_scan >= TARGET_LOOK:
+                last_scan = io.now()
+                scanner.start(pic, fleet, cam)   # looks while the fight goes on
         while to_shoot:
             # Battlecruisers, then SCVs by bunkers, then bunkers (the
             # repository owner): one at a time, a hop back in between
@@ -5246,6 +5363,7 @@ def dogfight(io, watch, mapdata, st, target):
             io.sleep(BURST_PAUSE)           # a look between bursts
         else:
             io.sleep(TICK)
+    scanner.close()
     set_air_state(io, st, "with the army", f"dogfight over: {why}",
                   target=fleet_xy)
     io.log(f"dogfight: {orders} orders in {io.now() - start:.0f} s "

@@ -1437,3 +1437,23 @@ second hit (the demo only shows how).
 - The Heavy Artillery was logged as keyed at 11 s but not seen on the
   key by the repository owner: a picture is now kept right after it is
   put on a key, to see what was clicked.
+
+## Trial 35
+
+- The dogfight found the fleet and fought (focus fire on SCVs twice), but:
+  hops off the screen were squeezed to its corner (30, 730), now sent by
+  the minimap; each target scan held the fight about 5 s, now it runs in
+  the background while the Scouts keep hopping.
+- Heavy Artillery: the "key-9-artillery" picture showed two Scouts keyed,
+  not the gun: the click missed, the Scouts selected before stayed
+  selected, and the check ("anything with buttons") passed. A sieged gun
+  has buttons but no Move; that is the check now, with more clicks round
+  where it shows. Not picked, the key starts without it, counts no gun,
+  and the gun is tried again at the next upkeep (its own first). A key
+  is only ordered once something is on it.
+- The repository owner: marines more often between hits (every 25 s,
+  was 55); after a hit they wait only while the dogfight runs (not while
+  the air is over the army: that held the barracks 145 s).
+- The fleet went with the hit 38 s after the ground started: it waited
+  for every sweep, the last ones one box each. It now goes after the
+  first pass, which sends most of the mass.
