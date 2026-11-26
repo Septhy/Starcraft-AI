@@ -251,6 +251,14 @@ class FakeGame:
             block(x, y, 5, 4)
         for u in self.alive():
             block(*self.where(u), 3, 3)
+        # each man on the game screen too: Russia's rusty brown, as the
+        # real game shows their shoulder pads (the hit's boxes are planned
+        # on the screen)
+        l, t, r, b = live.GAME_AREA
+        for u in (self.alive() if self.camera is not None else []):
+            sx, sy = (int(v) for v in self._screen(*self.where(u)))
+            if l + 4 <= sx < r - 4 and t + 4 <= sy < b - 4:
+                a[sy - 3:sy + 3, sx - 3:sx + 3] = (106, 48, 22)
         # the bottom panel: one framed picture per selected unit
         if isinstance(self.selected, list) and len(self.selected) > 1:
             for k in range(len(self.selected)):
@@ -264,7 +272,13 @@ class FakeGame:
         s = Image.fromarray(a)
         card = "barracks" if self.selected == "barracks" else \
             "units" if self.selected else None
-        if card:
+        if self.sieged():
+            # a gun: the first button empty, Stop second
+            s.paste(Image.open(live.data_path("blank_card.png")).convert("RGB"),
+                    live.CARD_CELL[:2])
+            s.paste(Image.open(live.data_path("stop_card.png")).convert("RGB"),
+                    live.STOP_CELL[:2])
+        elif card:
             s.paste(CARDS[card], (1560, 760))
         if getattr(self, "messaging", False):
             s.paste(MESSAGING, (550, 85))
@@ -641,8 +655,7 @@ def test_a_hit_that_took_its_target_goes_on_but_a_handful_holds():
     m = trial.load_map()
     side = m["slots"]["5"]
     romania, berlin = trial.place(m, "Romania 300"), trial.place(m, "Berlin 1000")
-    road = ("Factory 7", "Hungary 200", "Munich 200", "Frankfurt 200",
-            "Amsterdam 100", "Paris 500", "Madrid 1000")
+    road = ("Factory 7", "Amsterdam 100", "Paris 500", "Madrid 1000")
     onward = [trial.place(m, n) for n in road]
 
     # a handful: 30 men at Romania
@@ -681,11 +694,9 @@ def test_the_road_south_leads_to_belgrade_and_on_to_the_netherlands():
         at = trial.NEXT[at]
         road.append(at)
         trial.place(m, at)                          # every stop is on the map
-    # Romania, Belgrade (Factory 7), Hungary, Munich, Frankfurt, the
-    # Netherlands, and only then Paris and Madrid
-    assert road == ["Factory 7", "Hungary 200", "Munich 200",
-                    "Frankfurt 200", "Amsterdam 100", "Paris 500",
-                    "Madrid 1000"]
+    # Romania, Belgrade (Factory 7), then straight on to the Netherlands
+    # (the repository owner: not Hungary), and only then Paris and Madrid
+    assert road == ["Factory 7", "Amsterdam 100", "Paris 500", "Madrid 1000"]
     assert trial.NEXT["Warsaw 200"] == "Berlin 1000"
 
 
@@ -1272,25 +1283,88 @@ def test_a_hits_boxes_are_mapped_out_first_and_never_overlap():
     assert d(plan[0][0]) >= d(plan[-1][0])                      # back first
 
 
-def test_a_hit_sweep_draws_the_planned_boxes_in_order(monkeypatch):
+
+
+def men_picture(points):
+    """A game screen with Russia's men at these screen points."""
+    a = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    a[:, :] = (40, 55, 30)                       # grass
+    for x, y in points:
+        a[y - 3:y + 3, x - 3:x + 3] = (106, 48, 22)
+    return Image.fromarray(a)
+
+
+def test_our_men_are_found_on_the_game_screen():
+    men = [(600 + 40 * i, 300 + 30 * j) for i in range(5) for j in range(4)]
+    found = trial.own_on_screen(men_picture(men))
+    assert len(found) == len(men)
+    # the chat lines (Russia's brown names) and the kills list are left out
+    assert trial.own_on_screen(men_picture([(100, 600), (50, 100)])) == []
+
+
+def test_a_hits_boxes_are_planned_on_the_screen_back_to_front_no_overlap():
+    """The repository owner: the boxes are planned on the game screen,
+    never on the minimap; each man in one box only; the back first."""
+    men = [(500 + 30 * i, 300 + 25 * j) for i in range(10) for j in range(6)]
+    plan = trial.plan_screen_boxes(men, (1, 0), 12)   # the target to the right
+    assert sum(n for _, n in plan) == len(men)
+    for i, (a, _) in enumerate(plan):
+        for b, _ in plan[:i]:
+            inside_both = [p for p in men if a[0] <= p[0] <= a[2] and a[1] <= p[1] <= a[3]
+                           and b[0] <= p[0] <= b[2] and b[1] <= p[1] <= b[3]]
+            assert not inside_both
+    assert plan[0][0][0] < plan[-1][0][0]              # the back (left) first
+
+
+def test_a_hit_view_boxes_only_men_standing_still(monkeypatch):
+    """Men already sent are walking off: two looks a moment apart, and
+    only those in the same place both times are boxed."""
     m = trial.load_map()
     st, io = trial.State(), StubIO()
-    io.shot = lambda label, keep=True: None
-    st.box_px = 6
-    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
-    drawn = []
-
-    def select(io_, st_, seed, pool, cam):
-        chunk = pool[:6]
-        drawn.append(set(chunk))
-        return chunk, 10
-    monkeypatch.setattr(trial, "select_full", select)
+    standing = [(800 + 30 * i, 400) for i in range(6)]
+    walking1 = [(1300, 300 + 30 * i) for i in range(6)]
+    walking2 = [(1340, 300 + 30 * i) for i in range(6)]
+    shots = iter([men_picture(standing + walking1), men_picture(standing + walking2)])
+    io.shot = lambda label, keep=True: next(shots) if label == "hit-view" else None
+    boxes = []
+    io.drag = lambda *b: boxes.append(b)
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: 6)
     monkeypatch.setattr(trial, "send_at", lambda *a, **k: None)
-    watch = StubWatch(blob(trial.MASS, 8), set())
-    n, found = trial.sweep_mass(io, watch, m, st, "Berlin 1000", settle=0,
-                                plan_first=True)
-    assert n == len(drawn) and n >= 4
-    for i, a in enumerate(drawn):                # never the same ground twice
-        for b in drawn[:i]:
-            assert not (a & b)
-    assert any("boxes mapped out for this view" in l for l in io.lines)
+    w = trial.place(m, "Berlin 1000")
+    n, _ = trial.sweep_screen(io, None, m, st, "Berlin 1000", w, trial.MASS,
+                              None, None, 0)
+    assert n == len(boxes) >= 1
+    for b in boxes:                                   # never round the walkers
+        assert not any(b[0] <= x <= b[2] and b[1] <= y <= b[3] for x, y in walking2)
+    assert any("boxes planned on the screen" in l for l in io.lines)
+
+
+def test_a_sieged_gun_is_told_by_its_buttons():
+    """The repository owner's pictures: the Heavy Defensive Artillery
+    selected shows an empty first button and Stop second."""
+    a = Image.new("RGB", (1920, 1080))
+    assert not live.gun_selected(a)                 # nothing selected
+    a.paste(Image.open(live.data_path("blank_card.png")).convert("RGB"), live.CARD_CELL[:2])
+    a.paste(Image.open(live.data_path("stop_card.png")).convert("RGB"), live.STOP_CELL[:2])
+    assert live.gun_selected(a)
+    assert not live.gun_selected(screen("units"))   # Move first: units
+
+
+def test_on_the_balkan_road_idle_men_round_greece_are_swept_on_often():
+    """Trial 36: men left idle round Greece while the hit went on from
+    Belgrade. On the Balkan road any idle men in the Balkans go on with
+    it, and the sweep comes every 2.5 s."""
+    m = trial.load_map()
+    side = m["slots"]["5"]
+    athens = trial.place(m, "Athens 400")
+    g = FakeGame(m)
+    watch = live.Watch(g.shot("start"), side["structures"], side["units"])
+    greece = g.units[:40]
+    stand_at(greece, athens)
+    g.camera = live.camera_after_click(*live.minimap_point(*trial.MASS))
+    st = trial.State()
+    st.battle = trial.Battle("Amsterdam 100", 0)
+    assert looks(g, watch, m, st, 4) >= 2
+    gone = sum(not near(u["to"], (athens["x"], athens["y"]), 12) for u in greece)
+    assert gone >= 20, gone
+    assert trial.ADVANCE_EVERY_BALKS < trial.ADVANCE_EVERY

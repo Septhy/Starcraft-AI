@@ -1472,3 +1472,23 @@ second hit (the demo only shows how).
   keyed afresh (boxed a dozen at a time onto 9, 0, 8, each keyed box
   stepping aside, the Moscow gun added back), so the whole air goes with
   the hit and the dogfight follows one fleet.
+- The repository owner: a hit's boxes are planned on the game screen, never
+  on the minimap. Russia's men are found by the rusty brown of their
+  shoulder pads (`own_on_screen`, about one patch a man; chat lines and
+  the kills list left out); two looks 0.3 s apart keep only men standing
+  still (those sent walk off); every box of the view is mapped out round
+  them back to front, none covering a man an earlier box took
+  (`plan_screen_boxes`, `sweep_screen`). The minimap still picks where to
+  put the camera.
+- The Moscow Heavy Defensive Artillery: the repository owner's pictures
+  show it selected with the first button empty and Stop second, so the
+  old check (anything but an empty first button) refused it every time.
+  It is now picked like the owner does, with a small box dragged round it,
+  and taken when the game shows a gun (`live.gun_selected`,
+  data/stop_card.png).
+- The recorder noted no clicks or keys: the game's window is titled
+  "Brood War", not "StarCraft".
+- The repository owner: Belgrade (Factory 7) secured, the hit goes on to
+  Amsterdam (it went to Hungary, the replays' road). On the Balkan road
+  idle men anywhere in the Balkans (Greece, Serbia) are swept on with it,
+  every 2.5 s (was 5 s, and only near the target and the front).

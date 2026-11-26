@@ -126,9 +126,13 @@ WATCHED = sorted(set(KEY_NAMES) | set(MODIFIERS) | set(BUTTONS))
 
 
 def is_game(title):
-    """The game's own window (not this recorder's, nor the bot's)."""
+    """The game's own window (not this recorder's, nor the bot's). Its
+    title is "Brood War" (trial 36: nothing was noted while it looked for
+    "StarCraft")."""
     t = title.lower()
-    return "starcraft" in t and "recorder" not in t and "bot" not in t
+    if "recorder" in t or "bot" in t:
+        return False
+    return "brood war" in t or "starcraft" in t
 
 
 class InputLog:

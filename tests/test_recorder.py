@@ -99,7 +99,8 @@ def test_clicks_drags_and_keys_are_noted_but_never_the_chat(tmp_path):
     drag = log.events[2]
     assert drag["at"] == [400, 300] and drag["to"] == [700, 500]
     assert abs(drag["t"] - 0.3) < 1e-6
-    assert is_game("StarCraft") and not is_game("StarCraft recorder") \
+    assert is_game("Brood War") and is_game("StarCraft") \
+        and not is_game("StarCraft recorder") \
         and not is_game("StarCraft bot: first trial - build x")
 
 

@@ -91,6 +91,25 @@ def building_selected(picture):
         not _first_button_is(picture, "units_card.png")
 
 
+STOP_CELL = (1717, 800, 1809, 890)   # the second command button
+
+
+def gun_selected(screen):
+    """A unit that cannot move is selected, as the sieged Heavy Defensive
+    Artillery: the first button is empty and the second is Stop (from the
+    repository owner's pictures; units with Move have it first, nothing
+    selected has no Stop)."""
+    if screen is None or screen.size != (1920, 1080):
+        return False
+    if not _first_button_is(screen, "blank_card.png"):
+        return False
+    if "stop_card.png" not in _templates:
+        _templates["stop_card.png"] = np.asarray(
+            Image.open(data_path("stop_card.png")).convert("RGB")).astype(int)
+    cell = np.asarray(screen.convert("RGB").crop(STOP_CELL)).astype(int)
+    return bool(np.abs(cell - _templates["stop_card.png"]).mean() < CARD_MATCH)
+
+
 def units_selected(screen):
     """True when the first command button is Move, which means units
     that can be ordered about are selected."""

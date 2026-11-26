@@ -61,7 +61,9 @@ HOSTILE = AXIS + [6]
 # In the south: Romania, the factory at Belgrade, then north-west
 # toward the Netherlands (the repository owner), by way of the cities
 # that lie between.
-NEXT = {"Romania 300": "Factory 7", "Factory 7": "Hungary 200",
+NEXT = {"Romania 300": "Factory 7",
+        "Factory 7": "Amsterdam 100",  # the repository owner: Belgrade
+                                       # secured, on to Amsterdam (was Hungary)
         "Hungary 200": "Munich 200", "Munich 200": "Frankfurt 200",
         "Frankfurt 200": "Amsterdam 100", "Amsterdam 100": "Paris 500",
         "Konigsberg 200": "Berlin 1000",
@@ -73,6 +75,10 @@ NEXT = {"Romania 300": "Factory 7", "Factory 7": "Hungary 200",
 CLEARED = 8                    # fewer enemy minimap pixels than this at a
                                # target: it is cleared, and the troops go on
 ADVANCE_EVERY = 5              # seconds between checks for idle troops forward
+ADVANCE_EVERY_BALKS = 2.5      # on the Balkan road (the repository owner: idle
+                               # men were left round Greece)
+BALKS_AREA = (100, 108, 200, 192)  # tiles: the Balkans, Greece and Serbia;
+                               # idle men anywhere here go on with the hit
 IDLE_FORWARD = 20              # minimap pixels at a target that mean it is taken
 MIN_FORWARD = 6                # idle troops of the hit this big are sent on
 SCOUT_WAIT = 150               # seconds: the Middle East spawn point is left to the
@@ -252,6 +258,7 @@ class State:
         self.air = None            # the air brain: AirStats
         self.ha_gone = set()       # Heavy Artillery spots known to be empty
         self.ha_keys = set()       # air keys holding the Moscow artillery
+        self.screen_per_box = 12   # men (patches on the screen) a box is drawn round
         self.key_pictures = 0      # pictures of a pressed fleet key kept
         self.looks_kept = 0
 
@@ -598,28 +605,30 @@ HA_SPOTS = list(TRIES) + [(40 + dx, 80 + dy) for dx in (-35, 0, 35)
                           for dy in (-35, 0, 35) if (dx, dy) != (0, 0)]
 
 
+HA_BOX = (40, 50)              # half the box drawn round where the gun shows
+
+
 def pick_ha(io, st, x, y):
-    """Select the sieged Heavy Artillery standing at a map point: clicks
-    round it, nearest first, until what is selected has command buttons
-    but no Move button, as a sieged gun has (trial 35: a click that
-    missed left the Scouts selected, and they were keyed in its place).
+    """Select the sieged Heavy Defensive Artillery at a map point the way
+    the repository owner does: a small box dragged round it, tried at a
+    few spots round where it should show, until the game shows a gun
+    selected: no Move, the first button empty and Stop second (trial 36
+    pictures; a click that missed left the Scouts selected in trial 35).
     True if picked."""
     l, t, r, b = live.GAME_AREA
     cam = look_at(io, x, y, wait=0.15)
     px, py = live.on_screen(x, y, cam)
+    hx, hy = HA_BOX
     for dx, dy in HA_SPOTS:
         sx, sy = px + dx, py + dy
-        if not (l + 5 < sx < r - 5 and t + 5 < sy < b - 5):
+        box = (max(l + 3, sx - hx), max(t + 3, sy - hy),
+               min(r - 3, sx + hx), min(b - 3, sy + hy))
+        if box[2] - box[0] < 20 or box[3] - box[1] < 20:
             continue
-        io.click(sx, sy)
+        io.drag(*box)
         io.sleep(0.08)
-        card = io.card()
-        # a sieged Heavy Artillery has command buttons but no Move; the
-        # Scouts left selected by a missed click have Move (trial 35)
-        if live._first_button_is(card, "blank_card.png") or \
-                live.units_selected(card):
-            continue
-        return True
+        if live.gun_selected(io.shot("ha-pick", keep=False)):
+            return True
     return False
 
 
@@ -1497,6 +1506,144 @@ def select_full(io, st, seed, pool, cam):
     return chosen, n
 
 
+# Russia's units on the game screen (the repository owner: the boxes of a
+# hit are planned on the game screen, never on the minimap): the rusty
+# brown of their shoulder pads and trim, about one patch a man. Our
+# factories' stripes match too; a box over a building takes only units.
+OWN_LEAST = 3                  # pixels of Russia's brown that make a patch
+CHAT_BAND = (0, 470, 720, 700) # screen box where chat lines show (left out)
+
+
+def own_mask(picture):
+    import numpy as np
+    l, t, r, b = live.GAME_AREA
+    a = np.asarray(picture.convert("RGB").crop((l, t, r, b))).astype(int)
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    m = (R > 85) & (R < 150) & (R - G > 40) & (G > 30) & (G < 75) & \
+        (B < 45) & (G - B > 10)
+    m[:240, :400] = False               # the kills list
+    x0, y0, x1, y1 = CHAT_BAND
+    m[y0 - t:y1 - t, x0 - l:x1 - l] = False
+    return m
+
+
+def own_on_screen(picture):
+    """Our units on the game screen: their screen points (one a man,
+    roughly)."""
+    if picture is None:
+        return []
+    return [(x, y) for n, x, y in patches(own_mask(picture)) if n >= OWN_LEAST]
+
+
+def plan_screen_boxes(points, toward_target, per_box):
+    """Every box of the view, planned on the game screen before any is
+    drawn: from the back (the far side from the target) forward, each box
+    round the `per_box` men nearest its starting man, and every man inside
+    it counted as taken, so no two boxes cover the same men. Screen boxes
+    (x0, y0, x1, y1), with the men each holds."""
+    tx, ty = toward_target
+    left = sorted(points, key=lambda p: p[0] * tx + p[1] * ty)   # back first
+    l, t, r, b = live.GAME_AREA
+    taken, plan = [], []
+
+    def box_of(group, pad):
+        return (max(l + 3, min(p[0] for p in group) - pad),
+                max(t + 3, min(p[1] for p in group) - pad),
+                min(r - 3, max(p[0] for p in group) + pad),
+                min(b - 3, max(p[1] for p in group) + pad))
+
+    def holds(box, p):
+        return box[0] <= p[0] <= box[2] and box[1] <= p[1] <= box[3]
+    while left:
+        seed = left[0]
+        near_ = sorted(left, key=lambda p: (p[0] - seed[0]) ** 2
+                       + (p[1] - seed[1]) ** 2)[:max(1, per_box)]
+        box = None
+        # as many of the nearest as fit without covering a man an earlier
+        # box took (he is still standing there: he would be boxed again)
+        for pad in (SCREEN_PAD, 10):
+            for k in range(len(near_), 0, -1):
+                trial_box = box_of(near_[:k], pad)
+                if not any(holds(trial_box, p) for p in taken):
+                    box = trial_box
+                    break
+            if box is not None:
+                break
+        if box is None:
+            box = box_of([seed], 4)
+        inside = [p for p in left if holds(box, p)] or [seed]
+        plan.append((box, len(inside)))
+        taken += inside
+        left = [p for p in left if p not in inside]
+    return plan
+
+
+SCREEN_PAD = 28                # screen pixels round the men a box is drawn
+
+
+def sweep_screen(io, watch, mapdata, st, target, w, cam, dest, max_boxes,
+                 boxes):
+    """One view of a hit, the boxes planned on the game screen (the
+    repository owner): our men are found on the screen, every box mapped
+    out round them, back to front, before any is drawn; then each is drawn,
+    what it took read, and sent. Box sizes follow what the boxes took.
+    Men left behind by a full box are taken by the hit's next sweep.
+    Returns (orders, boxes drawn so far)."""
+    orders = 0
+    mx, my = live.on_screen(*MASS, cam)
+    tx, ty = live.on_screen(w["x"], w["y"], cam)
+    toward_target = (tx - mx, ty - my)
+    # only men standing still: two looks a moment apart (those already
+    # sent are walking off and are not boxed again)
+    first = own_on_screen(io.shot("hit-view", keep=False))
+    io.sleep(STILL_GAP)
+    second = own_on_screen(io.shot("hit-view", keep=False))
+    points = [p for p in second if any(abs(p[0] - q[0]) <= STILL_PX and
+                                       abs(p[1] - q[1]) <= STILL_PX for q in first)]
+    if not points:
+        return orders, boxes
+    per_box = st.screen_per_box
+    plan = plan_screen_boxes(points, toward_target, per_box)
+    io.log(f"  hit: {len(plan)} boxes planned on the screen for "
+           f"{len(points)} men in view")
+    for box, men in plan:
+        if max_boxes is not None and boxes >= max_boxes:
+            break
+        boxes += 1
+        io.drag(*box)
+        io.sleep(0.05)
+        st.boxes += 1
+        shot = io.shot("box", keep=False)
+        n = live.selected_count(shot)
+        if n and st.scout_frame is not None:
+            n = drop_scouts(io, st, shot)
+        st.selected += n
+        st.selections += 1
+        if n == 0:
+            st.empty += 1
+            continue
+        # the next boxes are sized from what this one took
+        if n >= FULL:
+            st.screen_per_box = max(6, st.screen_per_box - 1)
+        elif n < GOOD_BOX and men:
+            st.screen_per_box = min(24, st.screen_per_box + 2)
+        if dest is not None:
+            attack_move(io, *dest)
+        else:
+            send_at(io, mapdata, st, target)
+            free = free_ground_keys(st)
+            if st.rekey < len(free):
+                io.combo("ctrl", free[st.rekey])
+                io.sleep(0.04)
+                st.rekey += 1
+        orders += 1
+    return orders, boxes
+
+
+STILL_GAP = 0.3                # seconds between the two looks at a view
+STILL_PX = 5                   # screen pixels a standing man may seem to move
+
+
 def plan_boxes(pixels, target_xy, order, want):
     """Every box for one view, mapped out before any is drawn (the
     repository owner): from the back (or front), each the `want` pixels
@@ -1547,8 +1694,8 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
             fleet_tick(io, watch, mapdata, st)   # the air is looked after meanwhile
         cam = look_at(io, *centred(cx, cy))
         if plan_first:
-            o, b = sweep_planned(io, watch, mapdata, st, target, view, w, order,
-                                 cam, dest, max_boxes, boxes)
+            o, b = sweep_screen(io, watch, mapdata, st, target, w, cam, dest,
+                                max_boxes, boxes)
             orders += o
             boxes = b
             continue
@@ -3151,7 +3298,9 @@ def advance_front(io, watch, mapdata, st, still, picture):
     they are sent on to the next objective; if they have stopped short
     of it they are sent at it again. Returns the orders given."""
     battle = st.battle
-    if battle is None or io.now() - st.last_advance < ADVANCE_EVERY:
+    balks = battle is not None and team_rules.front_of(battle.target) == "balks"
+    every = ADVANCE_EVERY_BALKS if balks else ADVANCE_EVERY
+    if battle is None or io.now() - st.last_advance < every:
         return 0
     w = place(mapdata, battle.target)
     # only the troops of this hit: those around its target or its front.
@@ -3160,8 +3309,16 @@ def advance_front(io, watch, mapdata, st, still, picture):
     mine = near(idle, (w["x"], w["y"]), 26)
     if battle.front:
         mine |= near(idle, battle.front, 14)
-    if team_rules.front_of(battle.target) == "balks":
+    if balks:
         mine |= near(idle, BALKS_POINT, 14)    # gone on past Romania
+        # and anyone idle in the Balkans (trial 36: men left round Greece;
+        # Greece is farther from Berlin than the mass, so they counted as
+        # at home and were never sent on)
+        x0, y0, x1, y1 = BALKS_AREA
+        for c, r in still - at_mass(still) - near(still, MIDDLE_EAST, 8):
+            x, y = live.from_drawn(c, r)
+            if x0 <= x / 32 < x1 and y0 <= y / 32 < y1:
+                mine.add((c, r))
     for name in taken_on_the_way(st, battle.target):
         c = place(mapdata, name)         # left behind at a city taken earlier
         mine |= near(idle, (c["x"], c["y"]), 12)

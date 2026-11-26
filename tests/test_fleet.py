@@ -860,16 +860,18 @@ def test_a_missed_click_never_keys_the_scouts_as_the_artillery(monkeypatch):
     gun's buttons (no Move) count as picked; not picked, the keys start
     without it, and a new key's first Scouts make it with Ctrl (trial 36:
     Shift + 0 on a key not yet made did nothing)."""
-    from tests.test_trial import screen
     st, io = trial.State(), StubIO()
     io.shot = lambda label, keep=True: label
-    io.card = lambda: trial.live.card_cell(screen("units"))   # still the Scouts
+    boxes = []
+    io.drag = lambda *b: boxes.append(b)
     monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    gun = [False]                                   # still the Scouts
+    monkeypatch.setattr(trial.live, "gun_selected", lambda pic: gun[0])
     assert not trial.pick_ha(io, st, 5684, 2489)
-    from PIL import Image
-    io.card = lambda: Image.new("RGB", (92, 90), (200, 190, 40))
+    assert boxes                                    # small boxes dragged round it
+    gun[0] = True                                   # no Move, Stop second
     assert trial.pick_ha(io, st, 5684, 2489)
-    io.card = lambda: trial.live.card_cell(screen("units"))
+    gun[0] = False
     assert not trial.key_moscow_ha(io, st)
     assert not any(c[0] == "ctrl" for c in io.combos)
     assert trial.open_fleet_key(io, st)
