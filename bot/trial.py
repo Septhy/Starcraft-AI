@@ -56,6 +56,10 @@ AXIS = [0, 1, 7]               # Germany, Italy, Spain: Russia's enemies
 # Who Russia's troops actually fight: the Axis, and the computer player
 # (white) that holds the Balkans, Turkey and the east.
 HOSTILE = AXIS + [6]
+# For the tax only the Axis counts (trial 37: "Axis hold Warsaw" when it
+# was not: the white of the computer's beacons and of the minimap's view
+# box, which sits on the city being looked at, was counted as enemy).
+TAX_HOSTILE = AXIS
 # Where a hit goes on to once it has taken its target, so the troops do
 # not stand idle there.
 # In the south: Romania, the factory at Belgrade, then north-west
@@ -136,12 +140,12 @@ OPENING_ANNOUNCE = 30          # seconds: the first hit is announced (it goes 30
 TRIAL_SECONDS = 7200           # play for up to two hours
 GAME_OVER_LOOKS = 8            # looks in a row with no minimap: the game has ended
 # How big a hit has to be, in men. The repository owner: at least 140,
-# and normally 160 to 300. How many are at hand is judged at a glance
-# (men_at_mass): the supply figure less the men spread out elsewhere.
+# and normally 160 to 300; trial 37: 20 fewer all round (120, 160, 220).
+# How many are at hand is judged at a glance (men_at_mass): the supply figure less the men spread out elsewhere.
 # No boxes are drawn to count.
-MIN_HIT = 140                  # never send less than this as a hit
-WANT_HIT = 180                 # what a hit normally waits for
-BIG_HIT = 240                  # after a hit was lost or stalled
+MIN_HIT = 120                  # never send less than this as a hit
+WANT_HIT = 160                 # what a hit normally waits for
+BIG_HIT = 220                  # after a hit was lost or stalled
 NEW_TROOPS = 40                # a new hit needs at least this many at the mass
 SUPPLY_SLACK = 4               # this close to the limit counts as at it
 CAPPED_CROWD = 150             # minimap pixels at the mass that make it the army
@@ -162,6 +166,8 @@ class Stopped(Exception):
 
 class State:
     def __init__(self):
+        global _PARK_AT
+        _PARK_AT = None            # a new game: no beacon chosen yet
         self.boxes = self.empty = 0
         self.ground_keys, self.air_keys = [], []
         self.orders_sent = 0       # counts hit orders, to walk along FRONT
@@ -258,6 +264,10 @@ class State:
         self.air = None            # the air brain: AirStats
         self.ha_gone = set()       # Heavy Artillery spots known to be empty
         self.ha_keys = set()       # air keys holding the Moscow artillery
+        self.ha_frame = None       # the artillery's framed picture in a group
+        self.factory_ground = set()   # (round, factory): its new ground fetched
+        self.park_at = None        # where the fleet waits (a beacon near the mass)
+        self.park_chosen = -1e9
         self.screen_per_box = 12   # men (patches on the screen) a box is drawn round
         self.key_pictures = 0      # pictures of a pressed fleet key kept
         self.looks_kept = 0
@@ -562,10 +572,77 @@ def air_groups(mapdata):
     return groups
 
 
+_PARK_AT = None                # the beacon spot chosen for the fleet (choose_park)
+
+
 def fleet_spot():
-    """Where the fleet waits: near the mass, but outside it, so the
-    boxes of the massing place do not pick the Scouts up."""
+    """Where the fleet waits: by a city beacon near the mass with our or
+    allied troops by it (choose_park), else a fixed spot beside the
+    mass; outside the mass either way, so the boxes of the massing place
+    do not pick the Scouts up."""
+    if _PARK_AT is not None:
+        return _PARK_AT
     return (MASS[0] + FLEET_PARK[0], MASS[1] + FLEET_PARK[1])
+
+
+# The repository owner (trial 37): while the army masses, the air sat in
+# the way at the massing place; it waits by a nearby beacon instead, one
+# with brown or allied troops by it.
+PARK_MIN = 16                  # tiles from the mass point: past the spread mass
+PARK_MAX = 32                  # tiles from it at most
+PARK_FRIENDS = 3               # our or allied minimap pixels by the beacon
+PARK_NEAR = 4                  # minimap pixels round the beacon looked at
+PARK_SAFE = 8                  # no Axis pixels this near the beacon
+PARK_SIDE = 3                  # tiles beside the beacon the fleet waits
+PARK_EVERY = 60                # seconds between choices
+PARK_FORWARD = 5               # tiles nearer the enemy than the mass allowed
+
+
+def is_beacon(name):
+    """A city's beacon: its place name ends in its tax ("Smolensk 200")."""
+    return bool(re.search(r"\d+$", name)) and not name.startswith("Factory")
+
+
+def choose_park(io, watch, mapdata, st, picture):
+    """Pick where the fleet waits: the nearest city beacon 16 to 32 tiles
+    from the mass, not nearer the enemy than the mass is, with our or
+    allied troops by it and no Axis there. None found: the fixed spot.
+    True if the spot changed."""
+    global _PARK_AT
+    now = io.now()
+    if watch is None or picture is None or now - st.park_chosen < PARK_EVERY:
+        return False
+    st.park_chosen = now
+    friends = watch.units(picture) | watch.others(picture,
+                                                  list(ALLY_SLOTS.values()))
+    axis = watch.others(picture, AXIS)
+    front = place(mapdata, TARGETS[0])
+    def dist(a, b):
+        return math.hypot(a[0] - b[0], a[1] - b[1]) / 32
+    mass_front = dist(MASS, (front["x"], front["y"]))
+    best = None
+    for p in mapdata["places"]:
+        if not is_beacon(p["name"]):
+            continue
+        xy = (p["x"], p["y"])
+        d = dist(MASS, xy)
+        if not PARK_MIN <= d <= PARK_MAX or \
+                dist(xy, (front["x"], front["y"])) < mass_front - PARK_FORWARD:
+            continue
+        if len(near(friends, xy, PARK_NEAR)) < PARK_FRIENDS or \
+                near(axis, xy, PARK_SAFE):
+            continue
+        if best is None or d < best[0]:
+            best = (d, p["name"], xy)
+    spot = None if best is None else \
+        (best[2][0] + PARK_SIDE * 32, best[2][1])
+    if spot == _PARK_AT:
+        return False
+    _PARK_AT = spot
+    st.park_at = spot
+    io.log("air: the fleet waits " + (f"by {best[1]}'s beacon" if best else
+                                      "beside the mass (no beacon by friends)"))
+    return True
 
 
 def click_unit(io, x, y, movable=True):
@@ -691,11 +768,14 @@ REGROUP_STEP = 4               # tiles a keyed group steps aside, so the
 
 def regroup_fleet(io, st):
     """Before a hit (the repository owner: every brown plane keyed and sent
-    with the hit): the Scouts at the parking spot are boxed, a dozen at a
-    time, and put on the air keys afresh (Ctrl + key), each key then
-    getting the Moscow Heavy Artillery again; a keyed box steps aside so
-    the next box takes the rest (trial 36: an unkeyed squadron sat at the
-    parking spot and the dogfight's camera jumped between the two)."""
+    with the hit): the Scouts at the parking spot are put on the air keys
+    afresh, a dozen at a time; a keyed group steps aside so the next box
+    takes the rest (trial 36: an unkeyed squadron sat at the parking spot
+    and the dogfight's camera jumped between the two). A key that holds
+    the Moscow Heavy Artillery is pressed first and the box added to it
+    (Shift + drag), so the gun stays on it and is never picked again
+    (trial 37: the keys were made afresh without it and the gun was
+    fetched from Moscow again and again)."""
     a = getattr(st, "air", None)
     if not st.fleet or (a is not None and a.state != "parked"):
         return 0
@@ -719,18 +799,32 @@ def regroup_fleet(io, st):
                max(t + 3, min(p[1] for p in bunch) - 50),
                min(r - 3, max(p[0] for p in bunch) + 50),
                min(b - 3, max(p[1] for p in bunch) + 50))
-        io.drag(*box)
+        has_gun = key in st.ha_keys and hasattr(io, "drag_with")
+        if has_gun:
+            io.key(key)                 # the gun and the key's Scouts
+            io.sleep(0.06)
+            io.drag_with("shift", *box)  # and the Scouts here added
+        else:
+            io.drag(*box)
         io.sleep(0.08)
         n = live.selected_count(io.shot("regroup-box", keep=False))
-        if n == 0 or not picked_are_scouts(io, st, n):
+        got = scouts_picked(io, st, n, guns=1 if has_gun else 0) if n else None
+        if got is None:
             break
-        if n > FLEET_SIZE:
-            n = trim_selection(io, FLEET_SIZE)
-        io.combo("ctrl", key)           # the key afresh: these Scouts
+        n, guns = got
+        if n - guns > FLEET_SIZE:
+            n = trim_selection(io, FLEET_SIZE + guns, st)
+        if n - guns <= 0:
+            break
+        io.combo("ctrl", key)           # the key afresh, the gun kept on it
         io.sleep(0.04)
-        entries.append({"key": key, "scouts": n, "ha": MOSCOW_HA,
-                        "ha_dead": True, "new": False})
-        keyed += n
+        entries.append({"key": key, "scouts": n - guns, "ha": MOSCOW_HA,
+                        "ha_dead": not guns, "new": False})
+        keyed += n - guns
+        if guns:
+            st.ha_keys.add(key)
+        else:
+            st.ha_keys.discard(key)
         # aside, so the next box does not take them again
         side = (park[0] + REGROUP_STEP * 32 * len(entries), park[1])
         io.click(*live.minimap_point(*side), button="right")
@@ -741,15 +835,11 @@ def regroup_fleet(io, st):
     st.air_keys = []
     for e in entries:
         key_in_use(st, e["key"])
-    st.ha_keys = set()
-    if pick_ha(io, st, *MOSCOW_HA):     # the gun back on every key made
-        for e in entries:
-            io.combo("shift", e["key"])
-            io.sleep(0.04)
-            e["ha_dead"] = False
-            st.ha_keys.add(e["key"])
     io.log(f"fleet: {keyed} Scouts at the parking spot keyed afresh on "
-           f"{' '.join(e['key'] for e in entries)} before the hit")
+           f"{' '.join(e['key'] for e in entries)} before the hit"
+           + (" (the gun kept on " + " ".join(e["key"] for e in entries
+                                              if not e["ha_dead"]) + ")"
+              if any(not e["ha_dead"] for e in entries) else ""))
     return keyed
 
 
@@ -777,19 +867,43 @@ def add_to_fleet(io, st, x, y, kind="Scout"):
     return True
 
 
-def trim_selection(io, keep):
+def trim_selection(io, keep, st=None):
     """Drop units from the selection (Shift + click on their pictures in
-    the bottom panel, the last first) until `keep` are left. Returns how
-    many are selected in the end."""
-    n = live.selected_count(io.shot("trim", keep=False))
+    the bottom panel, the last first) until `keep` are left; never the
+    Moscow Heavy Artillery (the repository owner, trial 37): with `st`,
+    only Scouts are taken out. After each click the panel is read again
+    until it shows one fewer (trial 37: read too soon, each picture was
+    clicked twice and two units went). Returns how many are selected in
+    the end."""
+    pic = io.shot("trim", keep=False)
+    n = live.selected_count(pic)
     for _ in range(12):
         if n <= keep:
             break
-        x0, y0, x1, y1 = _frame_box(min(n, 12) - 1, min(n, 12))
+        i = min(n, 12) - 1
+        kinds = frame_kinds(st, pic, n) if st is not None else None
+        if kinds is not None:
+            scouts = [j for j, k in enumerate(kinds) if k == "scout"]
+            if not scouts:
+                break
+            i = scouts[-1]
+        x0, y0, x1, y1 = _frame_box(i, min(n, 12))
         io.click_with("shift", (x0 + x1) // 2, (y0 + y1) // 2)
-        io.sleep(0.08)
-        n = live.selected_count(io.shot("trim", keep=False))
+        pic = panel_changed(io, n, "trim")
+        n = live.selected_count(pic)
     return n
+
+
+def panel_changed(io, before, label):
+    """The panel read again, a few times if need be, until its count of
+    units differs from `before`. The last picture."""
+    pic = None
+    for _ in range(4):
+        io.sleep(0.08)
+        pic = io.shot(label, keep=False)
+        if live.selected_count(pic) != before:
+            break
+    return pic
 
 
 FLEET_RECOUNT = 60             # seconds between counts of what is on the keys
@@ -850,6 +964,7 @@ def recount_fleet(io, st, force=False):
             (live.selected_count(pic), None, None)
         if scouts is None:              # by the count, less the artillery
             scouts = max(0, units - on_key(e))
+            learn_ha_frame(io, st, e, pic, units)
         elif not ha and not e.get("ha_dead"):
             e["ha_dead"] = True
             io.log(f"air: key {e['key']} has no Heavy Artillery any more "
@@ -881,25 +996,39 @@ def key_with_room(st, n):
 
 def add_selected_scouts(io, st, reselect, depth=0):
     """Put the Scouts that `reselect()` selects onto the fleet, after
-    checking they are all Scouts: on a key with room for them all, or a
-    new key, rather than split them (one left over would stay behind and
-    be swept into the mass); twelve at once fill a new key and the rest
-    are fetched on the next look. They then fly to the fleet. Returns
-    how many."""
-    n = reselect()
-    if n == 0:
+    checking they are Scouts (ground units picked with them are taken
+    out; the Moscow Heavy Artillery, if picked too, is left in: it is
+    on the keys anyway, trial 37): on a key with room for them all, or
+    a new key, rather than split them (one left over would stay behind
+    and be swept into the mass); twelve at once fill a new key and the
+    rest are fetched on the next look. They then fly to the fleet.
+    Returns how many Scouts."""
+    def pick(refuse=True):
+        n = reselect()
+        if n == 0:
+            return None
+        got = scouts_picked(io, st, n)
+        if got is None:
+            if refuse:
+                io.shot("not-scouts")
+                io.log("fleet: what was picked is not all Scouts: not added "
+                       "(picture 'not-scouts')")
+            return None
+        return got[0] - got[1], got[1]
+
+    got = pick()
+    if got is None:
         return 0
-    if not picked_are_scouts(io, st, n):
-        io.shot("not-scouts")
-        io.log("fleet: what was picked is not all Scouts: not added "
-               "(picture 'not-scouts')")
+    n, guns = got
+    if n <= 0:
         return 0
     entry = key_with_room(st, min(n, FLEET_SIZE))
     if entry is None:
         if open_fleet_key(io, st):
-            n = reselect()              # starting the key changed the selection
-            if n == 0 or not picked_are_scouts(io, st, n):
+            got = pick(refuse=False)    # starting the key changed the selection
+            if got is None or got[0] <= 0:
                 return 0
+            n, guns = got
             entry = st.fleet[-1]
         else:
             entry = max(st.fleet, key=lambda e: FLEET_SIZE - e["scouts"],
@@ -908,9 +1037,10 @@ def add_selected_scouts(io, st, reselect, depth=0):
     if room <= 0 and recount_fleet(io, st):
         # trial 33: "every fleet key is full" for the last half of the
         # game, the keys' Scouts long dead; counted again, room is found
-        n = reselect()
-        if n == 0 or not picked_are_scouts(io, st, n):
+        got = pick(refuse=False)
+        if got is None or got[0] <= 0:
             return 0
+        n, guns = got
         entry = key_with_room(st, min(n, FLEET_SIZE)) or \
             max(st.fleet, key=lambda e: FLEET_SIZE - e["scouts"])
         room = FLEET_SIZE - entry["scouts"]
@@ -924,8 +1054,8 @@ def add_selected_scouts(io, st, reselect, depth=0):
         return n
     whole = n
     if n > room:
-        n = trim_selection(io, room)
-        if n == 0 or n > room:
+        n = trim_selection(io, room + guns, st) - guns
+        if n <= 0 or n > room:
             return 0
     add_to_key(io, st, entry)
     entry["scouts"] += n
@@ -971,6 +1101,45 @@ def scouts_on_top(io, st, x, y, every=True):
 
 
 SCOUT_TRIES = 3                # looks at a spawn point before giving up on it
+FACTORY_GROUND = 330           # screen pixels round a factory's middle looked at
+
+
+def fetch_factory_ground(io, mapdata, st, name):
+    """Once a factory's new Scouts are on the keys: the Heavy Tanks and
+    soldiers it made at the tax, found on the game screen, are boxed and
+    sent to the mass (the Scouts taken out). Trial 37: Factory 3 stands
+    among Moscow's buildings, where the minimap hides our units (the
+    buildings' own pixels are left out), and its tanks, made in the
+    factory's middle, never left; its soldiers walked out of the
+    buildings and were seen. Returns how many were sent."""
+    f = place(mapdata, name)
+    cam = look_at(io, *centred(f["x"], f["y"]), wait=0.25)
+    pic = io.shot("factory-ground", keep=False)
+    if pic is None:
+        return 0
+    fx, fy = live.on_screen(f["x"], f["y"], cam)
+    pts = [p for p in own_on_screen(pic)
+           if (p[0] - fx) ** 2 + (p[1] - fy) ** 2 <= FACTORY_GROUND ** 2]
+    if len(pts) < 2:
+        return 0
+    l, t, r, b = live.GAME_AREA
+    box = (max(l + 3, min(p[0] for p in pts) - 40),
+           max(t + 3, min(p[1] for p in pts) - 40),
+           min(r - 3, max(p[0] for p in pts) + 40),
+           min(b - 3, max(p[1] for p in pts) + 40))
+    if box[2] - box[0] < 20 or box[3] - box[1] < 20:
+        return 0
+    io.drag(*box)
+    io.sleep(0.08)
+    if not live.units_selected(io.card()):
+        return 0
+    n = drop_scouts(io, st)             # the Scouts are the fleet's
+    if n == 0:
+        return 0
+    to_mass(io, mapdata, (f["x"], f["y"]), st)
+    io.log(f"  {n} new ground units at {name} sent to the massing place "
+           f"(seen on the screen)")
+    return n
 
 
 def collect_new_scouts(io, watch, mapdata, st):
@@ -1002,6 +1171,9 @@ def collect_new_scouts(io, watch, mapdata, st):
                    f"{st.last_added_key}")
         elif st.scout_tries[job] >= SCOUT_TRIES:
             st.scouts_done.add(job)     # none there (not Russia's factory)
+        if job in st.scouts_done and job not in st.factory_ground:
+            st.factory_ground.add(job)
+            fetch_factory_ground(io, mapdata, st, name)
     for t in MOSCOW_AIR:
         if g >= t + SCOUT_WAIT and t not in st.moscow_done:
             m = place(mapdata, "ZMoscow Air")
@@ -1148,6 +1320,75 @@ def picked_are_scouts(io, st, n):
         if alike(_crop(pic, _frame_box(i, n)), st.scout_frame) < SHAPE_SAME:
             return False
     return True
+
+
+def frame_kinds(st, pic, n):
+    """What each unit picture in the bottom panel shows: "scout", "gun"
+    (the Moscow Heavy Artillery, once its picture is learnt) or "other".
+    None when it cannot be told (the Scout not learnt, one unit)."""
+    if st is None or st.scout_frame is None or pic is None or n < 2:
+        return None
+    out = []
+    for i in range(min(n, 12)):
+        c = _crop(pic, _frame_box(i, n))
+        if alike(c, st.scout_frame) >= SHAPE_SAME:
+            out.append("scout")
+        elif st.ha_frame is not None and alike(c, st.ha_frame) >= SHAPE_SAME:
+            out.append("gun")
+        else:
+            out.append("other")
+    return out
+
+
+def learn_ha_frame(io, st, e, pic, n):
+    """A pressed fleet key that holds the gun and Scouts: its one picture
+    that is not a Scout is the gun's. Learnt once, so the gun is never
+    taken out of a selection (trial 37)."""
+    if st.ha_frame is not None or e.get("ha_dead") or \
+            e["key"] not in st.ha_keys:
+        return
+    kinds = frame_kinds(st, pic, n)
+    if kinds is None:
+        return
+    others = [i for i, k in enumerate(kinds) if k != "scout"]
+    if len(others) == 1:
+        st.ha_frame = _crop(pic, _frame_box(others[0], n))
+        io.log(f"fleet: learnt what the Heavy Artillery looks like (key "
+               f"{e['key']})")
+
+
+def scouts_picked(io, st, n, guns=0):
+    """What a pick for the fleet holds: (units, guns among them), or None
+    if it is not for the fleet. Scouts, and at most `guns` Heavy
+    Artillery, are kept: ground units picked with them are taken out
+    (Shift + click on their pictures, trial 37), never the artillery.
+    Before the artillery's picture is learnt, one picture that is not a
+    Scout is taken as the gun when one is expected (a fleet key
+    pressed), and anything else makes the pick refused."""
+    if picked_are_scouts(io, st, n):
+        return n, 0
+    pic = io.shot("check", keep=False)
+    for _ in range(12):
+        kinds = frame_kinds(st, pic, n)
+        if kinds is None:
+            return None
+        others = [i for i, k in enumerate(kinds) if k == "other"]
+        gun = [i for i, k in enumerate(kinds) if k == "gun"]
+        if st.ha_frame is None:
+            if guns and len(others) == 1:
+                return n, 1             # the key's own gun
+            return None                 # cannot tell the gun: refused
+        if not others:
+            if len(gun) > max(1, guns):
+                return None
+            return n, len(gun)
+        x0, y0, x1, y1 = _frame_box(others[-1], n)
+        io.click_with("shift", (x0 + x1) // 2, (y0 + y1) // 2)
+        pic = panel_changed(io, n, "check")
+        n = live.selected_count(pic)
+        if n == 0:
+            return None
+    return None
 
 
 def drop_scouts(io, st, pic=None):
@@ -2348,6 +2589,15 @@ def supply_full(io):
     return bool(supply) and supply[0] >= supply[1]
 
 
+def read_money(io):
+    """The minerals at the top of the screen, or None if not read."""
+    try:
+        pic = io.shot("money", keep=False)
+        return numbers.read_minerals(pic) if pic is not None else None
+    except Exception:
+        return None
+
+
 def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
              then_home=False):
     """With no factory or starport left to float, Russia makes an SCV at
@@ -2375,6 +2625,16 @@ def depot_at(io, watch, mapdata, st, name, ours, cc_tile=None,
     if job is None:
         if st.depot_tries.get(name, 0) >= DEPOT_TRIES:
             return 0
+        money = read_money(io)
+        if money is not None and money < TAX_PRICE:
+            # trial 37: the SCV was ordered with 0 minerals, never made,
+            # and the try was lost; now it waits for the money
+            if st.__dict__.setdefault("tax_broke", {}).get(name) is None:
+                st.tax_broke[name] = now
+                io.log(f"tax: {money} minerals, {TAX_PRICE} needed for "
+                       f"{name}'s SCV and depot: waiting for the money")
+            return 0
+        st.__dict__.setdefault("tax_broke", {}).pop(name, None)
         if supply_full(io):             # full: no SCV can be made
             st.depots[name] = {"stage": "supply", "since": now}
             io.log(f"tax: supply is full: {name}'s SCV waits for room")
@@ -2584,7 +2844,8 @@ def tax_with_hit(io, watch, mapdata, st, target, picture):
         return 0                        # and it is there
     if st.tax_tries.get(name, 0) >= TAX_TRIES:
         return 0
-    hostile = watch.others(picture, HOSTILE) if picture is not None else set()
+    hostile = watch.others(picture, TAX_HOSTILE) if picture is not None \
+        else set()
     if not city_clear(hostile, ours, city):
         # not into the enemy (trial 23): the tax rounds send it once
         # the hit has cleared the city
@@ -2684,7 +2945,7 @@ def tax_rounds(io, watch, mapdata, st, picture):
         st.last_tax = io.now()
     clock = st.clock.time()
     ours = watch.units(picture)
-    hostile = watch.others(picture, HOSTILE)
+    hostile = watch.others(picture, TAX_HOSTILE)
     sent = 0
     for name in TAX_CITIES:
         if name != "Factory 7" and not due:
@@ -4570,8 +4831,9 @@ ALLY_AIR_RECOUNT = 3           # every third check-up their air is counted again
 # there, Russia searches at once (not on the timer), around the last
 # record on the minimap and by moving the camera, without moving its
 # own air; found, the air goes there and a new record is written; not
-# found in 10 seconds, "Lost the fleet", the air goes back to its
-# parking spot and the mass cycle goes on.
+# found in 10 seconds, "Lost the fleet, still looking" (once): our air
+# waits where it is and is searched for again at every check, until
+# "@R return air" or until our own air is gone (trial 37).
 FLEET_CHECK = 8                # seconds between checks while following
 FLEET_MATCH = 0.3              # how far the count may drift and still match
 FLEET_BEHIND = 5               # tiles behind the allies' air the fleet stays
@@ -4707,9 +4969,10 @@ def search_fleet(io, watch, mapdata, st, task):
     rings = [(record["xy"][0] + math.cos(a) * t * 32,
               record["xy"][1] + math.sin(a) * t * 32)
              for t in SEARCH_RINGS for a in [k * math.pi / 4 for k in range(8)]]
+    reach = SEARCH_REACH * (2 if task.get("lost") else 1)   # lost: wider
     while io.now() - started < FLEET_SEARCH:
         spots = [p for p in ally_groups_near(io, watch, record["xy"],
-                                             SEARCH_REACH) if fresh(p)]
+                                             reach) if fresh(p)]
         spots = spots[:2] or [p for p in rings if fresh(p)][:1]
         if not spots:
             break
@@ -4719,6 +4982,8 @@ def search_fleet(io, watch, mapdata, st, task):
             looked.append(xy)
             groups = look_fleet(io, st, xy)
             if fleet_matches(record, groups):
+                if task.pop("lost", False):
+                    say(io, st, "found your air again", force=True)
                 task["record"] = write_record(io, st, mapdata, groups, xy)
                 follow_to(io, watch, st, task, xy, record["xy"], route=True)
                 io.log(f"bring air: the fleet found near "
@@ -4726,9 +4991,15 @@ def search_fleet(io, watch, mapdata, st, task):
                        f"{io.now() - started:.0f} s: our air follows")
                 task["checked"] = io.now()
                 return True
-    st.fleet_task = None
-    say(io, st, "Lost the fleet", force=True)
-    park_fleet(io, st, "bring air: the allies' fleet was lost")
+    # not found: the task stays (the repository owner, trial 37: the air
+    # is checked on until "@R return air" or until our air is gone); our
+    # air waits where it is and the next check searches again
+    task["checked"] = io.now()
+    if not task.get("lost"):
+        task["lost"] = True
+        say(io, st, "Lost the fleet, still looking", force=True)
+    io.log(f"bring air: not found in {FLEET_SEARCH} s; looking again in "
+           f"{FLEET_CHECK} s (until \"@R return air\")")
     return False
 
 
@@ -5120,6 +5391,9 @@ def locate_fleet(io, st):
 def replace_ha(io, st, e):
     """A key without the Moscow Heavy Artillery gets it (Shift + key; the
     same gun is on every air key). Tried a few times, then left."""
+    if e["key"] in st.ha_keys:          # keyed once: never picked again
+        e["ha_dead"] = False
+        return False
     tries = st.__dict__.setdefault("ha_tries", {})
     if tries.get(e["key"], 0) >= 3:
         return False
@@ -5149,6 +5423,9 @@ def air_upkeep(io, watch, mapdata, st):
         return False
     a.last_upkeep = now
     a.upkeeps += 1
+    if choose_park(io, watch, mapdata, st, io.shot("watch", keep=False)) \
+            and a.state == "parked":
+        park_fleet(io, st, "to its new waiting spot")
     recount_fleet(io, st, force=True)  # also finds keys without their artillery
     for e in st.fleet:
         if e.get("ha_dead"):
@@ -5302,15 +5579,57 @@ def scan_targets(io, st, picture, fleet, cam):
     ears = st.ears
     if ears is None or not hasattr(ears, "find_targets"):
         return None
-    return rank_targets(io, ears.find_targets(picture), fleet, cam)
+    return rank_targets(io, ears.find_targets(picture), fleet, cam, picture)
 
 
-def rank_targets(io, found, fleet, cam):
-    """The model's targets in the order they are shot (see scan_targets)."""
+TARGET_REACH = 45              # screen pixels round a target looked at for its colour
+TARGET_COLOUR = 6              # Axis-coloured pixels there that make it the enemy's
+
+
+def axis_mask(picture):
+    """The game view's pixels in the Axis team colours: red, blue and a
+    pure yellow (Russia's gold Scouts are darker and redder)."""
+    import numpy as np
+    l, t, r, b = live.GAME_AREA
+    a = np.asarray(picture.convert("RGB").crop((l, t, r, b))).astype(int)
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    yellow = (R > 225) & (G > 225) & (B < 110)
+    m = enemy_mask(picture) | yellow
+    m[:240, :400] = False               # the kills list
+    m[:40, 880:1240] = False            # the round countdown
+    return m
+
+
+def enemy_target(picture, x, y, masks=None):
+    """True if a target the model pointed at wears an Axis colour (red,
+    blue, yellow) and more of it than Russia's brown (trial 37: the Scouts
+    attacked one of our own bunkers). Without a picture: True."""
+    if not hasattr(picture, "convert"):
+        return True
+    axis, own = masks if masks is not None else (axis_mask(picture),
+                                                  own_mask(picture))
+    l, t = live.GAME_AREA[:2]
+    x0, y0 = int(max(0, x - l - TARGET_REACH)), int(max(0, y - t - TARGET_REACH))
+    x1, y1 = int(x - l + TARGET_REACH), int(y - t + TARGET_REACH)
+    theirs = int(axis[y0:y1, x0:x1].sum())
+    ours = int(own[y0:y1, x0:x1].sum())
+    return theirs >= TARGET_COLOUR and theirs > ours
+
+
+def rank_targets(io, found, fleet, cam, picture=None):
+    """The model's targets in the order they are shot (see scan_targets):
+    only those wearing an Axis colour on the screen."""
     if found is None:
         return None
     rank = {k: i for i, k in enumerate(TARGET_PRIORITY)}
     near_ = [f for f in found if f["kind"] in rank]   # anywhere on the screen
+    if hasattr(picture, "convert") and near_:
+        masks = (axis_mask(picture), own_mask(picture))
+        ok = [f for f in near_ if enemy_target(picture, f["x"], f["y"], masks)]
+        if len(ok) < len(near_):
+            io.log(f"dogfight: {len(near_) - len(ok)} target(s) not in an "
+                   f"Axis colour left alone (ours or an ally's)")
+        near_ = ok
     near_.sort(key=lambda f: (rank[f["kind"]], (f["x"] - fleet[0]) ** 2
                               + (f["y"] - fleet[1]) ** 2))
     if near_:
@@ -5338,20 +5657,21 @@ class Scanner:
     def start(self, picture, fleet, cam):
         if self.pool is None or self.job is not None:
             return False
-        self.job = (self.pool.submit(self.ears.find_targets, picture), fleet, cam)
+        self.job = (self.pool.submit(self.ears.find_targets, picture), fleet,
+                    cam, picture)
         return True
 
     def result(self, io):
         """The ranked targets once the look is done, else None."""
         if self.job is None or not self.job[0].done():
             return None
-        future, fleet, cam = self.job
+        future, fleet, cam, picture = self.job
         self.job = None
         try:
             found = future.result()
         except Exception:
             found = None
-        return rank_targets(io, found, fleet, cam) or []
+        return rank_targets(io, found, fleet, cam, picture) or []
 
     def close(self):
         if self.pool is not None:
@@ -5772,6 +6092,7 @@ BACK_NEAR = 6                   # tiles from the mass point it walks back to
 
 TAX_GAS = 100                  # a supply depot costs 100 gas too on this map
 TAX_PRICE = 150                # an SCV (50) and a supply depot (100)
+TAX_MONEY_WAIT = 300           # seconds a tax order waits for that money
 MARINE_PRICE = 50
 
 
@@ -5838,7 +6159,7 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
     city = place(mapdata, name)
     xy = (city["x"], city["y"])
     ours = watch.units(picture)
-    hostile = watch.others(picture, HOSTILE)
+    hostile = watch.others(picture, TAX_HOSTILE)
     if job["guard"]:
         st.guards[name] = io.now()      # the detachment stays, not gathered
     if job["stage"] in ("secure", "held"):
@@ -5875,17 +6196,24 @@ def tax_job_step(io, watch, mapdata, st, picture, job):
             return tax_order_end(io, watch, mapdata, st, job, ok=False)
         return
     if job["stage"] == "depot":
-        if job.get("started") and name not in st.depots:
+        broke = st.__dict__.get("tax_broke", {}).get(name)
+        if broke is not None and io.now() - broke > TAX_MONEY_WAIT:
+            st.tax_broke.pop(name, None)
+            return tax_order_end(io, watch, mapdata, st, job, ok=False)
+        if job.get("started") and name not in st.depots and broke is None:
             return tax_order_end(io, watch, mapdata, st, job, ok=False)
         job["started"] = True
         depot_at(io, watch, mapdata, st, name, ours, cc_tile=MOSCOW_CC,
                  then_home=True)
         stage = st.depots.get(name, {}).get("stage")
-        if stage in ("building", "done"):
-            job["paid"] = True          # spent: no longer kept back
+        if stage == "done":
+            # kept back until the depot stands (trial 37: let go once the
+            # SCV was ordered, the marines spent it all and the depot
+            # could not be paid: "Not enough minerals")
+            job["paid"] = True
         if stage == "done":
             return tax_order_end(io, watch, mapdata, st, job, ok=True)
-        if stage is None:
+        if stage is None and name not in st.__dict__.get("tax_broke", {}):
             return tax_order_end(io, watch, mapdata, st, job, ok=False)
 
 

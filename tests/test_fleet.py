@@ -6,7 +6,8 @@ from PIL import Image
 
 from bot import trial
 from eyes import live
-from tests.test_trial import StubIO
+from tests.test_trial import StubIO, blob
+import math
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
@@ -544,7 +545,7 @@ def test_leftover_scouts_go_on_the_next_key_or_to_the_fleet_never_the_mass(monke
                 {"key": "0", "scouts": trial.FLEET_SIZE - 1, "ha": (0, 0)}]
     st.air_keys = ["9", "0"]
     monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
-    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep, st_=None: keep)
     monkeypatch.setattr(trial, "attack_move", lambda *a: None)
     monkeypatch.setattr(trial, "recount_fleet", lambda *a, **k: False)
     monkeypatch.setattr(trial, "open_fleet_key", lambda io_, st_: False)
@@ -717,6 +718,26 @@ def test_scouts_shoot_battlecruisers_then_scvs_by_bunkers_then_bunkers():
     assert trial.scan_targets(io, st, "pic", fleet, cam) == []
     st.ears = None
     assert trial.scan_targets(io, st, "pic", fleet, cam) is None
+
+
+def test_only_targets_in_an_axis_colour_are_shot():
+    """Trial 37: the Scouts attacked one of Russia's own bunkers. A target
+    is shot only if red, blue or yellow shows on it, more than brown."""
+    from PIL import Image, ImageDraw
+    pic = Image.new("RGB", (1920, 1080), (30, 50, 20))
+    d = ImageDraw.Draw(pic)
+    d.rectangle((990, 390, 1010, 410), fill=(240, 20, 20))    # a red bunker
+    d.rectangle((1290, 290, 1310, 310), fill=(112, 48, 20))   # our brown one
+    d.rectangle((590, 490, 610, 510), fill=(250, 245, 60))    # a yellow one
+    st, io = trial.State(), StubIO()
+    st.ears = TargetEars([{"kind": "bunker", "x": 1000, "y": 400},
+                          {"kind": "bunker", "x": 1300, "y": 300},
+                          {"kind": "bunker", "x": 600, "y": 500}])
+    found = trial.scan_targets(io, st, pic, (900, 400), (4000, 2000))
+    xs = sorted(round(trial.live.on_screen(*f["xy"], (4000, 2000))[0])
+                for f in found)
+    assert len(found) == 2 and abs(xs[0] - 600) <= 1 and abs(xs[1] - 1000) <= 1
+    assert any("not in an Axis colour" in l for l in io.lines)
 
 
 def test_in_the_dogfight_one_target_then_a_hop_back_then_the_next(monkeypatch):
@@ -900,27 +921,175 @@ def test_before_a_hit_every_parked_scout_is_keyed_afresh(monkeypatch):
     """Trial 36: an unkeyed squadron sat at the parking spot, and the
     dogfight's camera jumped between it and the keyed one. Before a hit
     the parked Scouts are boxed a dozen at a time onto 9, 0, 8 (Ctrl),
-    each keyed box stepping aside, then the Moscow gun goes back on."""
+    each keyed box stepping aside. Trial 37: a key holding the Moscow
+    gun is pressed first and the box added to it (Shift + drag), so the
+    gun stays on it and is never picked again."""
     st, io = trial.State(), StubIO()
     st.fleet = [{"key": "9", "scouts": 6, "ha": trial.MOSCOW_HA}]
     st.air_keys = ["9"]
+    st.ha_keys = {"9", "0", "8"}
     trial.air_stats(io, st)                       # parked
     io.shot = lambda label, keep=True: label
-    io.drag = lambda *box: None
+    io.drag = lambda *box: pytest.fail("a plain box would drop the gun")
+    shift_boxes = []
+    io.drag_with = lambda held, *box: shift_boxes.append((held, io.keys[-1]))
     monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
     bunches = iter([[(900, 400), (950, 420)], [(1200, 400)], []])
     monkeypatch.setattr(trial, "gold_on_screen", lambda pic, x, y, r: next(bunches))
-    counts = iter([12, 4])
+    counts = iter([12, 5])                        # each with its gun
     monkeypatch.setattr(trial.live, "selected_count", lambda pic: next(counts))
-    monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
-    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
-    monkeypatch.setattr(trial, "pick_ha", lambda *a: True)
+    monkeypatch.setattr(trial, "scouts_picked",
+                        lambda io_, st_, n, guns=0: (n, guns))
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep, st_=None: keep)
+    monkeypatch.setattr(trial, "pick_ha", lambda *a: pytest.fail("picked again"))
     assert trial.regroup_fleet(io, st) == 15
+    assert shift_boxes == [("shift", "9"), ("shift", "0")]
     assert [e["key"] for e in st.fleet] == ["9", "0"]
     assert [e["scouts"] for e in st.fleet] == [trial.FLEET_SIZE, 4]
+    assert not any(e["ha_dead"] for e in st.fleet)
     assert ("ctrl", "9") in io.combos and ("ctrl", "0") in io.combos
-    assert ("shift", "9") in io.combos and ("shift", "0") in io.combos   # the gun
+    assert st.ha_keys == {"9", "0", "8"}         # 8 still has it: opened later
     assert st.air_keys == ["9", "0"]
+    assert trial.open_fleet_key(io, st) and st.fleet[-1]["key"] == "8"
+    assert not st.fleet[-1]["new"] and not st.fleet[-1]["ha_dead"]
     # not while the fleet is out
     trial.set_air_state(io, st, "with the army", "out")
     assert trial.regroup_fleet(io, st) == 0
+
+
+def fake_panel(monkeypatch, kinds):
+    """A bottom panel whose pictures are `kinds` ("scout", "gun",
+    "other"); a Shift + click on a picture takes that unit out."""
+    sel = list(kinds)
+    monkeypatch.setattr(trial.live, "selected_count", lambda pic: len(sel))
+    monkeypatch.setattr(trial, "frame_kinds",
+                        lambda st_, pic, n: list(sel) if len(sel) >= 2 else None)
+    monkeypatch.setattr(trial, "picked_are_scouts",
+                        lambda io_, st_, n: all(k == "scout" for k in sel))
+
+    def click_with(held, x, y):
+        for i in range(len(sel)):
+            x0, y0, x1, y1 = trial._frame_box(i, len(sel))
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                del sel[i]
+                return
+    return sel, click_with
+
+
+def test_trimming_never_takes_the_gun_out(monkeypatch):
+    """Trial 37: the bot clicked the Heavy Artillery's picture to drop it."""
+    st, io = trial.State(), StubIO()
+    st.scout_frame = "learnt"
+    sel, io.click_with = fake_panel(monkeypatch, ["scout"] * 5 + ["gun"])
+    io.shot = lambda label, keep=True: label
+    assert trial.trim_selection(io, 3, st) == 3
+    assert sel == ["scout", "scout", "gun"]
+
+
+def test_ground_units_picked_with_scouts_go_but_never_the_gun(monkeypatch):
+    st, io = trial.State(), StubIO()
+    st.scout_frame, st.ha_frame = "learnt", "learnt"
+    sel, io.click_with = fake_panel(monkeypatch, ["gun", "scout", "other", "scout",
+                                             "other"])
+    io.shot = lambda label, keep=True: label
+    assert trial.scouts_picked(io, st, 5) == (3, 1)
+    assert sel == ["gun", "scout", "scout"]
+    # before the gun's picture is learnt: nothing is taken out
+    st.ha_frame = None
+    sel, io.click_with = fake_panel(monkeypatch, ["scout", "other", "scout"])
+    assert trial.scouts_picked(io, st, 3) is None and len(sel) == 3
+    assert trial.scouts_picked(io, st, 3, guns=1) == (3, 1)   # a key's own gun
+
+
+def test_the_gun_s_picture_is_learnt_from_a_pressed_key(monkeypatch):
+    st, io = trial.State(), StubIO()
+    st.scout_frame = "learnt"
+    st.ha_keys = {"9"}
+    e = {"key": "9", "scouts": 2, "ha_dead": False}
+    monkeypatch.setattr(trial, "frame_kinds",
+                        lambda st_, pic, n: ["other", "scout", "scout"])
+    monkeypatch.setattr(trial, "_crop", lambda pic, box: ("crop", box))
+    trial.learn_ha_frame(io, st, e, "pic", 3)
+    assert st.ha_frame == ("crop", trial._frame_box(0, 3))
+
+
+def test_a_key_that_holds_the_gun_is_never_given_it_again(monkeypatch):
+    st, io = trial.State(), StubIO()
+    st.ha_keys = {"9"}
+    e = {"key": "9", "scouts": 4, "ha_dead": True}
+    monkeypatch.setattr(trial, "pick_ha", lambda *a: pytest.fail("picked again"))
+    assert not trial.replace_ha(io, st, e) and not e["ha_dead"]
+
+
+def test_a_factory_s_new_tanks_are_seen_on_the_screen_and_sent(monkeypatch):
+    """Trial 37: Factory 3 stands among Moscow's buildings, which the
+    minimap reading leaves out: its tanks never left."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    cam = (6500, 1400)
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: cam)
+    f = trial.place(m, "Factory 3")
+    fx, fy = trial.live.on_screen(f["x"], f["y"], cam)
+    monkeypatch.setattr(trial, "own_on_screen",
+                        lambda pic: [(fx - 60, fy + 20), (fx + 40, fy + 50),
+                                     (fx + 900, fy)])      # the last: too far
+    io.shot = lambda label, keep=True: label
+    boxes = []
+    io.drag = lambda *box: boxes.append(box)
+    io.card = lambda: "card"
+    monkeypatch.setattr(trial.live, "units_selected", lambda card: True)
+    monkeypatch.setattr(trial, "drop_scouts", lambda io_, st_: 4)
+    sent = []
+    monkeypatch.setattr(trial, "to_mass", lambda io_, mapdata, xy, st_: sent.append(xy))
+    assert trial.fetch_factory_ground(io, m, st, "Factory 3") == 4
+    x0, y0, x1, y1 = boxes[0]
+    assert x0 <= fx - 60 and x1 >= fx + 40 and x1 < fx + 900
+    assert sent == [(f["x"], f["y"])]
+
+
+class ParkWatch:
+    def __init__(self, ours=(), allies=(), axis=()):
+        self.ours, self.allies, self.axis = set(ours), set(allies), set(axis)
+
+    def units(self, picture):
+        return set(self.ours)
+
+    def others(self, picture, slots):
+        return set(self.axis) if slots == trial.AXIS else set(self.allies)
+
+
+def test_the_fleet_waits_by_a_beacon_with_friends_not_in_the_mass(monkeypatch):
+    """Trial 37: the air sat in the way at the massing place; it waits by
+    a nearby city beacon with brown or allied troops by it."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    default = trial.fleet_spot()
+    beacons = [p for p in m["places"] if trial.is_beacon(p["name"])]
+    berlin = trial.place(m, trial.TARGETS[0])
+
+    def ok(p):
+        d = math.hypot(p["x"] - trial.MASS[0], p["y"] - trial.MASS[1]) / 32
+        mass_front = math.hypot(trial.MASS[0] - berlin["x"],
+                                trial.MASS[1] - berlin["y"]) / 32
+        front = math.hypot(p["x"] - berlin["x"], p["y"] - berlin["y"]) / 32
+        return trial.PARK_MIN <= d <= trial.PARK_MAX and \
+            front >= mass_front - trial.PARK_FORWARD
+    good = [p for p in beacons if ok(p)]
+    assert good, "no beacon near the mass to test with"
+    b = good[0]
+    # no friends there: the fixed spot
+    assert not trial.choose_park(io, ParkWatch(), m, st, "pic")
+    assert trial.fleet_spot() == default
+    # allied troops by a beacon: the fleet waits beside it
+    io.t += trial.PARK_EVERY
+    watch = ParkWatch(allies=blob((b["x"], b["y"]), 2))
+    assert trial.choose_park(io, watch, m, st, "pic")
+    assert trial.fleet_spot() == (b["x"] + trial.PARK_SIDE * 32, b["y"])
+    # the Axis there: not that one
+    io.t += trial.PARK_EVERY
+    watch = ParkWatch(ours=blob((b["x"], b["y"]), 2),
+                      axis=blob((b["x"], b["y"]), 1))
+    assert trial.choose_park(io, watch, m, st, "pic")
+    assert trial.fleet_spot() == default
+    trial.State()                                 # a new game forgets it
+    assert trial.fleet_spot() == default

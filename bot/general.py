@@ -128,7 +128,7 @@ How Russia plays
 the map, and sends it in large hits, mostly at Berlin (centre of the map, \
 in the red area), sometimes south into the Balkans through Romania and on \
 to Belgrade.
-- A hit is at least 140 men, and normally 160 to 300. Anything smaller is \
+- A hit is at least 120 men, and normally 140 to 280. Anything smaller is \
 not a hit and must not be sent at the enemy: those troops are a reserve, \
 held back until there are enough. The status report gives the size of the \
 mass and of the reserve standing forward. The program will not carry out \

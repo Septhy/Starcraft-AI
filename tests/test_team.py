@@ -293,15 +293,14 @@ def test_the_allys_air_is_counted_from_the_picture():
     assert ears.calls == 1 and ears.spent > 0
 
 
-def test_an_announced_hit_no_longer_ready_is_called_off():
+def test_an_announced_hit_goes_at_its_time_even_if_not_ready():
+    # trial 37: "hold, regrouping" must not happen nor delay the hit
     chat = Chat()
     t = team.Team(chat.say, chat.log)
     t.gate(100, True, "east")                       # announced
-    assert t.gate(130, False, "east") == "mass"     # most of it left
-    assert chat.said == ["gone east in 30 seconds", "hold, regrouping"]
-    assert t.announced is None
-    # ready again: announced again
-    assert run_until(t, chat, 140, 200) == 170
+    assert t.gate(130, False, "east") == "go"       # most of it left: goes
+    assert chat.said == ["gone east in 30 seconds", "gone east"]
+    assert "hold, regrouping" not in chat.said
     # an ally's "hit east in 1" still goes, ready or not
     t2 = team.Team(chat.say, chat.log)
     t2.heard(order("go", front="east", wait=60, said="@R hit east in 1"), 100)
@@ -321,8 +320,11 @@ def test_the_allies_fleet_is_read_by_owner_and_kind():
 
 def test_the_targets_are_pointed_out_in_screen_pixels():
     seen = []
-    answer = {"targets": [{"kind": "battlecruiser", "x": 640, "y": 240},
-                          {"kind": "bunker", "x": 2000, "y": 10}]}
+    answer = {"targets": [{"kind": "battlecruiser", "owner": "red",
+                           "x": 640, "y": 240},
+                          {"kind": "bunker", "owner": "red", "x": 2000, "y": 10},
+                          {"kind": "bunker", "owner": "brown", "x": 600,
+                           "y": 200}]}
     ears = team.ChatEars(chat_client(answer, seen), background=False)
     found = ears.find_targets(Image.new("RGB", (1920, 1080)))
     assert found == [{"kind": "battlecruiser", "x": 960.0, "y": 400.0}]

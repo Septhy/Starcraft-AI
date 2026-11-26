@@ -1025,7 +1025,7 @@ def test_new_scouts_from_the_factories_go_on_the_fleet_keys(monkeypatch):
     monkeypatch.setattr(trial, "scouts_on_top",
                         lambda io_, st_, x, y, every=True: looked.append((x, y)) or 2)
     monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
-    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: 1 / 0)
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep, st_=None: 1 / 0)
     # just before the first tax: nothing
     st.clock.value = (trial.TAX_MARK + 1) / trial.COUNTDOWN_RATE
     assert trial.collect_new_scouts(io, None, m, st) == 0
@@ -1049,6 +1049,7 @@ def test_a_factory_with_nothing_on_top_is_tried_a_few_times(monkeypatch):
     from bot import team
     m = trial.load_map()
     io = StubIO()
+    io.shot = lambda label, keep=True: None   # (the factory's ground: no look)
     st = fleet_state(6)
     st.clock = team.GameClock(io.now)
     tries = []
@@ -1116,7 +1117,7 @@ def test_twelve_scouts_at_moscow_fill_a_key_and_the_rest_join_another(monkeypatc
     monkeypatch.setattr(trial, "scouts_on_top",
                         lambda io_, st_, x, y, every=True: next(picks))
     monkeypatch.setattr(trial, "picked_are_scouts", lambda io_, st_, n: True)
-    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep: keep)
+    monkeypatch.setattr(trial, "trim_selection", lambda io_, keep, st_=None: keep)
     assert trial.collect_new_scouts(io, None, m, st) == 12
     # eleven start key 0; the twelfth goes on key 9, which had room
     assert [f["scouts"] for f in st.fleet] == [7, 11]

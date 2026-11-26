@@ -284,15 +284,9 @@ class Team:
                          f"(at {clock_text(go_at)} on the game clock)")
                 return "mass"
         if self.announced:
-            if now >= self.announced[1] and not ready and self.ally_go is None:
-                # Russia's own hit is no longer ready (trial 26: most of
-                # it had just left with the last hit): called off, and
-                # announced again when it is ready
-                self.say("hold, regrouping")
-                self.log(f"called off: gone {self.announced[0]} (not ready "
-                         f"any more)")
-                self.announced = None
-                return "mass"
+            # once announced, the hit goes at its time, ready or not (the
+            # repository owner, trial 37: no "hold, regrouping", and the
+            # hit never put off)
             if now >= self.announced[1]:
                 self.front = self.announced[0]
                 self.target = self.pending_target
@@ -517,19 +511,26 @@ TARGET_SYSTEM = (
     "Russia, and teal, purple and orange are its allies: never point at "
     "those. Find: battlecruiser (the big Terran capital ship), scv (the "
     "Terran worker, here called Engineer, only those standing next to a "
-    "bunker), bunker (the low round Terran fortification). For each, "
-    "give the middle of the unit as x and y in the picture's pixels. "
+    "bunker), bunker (the low round Terran fortification). Only units "
+    "and bunkers of the red, blue or yellow players: a brown bunker is "
+    "Russia's own and a teal, purple or orange one an ally's, never "
+    "point at them. For each, give its owner's colour and the middle "
+    "of the unit as x and y in the picture's pixels. "
     "Give an empty list if there are none. Answer only with the JSON "
     "asked for.")
 TARGET_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["targets"],
     "properties": {"targets": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["kind", "x", "y"],
+        "required": ["kind", "owner", "x", "y"],
         "properties": {
             "kind": {"type": "string",
                      "enum": ["battlecruiser", "scv", "bunker"]},
+            "owner": {"type": "string",
+                      "enum": ["red", "blue", "yellow", "brown", "teal",
+                               "purple", "orange", "other"]},
             "x": {"type": "integer"}, "y": {"type": "integer"}}}}}}
+ENEMY_COLOURS = ("red", "blue", "yellow")   # the Axis: the only targets
 TARGET_VIEW = (0, 40, 1920, 760)       # the game view, sent at 1280 x 480
 
 
@@ -711,7 +712,7 @@ class ChatEars:
             view.save(out, format="PNG")
             data = base64.standard_b64encode(out.getvalue()).decode("ascii")
             response = self.client.messages.create(
-                model=self.model, max_tokens=1000, system=FLEET_SYSTEM,
+                model=self.model, max_tokens=2000, system=FLEET_SYSTEM,
                 output_config={"format": {"type": "json_schema",
                                           "schema": FLEET_SCHEMA}},
                 messages=[{"role": "user", "content": [
@@ -747,7 +748,7 @@ class ChatEars:
             view.save(out, format="PNG")
             data = base64.standard_b64encode(out.getvalue()).decode("ascii")
             response = self.client.messages.create(
-                model=self.model, max_tokens=1000, system=TARGET_SYSTEM,
+                model=self.model, max_tokens=2000, system=TARGET_SYSTEM,
                 output_config={"format": {"type": "json_schema",
                                           "schema": TARGET_SCHEMA}},
                 messages=[{"role": "user", "content": [
@@ -765,7 +766,8 @@ class ChatEars:
             return [{"kind": g["kind"], "x": l + int(g["x"]) * sx,
                      "y": t + int(g["y"]) * sy}
                     for g in json.loads(body).get("targets", [])
-                    if 0 <= int(g["x"]) <= 1280 and 0 <= int(g["y"]) <= 480][:20]
+                    if g.get("owner", "red") in ENEMY_COLOURS
+                    and 0 <= int(g["x"]) <= 1280 and 0 <= int(g["y"]) <= 480][:20]
         except Exception as e:          # never let a bad call stop the bot
             self.failures += 1
             self.last_error = type(e).__name__

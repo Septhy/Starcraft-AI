@@ -1,4 +1,5 @@
 """The allies' "@R tax <city>" and "@R upgrade"."""
+import pytest
 from PIL import Image
 
 from bot import team, trial
@@ -501,3 +502,61 @@ def test_after_a_refused_spot_esc_goes_back_to_the_engineers_buttons(monkeypatch
     assert trial.depot_by_order(io, m, st, "Warsaw 200", w["x"], w["y"],
                                 job, then_home=False) == 1
     assert io.keys == ["b", "s", "esc", "esc", "b", "s"]
+
+
+def test_the_tax_money_is_kept_until_the_depot_stands(monkeypatch):
+    """Trial 37: the 150 minerals were let go once the SCV was ordered;
+    the marines spent them and the depot could not be paid."""
+    m = trial.load_map()
+    said(monkeypatch)
+    by_minimap(monkeypatch)
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    warsaw = trial.place(m, "Warsaw 200")
+    xy = (warsaw["x"], warsaw["y"])
+
+    def depot(io_, watch, mapdata, st_, name, ours, cc_tile=None, then_home=False):
+        st_.depots.setdefault(name, {"stage": "building", "due": io_.now() + 30})
+        return 1
+    monkeypatch.setattr(trial, "depot_at", depot)
+    monkeypatch.setattr(trial, "select_group", lambda *a, **k: True)
+    monkeypatch.setattr(trial, "attack_move", lambda *a: None)
+    trial.tax_order(io, None, m, st, O("tax", "Warsaw"))
+    watch = StubWatch(blob(xy, 3), set())
+    trial.tax_order_step(io, watch, m, st, None)    # clear: to the depot
+    trial.tax_order_step(io, watch, m, st, None)    # the SCV is ordered
+    assert trial.tax_reserve(st) == trial.TAX_PRICE  # still kept back
+    st.depots["Warsaw 200"]["stage"] = "done"
+    trial.tax_order_step(io, watch, m, st, None)
+    assert trial.tax_reserve(st) == 0
+
+
+def test_no_scv_is_made_without_the_money_and_the_order_waits(monkeypatch):
+    """Trial 37: the SCV was ordered with 0 minerals and never made."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    monkeypatch.setattr(trial, "read_money", lambda io_: 40)
+    monkeypatch.setattr(trial, "select_building",
+                        lambda *a: pytest.fail("an SCV with no money"))
+    assert trial.depot_at(io, None, m, st, "Warsaw 200", set(),
+                          cc_tile=trial.MOSCOW_CC) == 0
+    assert "Warsaw 200" not in st.depots and st.tax_broke["Warsaw 200"] == io.now()
+    assert not st.depot_tries.get("Warsaw 200")    # not a try lost
+    # the order does not end while it waits, until TAX_MONEY_WAIT
+    out = said(monkeypatch)
+    st.tax_jobs["Warsaw 200"] = {"city": "Warsaw 200", "stage": "depot",
+                                 "guard": False, "started": True,
+                                 "since": io.now()}
+    monkeypatch.setattr(trial, "depot_at", lambda *a, **k: 0)
+    io.shot = lambda label, keep=True: None
+    trial.tax_order_step(io, StubWatch(set(), set()), m, st, None)
+    assert "Warsaw 200" in st.tax_jobs and not out
+    io.t += trial.TAX_MONEY_WAIT + 1
+    trial.tax_order_step(io, StubWatch(set(), set()), m, st, None)
+    assert out == ["couldn't tax Warsaw"]
+
+
+def test_only_the_axis_makes_a_city_held_for_the_tax():
+    """Trial 37: "Axis hold Warsaw" when it was not: white (the computer's
+    beacons, the minimap's view box) was counted as enemy."""
+    assert trial.TAX_HOSTILE == trial.AXIS and 6 not in trial.TAX_HOSTILE

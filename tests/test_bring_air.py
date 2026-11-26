@@ -298,7 +298,8 @@ def test_a_missing_fleet_is_searched_at_once_and_found(monkeypatch):
     assert st.fleet_task["record"]["xy"] == far and sent
 
 
-def test_a_fleet_not_found_in_10_seconds_is_lost(monkeypatch):
+def test_a_fleet_not_found_is_searched_for_until_return_air(monkeypatch):
+    # trial 37: checked on until "@R return air" or our air is gone
     m = trial.load_map()
     io = StubIO()
     io.shot = lambda label, keep=True: None
@@ -317,10 +318,21 @@ def test_a_fleet_not_found_in_10_seconds_is_lost(monkeypatch):
         return []
     monkeypatch.setattr(trial, "look_fleet", look)
     monkeypatch.setattr(trial, "send_fleet", lambda *a: pytest.fail("moved"))
-    assert not trial.search_fleet(io, Watch(), m, st, st.fleet_task)
-    assert said == ["Lost the fleet"] and st.fleet_task is None
-    assert st.air_home and 3 <= len(looked) <= 5    # 10 s of looks, then lost
-    assert any(k == "right" for *_, k in io.clicks)  # back to its parking
+    task = st.fleet_task
+    assert not trial.search_fleet(io, Watch(), m, st, task)
+    assert said == ["Lost the fleet, still looking"]
+    assert st.fleet_task is task and task["lost"]   # still on
+    assert 3 <= len(looked) <= 5                     # 10 s of looks
+    assert not any(k == "right" for *_, k in io.clicks)  # not sent home
+    # the next search does not say it again; found, it says so
+    assert not trial.search_fleet(io, Watch(), m, st, task)
+    assert said == ["Lost the fleet, still looking"]
+    rec = task["record"]
+    monkeypatch.setattr(trial, "look_fleet", lambda *a: rec["groups"])
+    monkeypatch.setattr(trial, "follow_to", lambda *a, **k: None)
+    monkeypatch.setattr(trial, "write_record", lambda *a, **k: rec)
+    assert trial.search_fleet(io, Watch(), m, st, task)
+    assert said[-1] == "found your air again" and "lost" not in task
 
 
 def test_a_fleet_record_says_time_units_and_position():

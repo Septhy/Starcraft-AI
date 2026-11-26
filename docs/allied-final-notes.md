@@ -1508,3 +1508,53 @@ second hit (the demo only shows how).
   none of them was published: the last published build was 9f57b19.
 - The tests' games last 8 minutes (tests/conftest.py); scripts comparing
   versions must set trial.TRIAL_SECONDS = 480 too.
+
+## Trial 37 (build 193cb9e)
+
+- The Moscow gun was picked again and again: the pre-hit regroup made key
+  9 afresh with Ctrl and forgot that keys 0 and 8 still held the gun, so
+  key 0 was later "started without the artillery", overwritten (Ctrl + 0)
+  and the gun fetched from Moscow once more (a pressed key 0 showed 2
+  Scouts and no gun). Now a key holding the gun is pressed first and the
+  parked Scouts added to it with a Shift + drag, then Ctrl + key: the gun
+  stays on, the other keys keep theirs, and a key known to hold the gun is
+  never given it again (`regroup_fleet`, `replace_ha`).
+- The gun's picture in the panel is learnt from a pressed key (its one
+  picture that is not a Scout, `learn_ha_frame`). Trimming only takes out
+  Scouts, never the gun (`trim_selection`), and waits for the panel to
+  change (it read too soon and clicked each picture twice). Ground units
+  picked with new Scouts are taken out, the gun left in
+  (`scouts_picked`); before the gun's picture is known such a pick is
+  refused as before.
+- Tax: (1) the 150 minerals were let go as soon as the SCV was ordered; the
+  marines spent everything ("Not enough minerals" on the picture, 0
+  minerals) and no depot came. Now kept until the depot stands. No SCV is
+  made with less than 150 minerals: the order waits for the money (up to
+  300 s, `TAX_MONEY_WAIT`) instead of losing its try. (2) "Axis hold
+  Warsaw" when it was not: the minimap's white (the computer's beacons and
+  the view box sitting on the city being looked at) counted as enemy. For
+  the tax only red, blue and yellow count (`TAX_HOSTILE`).
+- "@R bring air": not found within 10 s, "Lost the fleet, still looking"
+  (once); the task stays and the air is searched for again at every check
+  (wider), until "@R return air" or our air is gone; found, "found your air
+  again".
+- Focus fire hit Russia's own bunker: targets must be red, blue or yellow,
+  both in the model's answer (an owner colour per target) and on the screen
+  (Axis colour round it, more than brown; `enemy_target`).
+- "gone east" means the Berlin front. Hits at Berlin stalled at Warsaw and
+  Krakow (the Axis line); after a stall the next east hit is aimed at the
+  city where it stalled (Krakow at 27:45), so the army fought round Warsaw.
+- "hold, regrouping" removed: once announced, a hit goes at its time, ready
+  or not.
+- Factory 3 (by Moscow): its tanks never left. The minimap reading leaves
+  out every pixel where our buildings stood at the start, and Factory 3's
+  spawn sits among Moscow's buildings, so tanks made in the factory's
+  middle were never seen as idle; soldiers walked clear and were. After
+  each tax, once a factory's Scouts are keyed, its new ground units are
+  found on the game screen and sent to the mass (`fetch_factory_ground`).
+- The fleet waits by a city beacon 16 to 32 tiles from the mass, not
+  nearer the enemy than the mass, with our or allied troops by it and no
+  Axis, rather than beside the mass where it was in the way
+  (`choose_park`, checked at each air upkeep).
+- The repository owner: a hit needs 20 fewer men (at least 120, normally
+  160, 220 after a lost or stalled hit).

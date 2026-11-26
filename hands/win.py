@@ -142,6 +142,25 @@ class WinIO:
         self._mouse(LEFT_UP)
         self.log(f"drag {int(x0)},{int(y0)} to {int(x1)},{int(y1)}", quiet=True)
 
+    def drag_with(self, held, x0, y0, x1, y1):
+        """A box dragged while holding a key: "shift" adds what it takes
+        to the selection."""
+        self._check()
+        self._key(held)
+        time.sleep(0.04)
+        self._move(x0, y0)
+        time.sleep(0.03)
+        self._mouse(LEFT_DOWN)
+        time.sleep(0.07)
+        for k in range(1, 4):
+            self._move(x0 + (x1 - x0) * k / 3, y0 + (y1 - y0) * k / 3)
+        time.sleep(0.045)
+        self._mouse(LEFT_UP)
+        time.sleep(0.03)
+        self._key(held, up=True)
+        self.log(f"drag {held} {int(x0)},{int(y0)} to {int(x1)},{int(y1)}",
+                 quiet=True)
+
     def key(self, name):
         self._check()
         self._key(name)
