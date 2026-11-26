@@ -1368,3 +1368,20 @@ def test_on_the_balkan_road_idle_men_round_greece_are_swept_on_often():
     gone = sum(not near(u["to"], (athens["x"], athens["y"]), 12) for u in greece)
     assert gone >= 20, gone
     assert trial.ADVANCE_EVERY_BALKS < trial.ADVANCE_EVERY
+
+
+def test_the_old_minimap_boxes_can_be_switched_back_on(monkeypatch):
+    """One switch: "screen" (now) or "minimap" (the way before)."""
+    m = trial.load_map()
+    used = []
+    monkeypatch.setattr(trial, "sweep_screen", lambda *a, **k: used.append("screen") or (0, 0))
+    monkeypatch.setattr(trial, "sweep_planned", lambda *a, **k: used.append("minimap") or (0, 0))
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    watch = StubWatch(blob(trial.MASS, 8), set())
+    assert trial.HIT_BOXES == "screen"
+    trial.sweep_mass(io, watch, m, st, "Berlin 1000", settle=0, plan_first=True)
+    monkeypatch.setattr(trial, "HIT_BOXES", "minimap")
+    trial.sweep_mass(io, watch, m, st, "Berlin 1000", settle=0, plan_first=True)
+    assert used[0] == "screen" and used[-1] == "minimap"

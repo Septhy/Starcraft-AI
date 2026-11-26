@@ -121,6 +121,11 @@ def main(keys_version=False, rel_version=False, back_version=False):
                   command=lambda text: (memory.save_model(labels[text]),
                                         check_key())
                   ).pack(pady=(0, 8))
+    # where a hit's boxes are planned: on the game screen (new) or on the
+    # minimap (the way before), to go back if the new one plays worse
+    old_boxes = tk.BooleanVar(value=False)
+    tk.Checkbutton(root, text="Hits: plan boxes on the minimap (the old way)",
+                   variable=old_boxes).pack(pady=(0, 8))
 
     def work():
         out = os.path.join(desktop,
@@ -139,6 +144,8 @@ def main(keys_version=False, rel_version=False, back_version=False):
                         key, lessons=memory.load(),
                         model=memory.load_model(general_module.MODEL))
                     from bot import team
+                    trial.HIT_BOXES = "minimap" if old_boxes.get() else "screen"
+                    io.log(f"hit boxes planned on the {trial.HIT_BOXES}")
                     result = trial.run(io, general=advisor,
                                        save_lessons=memory.save,
                                        ears=team.make_ears(key))

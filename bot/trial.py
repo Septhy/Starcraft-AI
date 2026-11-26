@@ -1578,6 +1578,9 @@ def plan_screen_boxes(points, toward_target, per_box):
     return plan
 
 
+HIT_BOXES = "screen"           # where a hit's boxes are planned: "screen" (the
+                               # repository owner's choice, trial 36) or
+                               # "minimap" (the way before, to go back to)
 SCREEN_PAD = 28                # screen pixels round the men a box is drawn
 
 
@@ -1693,9 +1696,15 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
         if steer:
             fleet_tick(io, watch, mapdata, st)   # the air is looked after meanwhile
         cam = look_at(io, *centred(cx, cy))
-        if plan_first:
+        if plan_first and HIT_BOXES == "screen":
             o, b = sweep_screen(io, watch, mapdata, st, target, w, cam, dest,
                                 max_boxes, boxes)
+            orders += o
+            boxes = b
+            continue
+        if plan_first:                  # the old way: planned on the minimap
+            o, b = sweep_planned(io, watch, mapdata, st, target, view, w, order,
+                                 cam, dest, max_boxes, boxes)
             orders += o
             boxes = b
             continue

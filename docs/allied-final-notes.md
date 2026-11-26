@@ -1492,3 +1492,8 @@ second hit (the demo only shows how).
   Amsterdam (it went to Hungary, the replays' road). On the Balkan road
   idle men anywhere in the Balkans (Greece, Serbia) are swept on with it,
   every 2.5 s (was 5 s, and only near the target and the front).
+- Test game, first hit from start to end: minimap boxes 38.8 s and 39.0 s,
+  screen boxes 35.5 s and 29.2 s (two camera variants). Troops sent at a
+  target by the end, four variants: minimap 243, 299, 233, 185; screen 286,
+  283, 228, 274. `HIT_BOXES` ("screen" or "minimap") switches back, and the
+  app has a checkbox for it ("Hits: plan boxes on the minimap").
