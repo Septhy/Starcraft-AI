@@ -386,7 +386,9 @@ def test_opening_masses_fast_and_hits_berlin(monkeypatch):
         # back, and the game may end with a new mass gathering)
         assert len(sent) >= 0.5 * len(alive), (error, len(sent), len(alive))
         # its boxes pick up close to the twelve a selection can hold
-        assert result["units_per_box"] >= 7.5, (error, result)
+        # (7.0: a full box's far half is no longer boxed again at once,
+        # when it mostly picked up the same men again, trial 34)
+        assert result["units_per_box"] >= 7.0, (error, result)
         # the Middle East marines reached the massing place, whether or
         # not they were in time for a hit
         spawned = [u for u in alive if u.get("spawn")]
@@ -1226,3 +1228,18 @@ def test_a_stuck_spot_is_tried_again_later(monkeypatch):
     io.t += trial.STUCK_FORGET + 1
     trial.gather_idle(io, watch, m, st, tried)
     assert len(sent) == trial.STUCK_AFTER + 1       # tried afresh
+
+
+def test_an_enemy_inside_russia_gone_a_moment_later_sends_nothing(monkeypatch):
+    """Trial 34: 8 groups went west of Moscow at the end of the game.
+    The enemy is looked at again before anyone is sent."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    looks = iter([{(150, 50 + i % 3) for i in range(40)} | {(150 + i // 3, 50) for i in range(40)}, set()])
+    seen = next(looks)
+    monkeypatch.setattr(trial, "axis_at_home", lambda w, pic: seen if pic == "first" else set())
+    io.shot = lambda label, keep=True: "again"
+    sent = []
+    monkeypatch.setattr(trial, "select_group", lambda *a, **k: sent.append(1) or True)
+    assert trial.defend_home(io, StubWatch(set(), set()), m, st, "first", set()) == 0
+    assert sent == [] and any("gone a moment later" in l for l in io.lines)

@@ -247,6 +247,7 @@ class State:
         self.air_home = False      # the air has been pulled back to the mass
         self.air = None            # the air brain: AirStats
         self.ha_gone = set()       # Heavy Artillery spots known to be empty
+        self.key_pictures = 0      # pictures of a pressed fleet key kept
         self.looks_kept = 0
 
 
@@ -464,9 +465,32 @@ def rally_spot(mapdata, b):
     return MASS[0] + dx * 32, MASS[1] + dy * 32
 
 
+AIR_OUT_STATES = ("with the hit", "fighting", "with the army")
+AIR_OUT_MAX = 150              # seconds after a hit when training goes on
+                               # anyway (a stalled hit can keep the air out)
+
+
+def air_out_with_hit(io, st):
+    """The air is still out with a hit (not back at its spot, not lost):
+    the repository owner wants no marines made until then."""
+    a = getattr(st, "air", None)
+    if a is None or not st.air_keys or a.state not in AIR_OUT_STATES:
+        return False
+    if a.state == "fighting" and st.fleet_task is not None:
+        return False                    # at an ally's ping, not a hit
+    return io.now() - getattr(st, "hit_sent", -1e9) < AIR_OUT_MAX
+
+
 def train_everywhere(io, mapdata, st, check_supply=True):
     """Queue marines at the barracks, but only as many as the supply
-    limit has room for. At the limit, nothing is queued at all."""
+    limit has room for. At the limit, nothing is queued at all. Not
+    while the air is still out with a hit (the repository owner)."""
+    if air_out_with_hit(io, st):
+        if not getattr(st, "told_air_out", False):
+            st.told_air_out = True
+            io.log("marines wait: the air is still out with the hit")
+        return 0
+    st.told_air_out = False
     room = room_for_marines(io) if check_supply else None
     keep = tax_reserve(st)
     if keep:
@@ -617,6 +641,12 @@ def trim_selection(io, keep):
 FLEET_RECOUNT = 60             # seconds between counts of what is on the keys
 
 
+HA_BY_PICTURE = False          # trial 34: the picture check said "no Heavy
+                               # Artillery" and "0 Scouts" when they were
+                               # there; off until it is tuned on real pictures
+KEY_PICTURES = 6               # pictures of a pressed fleet key kept a game
+
+
 def read_key(st, pic):
     """What a fleet key shows when pressed: (units, Scouts, Heavy
     Artillery there?). Each unit's picture is checked against the Scout
@@ -662,8 +692,9 @@ def recount_fleet(io, st, force=False):
         pic = io.shot("fleet-count", keep=False)
         if pic is None:
             continue
-        units, scouts, ha = read_key(st, pic)
-        if scouts is None:              # nothing learnt: by the count
+        units, scouts, ha = read_key(st, pic) if HA_BY_PICTURE else \
+            (live.selected_count(pic), None, None)
+        if scouts is None:              # by the count, less the artillery
             scouts = max(0, units - on_key(e))
         elif not ha and not e.get("ha_dead"):
             e["ha_dead"] = True
@@ -671,6 +702,9 @@ def recount_fleet(io, st, force=False):
                    f"(none of its pictures is not a Scout)")
         elif ha and e.get("ha_dead"):
             e["ha_dead"] = False
+        if st.key_pictures < KEY_PICTURES:
+            st.key_pictures += 1        # kept, to tune the picture check
+            io.shot(f"fleet-key-{e['key']}")
         n = scouts
         total, read = total + n, True
         if n < e["scouts"]:
@@ -1352,8 +1386,17 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
         if steer:
             fleet_tick(io, watch, mapdata, st)   # the air is looked after meanwhile
         cam = look_at(io, *centred(cx, cy))
-        left = set(view)
-        while left:
+        left, later, rounds = set(view), set(), 0
+        while left or later:
+            if not left:
+                # what full boxes left behind, once the rest of the view
+                # is done (trial 34: boxed again at once, the same men,
+                # who had not yet walked off)
+                rounds += 1
+                if rounds > 1:
+                    break
+                io.sleep(0.3)
+                left, later = later, set()
             if max_boxes is not None and boxes >= max_boxes:
                 break
             boxes += 1
@@ -1364,11 +1407,15 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
             boxed, n = select_full(io, st, seed, left, cam)
             if n >= FULL and len(boxed) > 1:
                 # a full box: more may stand there than were picked, so
-                # only the nearest half of it counts as done (trial 21:
-                # a third of every hit was left at the massing place)
-                left -= set(boxed[:max(1, len(boxed) // 2)])
+                # the far half of it is boxed again (trial 21: a third
+                # of every hit was left at the massing place), but only
+                # after the rest of the view
+                half = max(1, len(boxed) // 2)
+                left -= set(boxed)
+                later |= set(boxed[half:])
             else:
                 left -= set(boxed) or {seed}
+                later -= set(boxed)
             if n == 0:
                 watch.forget(boxed)
                 continue
@@ -1413,6 +1460,7 @@ KEYED_ROOM = 3                 # minimap pixels round a keyed group's place
 REINFORCE_FOR = 60             # seconds after a hit when new troops go straight
                                # to its front, not to the mass (keys version)
 SPREAD_BOXES = 6               # boxes spread out over the massing place a round
+SPREAD_GAP = 2                 # minimap pixels round a box left alone after it
 SPREAD_WIDE = [(dx, dy) for dy in (-4, 4, -12, 12) for dx in (-4, 4, -12, 12)]
                                # the usual version (the repository owner): 8
                                # tiles apart over an area 24 tiles across
@@ -1451,7 +1499,13 @@ def spread_at_mass(io, watch, mapdata, st):
                                            for j in (-2, -1, 0, 1, 2)))
         cam = look_at(io, *centred(*live.from_drawn(*seed)))
         boxed, n = select_full(io, st, seed, left, cam)
-        left -= set(boxed) or {seed}
+        # the ground just boxed is done: its men were just sent off but
+        # have not left yet, and the thickest part is still there (trial
+        # 34: six boxes in a row on the same marines)
+        done = set(boxed) or {seed}
+        left = {p for p in left if all(abs(p[0] - q[0]) > SPREAD_GAP or
+                                       abs(p[1] - q[1]) > SPREAD_GAP
+                                       for q in done)}
         if n == 0:
             continue
         dx, dy = spots[st.spread_next % len(spots)]
@@ -2993,6 +3047,16 @@ def defend_home(io, watch, mapdata, st, picture, still):
     body = live.clusters(inside, 8, 8)[0]
     if len(body) < 6:
         return 0                        # scattered dots, not an attack
+    # looked at again a moment later, and a picture kept (trial 34: 8
+    # groups went west of Moscow at the end and nothing showed why)
+    io.sleep(1.5)
+    again = io.shot("intruders") if hasattr(io, "shot") else None
+    if again is not None:
+        if len(axis_at_home(watch, again)) - st.home_axis0 < INTRUDERS:
+            io.log(f"Axis inside Russia? {len(inside)} pixels, gone a moment "
+                   f"later: nothing sent")
+            st.last_defence = io.now()
+            return 0
     st.last_defence = io.now()
     x, y = middle(body)
     orders = 0
@@ -4489,7 +4553,8 @@ def fleet_left(io, st):
         if pic is None:
             return None
         read = True
-        units, scouts, _ = read_key(st, pic)
+        units, scouts, _ = read_key(st, pic) if HA_BY_PICTURE else \
+            (live.selected_count(pic), None, None)
         left += scouts if scouts is not None else \
             max(0, units - on_key(entries.get(key, {})))
     if read:
@@ -4788,7 +4853,8 @@ COUNT_EVERY = 4                # seconds between counts of the Scouts
 LOSING_FAST = 3                # Scouts lost between counts: step back
 LOSING_HALF = 0.5              # share of the Scouts left: the fight is lost
 QUIET_END = 6                  # looks with no enemy, once it has fought: done
-LOST_SIGHT = 4                 # looks without seeing the fleet: done
+LOST_SIGHT = 15                # seconds without seeing the fleet: done
+SCOUT_SPEED = 3.5              # tiles a real second a Scout flies (a guess)
 ENEMY_LEAST = 20               # enemy-colour pixels that make one enemy patch
 # Cover (the repository owner): the Scouts fight only while enough of our
 # ground army stands under them to protect them. Checked on the minimap
@@ -4959,7 +5025,13 @@ def dogfight(io, watch, mapdata, st, target):
     w = place(mapdata, target)
     goal = (w["x"], w["y"])
     a = air_stats(io, st)
-    fleet_xy = a.target or toward(MASS, goal, AIR_LEAD)
+    dest = a.target or toward(MASS, goal, AIR_LEAD)
+    # where it set off from: where it was last seen, else its parking spot
+    # (trial 34: looked for where it was going, it was not there yet, and
+    # every dogfight ended at once, "the fleet is out of sight")
+    origin = a.seen[0] if a.seen and io.now() - a.seen[1] < 300 \
+        else fleet_spot()
+    fleet_xy = origin
     set_air_state(io, st, "fighting", f"dogfight on the way to {target}",
                   target=fleet_xy)
     start = io.now()
@@ -4967,6 +5039,7 @@ def dogfight(io, watch, mapdata, st, target):
     last_count, last_n = io.now(), first
     orders = hops = burst = quiet = unseen = 0
     fought = False
+    seen_at = io.now()                    # when the fleet was last seen
     last_scan, focus_until = -1e9, -1e9   # the scans for targets
     to_shoot, hop_back = [], False        # targets left from the last scan
     thin = 0                              # counts in a row without cover
@@ -4980,13 +5053,20 @@ def dogfight(io, watch, mapdata, st, target):
         fleet, enemies = sense_fight(pic, guess, own_buildings_on_screen(cam))
         if fleet is None:
             unseen += 1
-            if unseen >= LOST_SIGHT:
+            if io.now() - seen_at >= LOST_SIGHT:
                 why = "the fleet is out of sight"
                 break
+            # look where it should be by now on its way, then where it
+            # was going, then where it set off from, in turn
+            gone = SCOUT_SPEED * (io.now() - seen_at)
+            on_way = toward(origin, dest, gone) if not fought else origin
+            fleet_xy = [on_way, dest, origin][unseen % 3]
             io.sleep(TICK)
             continue
-        unseen = 0
+        unseen, seen_at = 0, io.now()
         fleet_xy = screen_to_map(fleet[0], fleet[1], cam)
+        origin = fleet_xy                   # a later search starts here
+        a.seen = (fleet_xy, io.now())
         anchor = army_anchor(watch, pic, goal) or fleet_xy
         # the Scouts counted every few seconds
         if io.now() - last_count >= COUNT_EVERY:

@@ -1402,3 +1402,26 @@ second hit (the demo only shows how).
   Found: our air goes there by the safe way and a new record is written.
   Not found in 10 seconds: "Lost the fleet", the air parks, the mass
   cycle goes on.
+
+## Trial 34
+
+- Every dogfight ended after 2 s, "the fleet is out of sight": it looked
+  for the fleet where it was going, but the fleet was still on its way
+  from its parking spot. Now it looks where the fleet should be by then
+  (from where it set off, at about 3.5 tiles a second), where it is
+  going and where it set off from, in turn, for up to 15 s.
+- The repository owner: no marines are made while the air is still out
+  with a hit; they start again once the air is back (parked) or lost, or
+  150 s after the hit at the latest (a stalled hit can keep it out).
+- Spreading the mass boxed the same spot six times in a row: the men
+  just sent had not yet walked off and the thickest part was still
+  there. The ground round each box is now left alone for the round. In
+  the hit's sweeps, the far half of a full box is boxed again only once
+  the rest of the view is done, not straight away.
+- The Heavy Artillery picture check was wrong in play ("no Heavy
+  Artillery", then "0 Scouts" just after adding six): it is off; the keys
+  are counted again by units less one, and a few pictures of pressed
+  keys are kept to tune it.
+- At the end, 8 groups went to meet "Axis inside Russia" west of Moscow;
+  no picture showed why. The enemy is now looked at again 1.5 s later
+  (a picture kept) before anyone is sent.

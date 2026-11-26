@@ -304,7 +304,7 @@ def test_the_mass_is_spread_out_between_rounds_of_marines(monkeypatch):
     monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
     monkeypatch.setattr(trial, "select_full",
                         lambda io_, st_, seed, pool, cam: ([seed], 12))
-    watch = StubWatch(blob(trial.MASS, 8), set())
+    watch = StubWatch(blob(trial.MASS, 16), set())
     # the keys version spreads as it keys, not here
     assert trial.spread_at_mass(io, watch, m, st) == 0
     # the usual version spreads it: 8 tiles apart, 24 tiles across
@@ -558,6 +558,7 @@ def test_leftover_scouts_go_on_the_next_key_or_to_the_fleet_never_the_mass(monke
 
 
 def test_a_missing_heavy_artillery_is_seen_on_the_key_and_replaced(monkeypatch):
+    monkeypatch.setattr(trial, "HA_BY_PICTURE", True)   # off for now: trial 34
     """The repository owner: press the key and look at its unit
     pictures; if none of them is not a Scout, the Heavy Artillery is
     gone, and another one goes on the key if there is one to spare."""
@@ -671,8 +672,9 @@ def test_the_dogfight_steps_back_when_scouts_die_fast_and_goes_home_at_half(monk
 
 def test_the_dogfight_ends_when_the_fleet_is_out_of_sight(monkeypatch):
     m = trial.load_map()
-    st, io = fight_setup(monkeypatch, [(None, [])] * 10)
+    st, io = fight_setup(monkeypatch, [(None, [])] * 200)
     assert trial.dogfight(io, None, m, st, "Warsaw 200") == 0
+    assert trial.LOST_SIGHT <= io.t - 100 <= trial.LOST_SIGHT + 1
     assert any("out of sight" in l for l in io.lines)
 
 
@@ -802,3 +804,55 @@ def test_the_scouts_go_home_when_the_ground_under_them_is_too_thin(monkeypatch):
     monkeypatch.setattr(trial, "ground_cover", lambda w, pic, xy: (30, 10))
     trial.dogfight(io, watch, m, st, "Warsaw 200")
     assert not any("too little" in l for l in io.lines)
+
+
+def test_the_spread_never_boxes_the_same_marines_twice_in_a_row(monkeypatch):
+    """Trial 34: six boxes in a row on the same spot. The ground round a
+    box is left alone for the rest of the round."""
+    from tests.test_trial import StubWatch, blob
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    io.shot = lambda label, keep=True: None
+    monkeypatch.setattr(trial, "look_at", lambda io_, x, y, wait=0: (x, y))
+    seeds = []
+    monkeypatch.setattr(trial, "select_full",
+                        lambda io_, st_, seed, pool, cam: seeds.append(seed) or ([seed], 12))
+    trial.spread_at_mass(io, StubWatch(blob(trial.MASS, 16), set()), m, st)
+    assert all(max(abs(a[0] - b[0]), abs(a[1] - b[1])) > trial.SPREAD_GAP
+               for i, a in enumerate(seeds) for b in seeds[:i])
+
+
+def test_the_fleet_is_found_on_its_way_out_not_only_where_it_goes(monkeypatch):
+    """Trial 34: the dogfight looked only where the fleet was going; it
+    was still on its way, so every dogfight ended at once."""
+    m = trial.load_map()
+    looked = []
+    st, io = fight_setup(monkeypatch, [(None, [])] * 3 + [(trial.live.CENTRE, [])] * 200)
+    monkeypatch.setattr(trial, "look_at",
+                        lambda io_, x, y, wait=0: looked.append((x, y)) or (x, y))
+    trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert not any("out of sight" in l for l in io.lines)
+    assert len({(round(x), round(y)) for x, y in looked[:4]}) >= 3   # searched
+
+
+def test_no_marines_while_the_air_is_out_with_a_hit(monkeypatch):
+    """The repository owner: after a hit, the barracks wait until the air
+    is back or gone (at most AIR_OUT_MAX seconds after the hit)."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    st.air_keys = ["9"]
+    st.hit_sent = io.t
+    trial.set_air_state(io, st, "with the army", "over our troops")
+    monkeypatch.setattr(trial, "select_barracks", lambda *a: pytest.fail("trained"))
+    assert trial.train_everywhere(io, m, st, check_supply=False) == 0
+    assert any("the air is still out with the hit" in l for l in io.lines)
+    trial.set_air_state(io, st, "parked", "back")
+    trained = []
+    monkeypatch.setattr(trial, "select_barracks", lambda *a: trained.append(1) or False)
+    trial.train_everywhere(io, m, st, check_supply=False)
+    assert trained                                   # back: the barracks go on
+    trial.set_air_state(io, st, "with the army", "out again")
+    io.t += trial.AIR_OUT_MAX + 1
+    trained.clear()
+    trial.train_everywhere(io, m, st, check_supply=False)
+    assert trained                                   # a stalled hit: not forever
