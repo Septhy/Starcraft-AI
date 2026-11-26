@@ -82,6 +82,38 @@ Regions are rough boxes of tiles; drops weigh three times an attack-move.
   the Allies' fire brigade, dropping marines wherever an ally or a city
   needs them, and going home when Norway itself is invaded.
 
+## Drops with Russia: how the best Norway player does it (2 games)
+
+How (the commands):
+- Loading at Murmansk: small selections of new marines are right-clicked
+  onto a Dropship standing there (2 to 12 at a time), and the loaded
+  Dropships are added to one key (7; a second group on 5).
+- The flight: the Dropship key pressed and right-clicked every 0.2 to
+  0.5 s, a few tiles at a time, along a route (Murmansk, Finland, the
+  Baltic, then over Russia's army: Konigsberg, Warsaw, Prague, the
+  German invasion area), never one long move. On the way the Dropships
+  are often told to follow Russia's own units ("Follow" on a Russian
+  unit; 17 such orders in one game), so they ride over Russia's army.
+- The drop: one Dropship is taken out of the selection (kept back, empty
+  or hurt), then U and a click (Unload at a point), then the same again
+  three or four times within 2 s at points a tile or two apart, so the
+  marines come down spread out.
+
+Where (the decision), compared with Russia's attack-moves in the minute
+before each drop:
+- Every big drop (5 to 13 unloads) landed where Russia was attacking, 1
+  to 12 tiles from Russia's own target: Capital City 7 with Russia going
+  at Frankfurt; Damascus and Baghdad with Russia in the Middle East;
+  Odessa and Romania with Russia at Odessa; the "Italy Draft" and
+  Hungary, just past Belgrade and Serbia, with Russia attacking Factory
+  7 and Serbia; the German invasion area with Russia at Capital City 8.
+  Into the fight Russia is in, or just behind the enemy line it is
+  attacking, never far from it.
+- The small drops of one or two Dropships go to the UK (London,
+  Scotland, the English air fields): not with Russia.
+- The first drop is at 3 to 4.5 minutes, then one with Russia every
+  2 to 5 minutes.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,
