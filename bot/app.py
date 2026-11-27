@@ -134,6 +134,18 @@ def main(keys_version=False, rel_version=False, back_version=False):
         # Hide this window while the bot plays. Left on screen, the bot
         # can click it by accident, which takes StarCraft out of front.
         root.after(0, root.withdraw)
+        # the screen kept twice a second while it plays, as the
+        # recorder app does (the repository owner: one app, not two)
+        from bot import screen_rec
+        from recorder import recorder as rec_mod
+        recording = None
+        try:
+            os.makedirs(out, exist_ok=True)
+            recording = screen_rec.ScreenRecording(
+                out, screen_rec.windows_grab(), info=rec_mod.windows_info,
+                setup=rec_mod.setup_info).start()
+        except Exception:
+            recording = None
         try:
             with mss.mss() as sct:
                 io = WinIO(out, sct, status=lambda s: status.set(s[:200]))
@@ -157,10 +169,21 @@ def main(keys_version=False, rel_version=False, back_version=False):
                 except Exception as e:
                     io.log(f"error: {e!r}")
                 last = io.lines[-1][9:]
+                if recording is not None:
+                    status.set("Packing the screen recording ...")
+                    shots = recording.stop()
+                    io.log(f"screen recording: {recording.frames} pictures in "
+                           f"{len(shots)} zip file(s)"
+                           + (f" (problem: {recording.problem})"
+                              if recording.problem else ""))
                 paths = io.finish()
+                if recording is not None:
+                    paths = list(paths) + recording.paths
             status.set(f"{last}\n{len(paths)} zip file(s) in:\n{out}")
             os.startfile(out)
         except Exception as e:
+            if recording is not None:
+                recording.stop()
             status.set(f"Something went wrong:\n{e!r}"[:300])
         root.after(0, root.deiconify)
         time.sleep(1.0)
@@ -182,8 +205,10 @@ def selftest(path):
     """Used by the build to check that everything needed is packed in."""
     import anthropic
 
-    from bot import general, norway, team, trial
+    from bot import general, norway, screen_rec, team, trial
     from eyes import clock, numbers
+    from recorder import recorder as rec_mod
+    assert screen_rec.ScreenRecording and rec_mod.setup_info
     general.General(anthropic.Anthropic(api_key="not-a-real-key"))
     team.ChatEars(anthropic.Anthropic(api_key="not-a-real-key"))
     trial.load_map()
