@@ -125,7 +125,7 @@ Step 3 (dogfight, version 1), in the build after 00f01a1:
 - The fake game in the tests draws no Scouts, so its long opening test
   runs with the dogfight off; the dogfight has its own tests.
 
-## The plan
+## The plan (superseded: see `docs/air-overhaul-plan.md`)
 
 ### Step 1: measure first
 - An "air report" in each game's log: orders a minute on the air keys,
