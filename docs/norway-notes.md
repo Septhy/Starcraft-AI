@@ -161,6 +161,25 @@ each picture gives the camera, so every click is a map tile):
   one red building seen there (A, then a click on it).
 - Pictures of Finland are kept at each stage and clean-up.
 
+## Trial 42: the bot's third try against the owner's recording
+
+| | Owner | Bot (build 67fd737) |
+|---|---|---|
+| SCVs | 2 s | 5 s |
+| Army keyed | 3-25 s, between other jobs | 5-20 s, all at once (15 boxes) |
+| Shetland drop | 8 s | 23 s |
+| Buildings lifted | 10-22 s | 24-30 s |
+| Gathered at Kiruna | 25 s | 31 s |
+| Attack on Finland | 30 s | 75 s: it waited for most of the army at Kiruna (45 s at most) |
+| Helsinki | 40-44 s | 88-92 s |
+| Finland clear | about 61 s | not by 121 s |
+| Depots | an SCV followed and building from 47 s | the camera on empty ground by Arkhangelsk every 3 s from 58 s to 75 s, no SCV there yet |
+
+Changes: no wait at Kiruna (the attack 5 s after the gather order, as
+the owner); the drop and the lifts before the army is keyed; at most 10
+bigger boxes for the keys; the depots looked for from 60 s, every 12 s,
+5 times at most, after Finland's orders.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

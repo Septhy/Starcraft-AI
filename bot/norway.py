@@ -60,8 +60,11 @@ ARMY_STAGES = [                # (tiles, attack?, seconds after the last)
 ]
 CLEAN_EVERY = 4                # seconds between attacks on the red that is left
                                # (the owner: boxes and attacks every 1-2 s)
-GATHER_LONGEST = 45            # seconds the attack waits for the army at Kiruna
-GATHER_SHARE = 0.6             # of the army's minimap pixels there: it goes
+ARMY_BOXES = 10                # boxes at most to key the army (each ~1 s)
+DEPOT_FIRST = 60               # seconds before the SCVs are looked for at the depots
+DEPOT_EVERY = 12               # seconds between looks (trial 42: every 3 s, the
+                               # camera sat on empty ground by Arkhangelsk)
+DEPOT_LOOKS = 5                # looks before the depots are given up
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
 RED = [0]                      # Germany
 CLEAR_LOOKS = 2                # looks in a row with no red in Finland: cleared
@@ -127,6 +130,8 @@ class State:
         self.stage_at = -1e9
         self.last_clean = -1e9
         self.army_px = 0
+        self.depot_look = -1e9
+        self.depot_looks = 0
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
         self.boxes = self.empty = self.empty_skipped = 0
@@ -305,8 +310,8 @@ def key_army(io, watch, mapdata, st, picture):
             if l <= live.from_drawn(*p)[0] / T < r
             and t <= live.from_drawn(*p)[1] / T < b}
     st.army_px = len(mine)
-    groups = sorted((g for g in live.clusters(mine, 4, 4) if len(g) >= 2),
-                    key=len, reverse=True)
+    groups = sorted((g for g in live.clusters(mine, 6, 6) if len(g) >= 3),
+                    key=len, reverse=True)[:ARMY_BOXES]
     held = {}                           # key -> men on it
     for group in groups:
         if not trial.select_group(io, group, st, watch, margin=60):
@@ -367,17 +372,9 @@ def army_into_finland(io, watch, mapdata, st, picture):
         xy, attack, wait = ARMY_STAGES[st.stage]
         if now - st.stage_at < wait:
             return 0
-        if st.stage == 1 and picture is not None:
-            # the attack waits for the army at Kiruna (most of it), or
-            # GATHER_LONGEST seconds at most
-            kx, ky = ARMY_STAGES[0][0]
-            there = army_at(watch, picture, (kx * T, ky * T))
-            st.gathered_most = max(getattr(st, "gathered_most", 0), there)
-            if now - st.stage_at < GATHER_LONGEST and \
-                    there < GATHER_SHARE * max(st.army_px, 1):
-                return 0
-            io.log(f"norway: {there} of about {st.army_px} army pixels at "
-                   f"Kiruna: the attack goes")
+        # (trial 42: waiting for most of the army at Kiruna held the
+        # attack back 45 s; the owner attacked 5 s after the gather order
+        # and the stragglers caught up)
         st.stage, st.stage_at = st.stage + 1, now
         if attack:
             counts = army_counts(io, st)
@@ -489,8 +486,7 @@ def opening(io, watch, mapdata, st, first):
     t0 = io.now()
     trial.opening(io, st, line=OPENING_LINE)
     make_scvs(io, mapdata)              # first, as the owner (at 2 s)
-    key_army(io, watch, mapdata, st, first)
-    drop_on_shetland(io, mapdata)
+    drop_on_shetland(io, mapdata)       # the owner: by 8 s
     lift(io, mapdata, st, "Factory", SHETLAND)
     lift(io, mapdata, st, "Engineering Bay", SHETLAND)
     port = russia_starport(mapdata)
@@ -500,6 +496,9 @@ def opening(io, watch, mapdata, st, first):
     # floating over Finland, by the Heavy Industry, long before 3:25
     lift(io, mapdata, st, "Barracks", (hx - int(1.5 * T), hy - 6 * T),
          key=KEYS["Barracks"])
+    # the army keyed once the buildings are up (trial 42: keyed first, the
+    # drop and the lifts waited till 23-30 s; the owner had them by 22 s)
+    key_army(io, watch, mapdata, st, io.shot("watch", keep=False) or first)
     army_into_finland(io, watch, mapdata, st, first)
     while io.now() - t0 < OPENING_TIME:
         picture = io.shot("watch", keep=False)
@@ -518,9 +517,7 @@ def opening(io, watch, mapdata, st, first):
             land(io, "Command Center",
                  [(x * T + 2 * T, y * T + int(1.5 * T)) for x, y in KIRUNA_LAND],
                  st)
-        if not st.depots_ordered and io.now() - t0 >= 55:
-            st.depots_ordered = build_depots(io, st) or io.now() - t0 > 120
-        # Finland: attack until no red is left
+        # Finland: attack until no red is left (first: the opening's race)
         if not st.finland_clear and io.now() - st.last_look >= LOOK_EVERY:
             st.last_look = io.now()
             red = finland_red(watch, picture)
@@ -531,6 +528,12 @@ def opening(io, watch, mapdata, st, first):
                        f"(countdown {trial.round_timer(st.clock.time()) if st.clock else '?'})")
             else:
                 army_into_finland(io, watch, mapdata, st, picture)
+        if not st.depots_ordered and io.now() - t0 >= DEPOT_FIRST and \
+                io.now() - st.depot_look >= DEPOT_EVERY:
+            st.depot_look = io.now()
+            st.depot_looks += 1
+            st.depots_ordered = build_depots(io, st) or \
+                st.depot_looks >= DEPOT_LOOKS
         # the Barracks: down by the Heavy Industry before 3:25
         if "Barracks" in st.lifted and "Barracks" not in st.landed and \
                 st.finland_clear and st.port_tries >= 1:
