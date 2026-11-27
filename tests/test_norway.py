@@ -195,12 +195,13 @@ def test_the_army_is_keyed_gathered_then_sent_in_stages(monkeypatch):
     names = [s for s in stages if "attacks at " in s or "moves to " in s]
     spots = [s.rsplit("(", 1)[1].rstrip(")") for s in names]
     # trial 47: the flank at (147, 31) just before the bunkers
-    assert spots == ["143, 16", "147, 30", "147, 31", "140, 39", "134, 36",
-                     "136, 38"]
-    assert "moves to" in names[0] and "moves to" in names[2]
-    assert all("attacks" in n for n in names[3:])
+    # trial 49: then further in (143, 34), the bunkers, then the turrets
+    assert spots == ["143, 16", "147, 30", "147, 31", "143, 34", "140, 39",
+                     "134, 36"]
+    assert all("moves to" in names[i] for i in (0, 2, 3))
+    assert all("attacks" in n for n in names[4:])
     landed = next(l for l in game.lines if "Barracks landed by" in l)
-    assert landed.endswith("138, 30") or "138, 29" in landed
+    assert landed.endswith("139, 33")      # the owner, trial 49
 
 
 def test_the_barracks_spots_are_next_to_the_heavy_industry():
@@ -413,7 +414,10 @@ def test_germany_s_buildings_are_attacked_in_one_chain(monkeypatch):
             return out
     assert norway.clear_buildings(game, W(), m, st, "pic") == 2
     queued = [c for c in game.clicks if c[2] == "shift"]
-    assert len(queued) == 2 * (len(buildings) - 1)
-    assert game.combos.count(("shift", "a")) == 2 * (len(buildings) - 1)
+    n = norway.CHAIN_LONGEST
+    assert len(queued) == 2 * (n - 1)
+    assert game.combos.count(("shift", "a")) == 2 * (n - 1)
+    # trial 49: the bunkers and the turrets before anything else
+    assert all(k in norway.FIRST_KINDS for k, x, y in st.chain)
     game.t += 2
     assert norway.clear_buildings(game, W(), m, st, "pic") == 0   # on its way

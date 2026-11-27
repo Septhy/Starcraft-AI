@@ -273,6 +273,20 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
 - The owner: each box of men sets off for Kiruna as soon as it is keyed,
   while the rest are keyed.
 
+## Trial 49 (build 1815372): "so close"
+
+- Bunkers and the northern buildings gone by 56 s; turrets 131,40 and
+  133,44 by 76 s; stopped at 81 s with a depot and two turrets left.
+- The owner: the Barracks should be around (139, 33) (it went to about
+  138, 30); the army paused a few seconds (a chain of five buildings for
+  each of four keys took 6 s to give, then 10 s before the next); after
+  the flank the infantry should move further in before the bunkers;
+  once the bunkers are down, every turret at once.
+- Now: the Barracks floats to and lands at (139, 33); stages: Kiruna, the
+  Finland spot, the flank (147, 31), in to (143, 34), the east bunker,
+  the west bunker; then chains of three, bunkers and turrets before
+  anything else, given again every 6 s.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

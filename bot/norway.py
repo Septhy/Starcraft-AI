@@ -58,9 +58,11 @@ ARMY_STAGES = [                # (tiles, attack?, seconds after the last)
     # the owner (trial 47): a wider flank, the marines moved to (147, 31)
     # just 2 s before they attack Germany's bunkers
     ((147, 31), False, 8),
+    # the owner (trial 49): then further in before the bunkers
+    ((143, 34), False, 2),
     ((140, 39), True, 2),      # the east bunker
-    ((134, 36), True, 4),      # the west bunker
-    ((136, 38), True, 4),      # Helsinki (owner: attacked 41-44 s)
+    ((134, 36), True, 4),      # the west bunker; once the bunkers are down,
+                               # straight on to the turrets (clear_buildings)
 ]
 CLEAN_EVERY = 4                # seconds between attacks on the red that is left
                                # (the owner: boxes and attacks every 1-2 s)
@@ -78,6 +80,8 @@ DEPOT_LOOKS = 5                # looks before the depots are given up
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
 BARRACKS_WAIT = (127 * T, 22 * T)  # where the Barracks floats till the army
                                # has taken the Finland spot: the Norwegian camp
+BARRACKS_SPOT = (139 * T + T // 2, 33 * T + T // 2)  # where it floats and lands
+                               # (the owner, trial 49: around tile 139, 33)
 BARRACKS_IN_AT = 2             # the stage (the attack on the Finland spot) at
                                # which it flies in over Finland (trial 47: at
                                # the move to Helsinki it came too late)
@@ -112,8 +116,9 @@ def barracks_spots(mapdata):
     """Where the Barracks lands, next to the Heavy Industry: its left,
     right, below, above (map pixels of the Barracks' middle)."""
     x, y = heavy_industry(mapdata)
-    # first where the repository owner landed it: just north of it
-    return [(x - int(1.5 * T), y - int(4.5 * T)), (x, y - 5 * T),
+    # first where the repository owner wants it (trial 49): about tile
+    # (139, 33), then round it
+    return [BARRACKS_SPOT, (x - int(1.5 * T), y - int(4.5 * T)), (x, y - 5 * T),
             (x - 5 * T, y), (x + 5 * T, y), (x, y + 4 * T),
             (x - 5 * T, y + 3 * T), (x + 5 * T, y + 3 * T)]
 
@@ -452,7 +457,7 @@ def army_into_finland(io, watch, mapdata, st, picture):
             hx, hy = heavy_industry(mapdata)
             io.key(KEYS["Barracks"])
             io.sleep(0.05)
-            io.click(*live.minimap_point(hx - int(1.5 * T), hy - int(4.5 * T)),
+            io.click(*live.minimap_point(*BARRACKS_SPOT),
                      button="right")
             io.sleep(0.05)
             io.log("norway: the Barracks flies in over Finland (by the Heavy "
@@ -511,7 +516,11 @@ def red_near(picture, sx, sy, reach=BUILDING_REACH):
     return int(m[y0:int(sy - t + reach), x0:int(sx - l + reach)].sum())
 
 
-CHAIN_REFRESH = 10             # seconds before the same chain of attacks is given again
+CHAIN_REFRESH = 6              # seconds before the same chain of attacks is given again
+CHAIN_LONGEST = 3              # buildings a chain holds (trial 49: five a key, four
+                               # keys, took 6 s to give)
+FIRST_KINDS = ("Bunker", "Missile Turret")   # the owner: bunkers, then at once
+                               # every turret, before anything else
 
 
 def clear_buildings(io, watch, mapdata, st, picture):
@@ -543,8 +552,10 @@ def clear_buildings(io, watch, mapdata, st, picture):
     ax, ay = live.from_drawn(sum(p[0] for p in ours) / len(ours),
                              sum(p[1] for p in ours) / len(ours)) \
         if ours else heavy_industry(mapdata)
-    chain, here, todo = [], (ax, ay), list(left)
-    while todo:                         # the nearest from where it stands
+    first = [b for b in left if b[0] in FIRST_KINDS]
+    todo = first or list(left)
+    chain, here = [], (ax, ay)
+    while todo and len(chain) < CHAIN_LONGEST:   # the nearest from where it stands
         nxt = min(todo, key=lambda b: (b[1] - here[0]) ** 2 + (b[2] - here[1]) ** 2)
         todo.remove(nxt)
         chain.append(nxt)
