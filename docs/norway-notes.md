@@ -383,3 +383,23 @@ the attack on Russia's Starport.
    front or Balkans, from Russia's "gone east" / "gone balks").
 4. Norway v0.03: the situational jobs (UK, Spain, France, Kiel, home
    defence), its plan typed in chat, and "@N ..." orders.
+
+## Trial 53
+
+- Finland clear at 69.8 s (the last turret, 141,45, came last). Still over
+  the 63 s goal.
+- The SCVs walked to Arkhangelsk straight through German Finland and were
+  lost. Now they wait by the Norwegian military camp (126,17) and go on
+  once Finland is clear. Depots start 25 s after that.
+- Landings failed with "you can't land there". Now the bot hovers first and
+  reads the outline: green means clear, red means something is in the way.
+  On red it moves the spot a tile at a time (up to 2 tiles) until it is
+  green. If it stays red it does not click (picture "<label>-red" saved).
+  Depots use the same check.
+- Starport (the owner): its green footprint must line up with the Control
+  Tower's outline, which is a light green box. The bot finds that box and
+  puts the Starport's middle 2 tiles left of the box's left side and 1.5
+  tiles above its bottom. It is never moved off that spot, and it lands
+  only when the outline is all green.
+- The colour thresholds are guesses, not tuned on real pictures yet. They
+  should be tuned from the next recording.

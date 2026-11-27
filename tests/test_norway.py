@@ -543,3 +543,93 @@ def test_the_army_steps_off_the_starport_spot_before_it_lands(monkeypatch):
     i_aside = next(i for i, l in enumerate(lines) if "steps off" in l)
     i_land = next(i for i, l in enumerate(lines) if "Starport landed" in l)
     assert i_attack < i_aside < i_land
+
+
+def outline(colour):
+    from PIL import Image
+    img = Image.new("RGB", (1920, 1080), (40, 40, 40))
+    if colour:
+        px = {"green": (20, 220, 20), "red": (220, 20, 20)}[colour]
+        img.paste(px, (900, 500, 940, 530))
+    return img
+
+
+class Hover:
+    """A screen whose outline colour depends on where the mouse is."""
+    def __init__(self, colour_at):
+        self.colour_at, self.at, self.lines = colour_at, None, []
+
+    def hover(self, x, y):
+        self.at = (x, y)
+
+    def sleep(self, s):
+        pass
+
+    def log(self, text):
+        self.lines.append(text)
+
+    def shot(self, label, keep=True):
+        return self.colour_at(self.at)
+
+
+def test_a_red_outline_is_moved_a_tile_until_green():
+    sx, sy = 920, 515
+    io = Hover(lambda at: outline("green" if at != (sx, sy) else "red"))
+    img_at = {}
+
+    def colour(at):
+        img = outline(None)
+        c = "red" if at == (sx, sy) else "green"
+        img.paste({"green": (20, 220, 20), "red": (220, 20, 20)}[c],
+                  (at[0] - 20, at[1] - 15, at[0] + 20, at[1] + 15))
+        return img
+    io.colour_at = colour
+    spot = norway.green_spot(io, sx, sy, "depot")
+    assert spot != (sx, sy) and spot is not None
+    assert any("green" in l for l in io.lines)
+
+
+def test_all_red_is_never_clicked_and_no_outline_clicks_as_before():
+    def red(at):
+        img = outline(None)
+        img.paste((220, 20, 20), (at[0] - 20, at[1] - 15, at[0] + 20, at[1] + 15))
+        return img
+    assert norway.green_spot(Hover(red), 920, 515, "depot") is None
+    assert norway.green_spot(Hover(lambda at: outline(None)), 920, 515,
+                             "depot") == (920, 515)
+
+    class NoHover:
+        pass
+    assert norway.green_spot(NoHover(), 920, 515, "x") == (920, 515)
+
+
+def test_the_starport_lands_only_all_green_on_the_tower_s_spot():
+    def part_red(at):
+        img = outline(None)
+        img.paste((20, 220, 20), (at[0] - 40, at[1] - 30, at[0] + 40, at[1] + 30))
+        img.paste((220, 20, 20), (at[0] - 40, at[1] - 30, at[0] - 30, at[1] - 20))
+        return img
+    io = Hover(part_red)
+    seen = []
+    io.hover = lambda x, y: (seen.append((x, y)), setattr(io, "at", (x, y)))
+    assert norway.green_spot(io, 920, 515, "land-starport", nudges=[(0, 0)],
+                             strict=True) is None
+    assert seen == [(920, 515)]            # never moved off the spot
+    # the same picture is green enough for a depot
+    assert norway.green_spot(Hover(part_red), 920, 515, "depot") == (920, 515)
+
+
+def test_the_starport_lines_up_with_the_tower_s_light_green_box():
+    tile = 32 * live.ZOOM
+    left, bottom = 1000, 600
+    want = (int(left - 2 * tile), int(bottom - 1.5 * tile))
+
+    def screen(at):
+        img = outline(None)
+        img.paste((170, 250, 170), (left, int(bottom - 2 * tile), int(left + 2 * tile), bottom + 1))
+        return img
+    io = Hover(screen)
+    got = norway.tower_spot(io, want[0] + 30, want[1] - 20, "land-tower")
+    assert abs(got[0] - want[0]) <= 1 and abs(got[1] - want[1]) <= 1
+    io = Hover(lambda at: outline(None))
+    assert norway.tower_spot(io, 900, 500, "land-tower") == (900, 500)

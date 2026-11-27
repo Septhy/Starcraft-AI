@@ -109,6 +109,11 @@ class WinIO:
         self.user.SetCursorPos(int(x), int(y))
         time.sleep(0.015)
 
+    def hover(self, x, y):
+        """Move the mouse without clicking (to see a landing outline)."""
+        self._check()
+        self._move(x, y)
+
     def click(self, x, y, button="left"):
         self._check()
         self._move(x, y)
