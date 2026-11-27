@@ -637,6 +637,22 @@ What the bot does now:
   is the fallback). Landing starts with the mouse on the footprint's
   top-left tile and reads the colour where it clicks.
 
+Smaller things in the same build:
+
+- An SCV's first depot order leaves it alone 8 s longer (it may still be
+  walking in). If the depot cannot be picked from the build menu (no
+  money: 100 minerals each, 900 in hand after the SCVs), the next try
+  comes 15 s later and does not count as a failure.
+- The opening before the attack on the Finland spot is about two seconds
+  shorter (one exact click for a building, the shorter Shetland drop).
+  The bot looks at Finland every three seconds; so that this does not
+  push that attack up to three seconds late, it now goes out the moment
+  it is due. The later steps keep their old timing (the two 2-second
+  steps still go out about a second late, at the next look): left alone
+  so that one thing changes at a time.
+- Pictures kept for the next recording if something fails:
+  "no-scvs-below-cc", "not-scvs", "no-build-menu", "depot-unseen".
+
 Not tried in a live game yet. Things to look at in the next recording:
 whether the SCVs stand below the Command Center at about 26 s, the log
 line "2 SCVs below the Command Center, on key 9", the walk to

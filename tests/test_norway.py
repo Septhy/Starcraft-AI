@@ -898,6 +898,7 @@ class World:
         self.depots, self.blocked = [], set(blocked)
         self.orders = []                # (what, unit indices, tile)
         self.loaded = 0
+        self.refused = 0                # clicks to place a building on taken ground
         self.lines, self.keys, self.combos, self.clicks = [], [], [], []
         self.cc = None                  # the Command Center's tile, if it makes SCVs
 
@@ -1014,6 +1015,7 @@ class World:
         if self.mode == "placing":
             tx, ty = (int(v) for v in self._tile(x, y))
             if self._in_the_way(tx, ty, (3, 2)):
+                self.refused += 1
                 return                      # refused: still placing
             self.depots.append((tx, ty))
             self.orders.append(("depot", tuple(self.sel), (tx, ty)))
@@ -1199,6 +1201,7 @@ def test_ten_depots_by_arkhangelsk_one_scv_an_order(monkeypatch):
         assert not {(dx + i, dy + j) for i in range(3) for j in range(2)} & w.blocked
     spots = [tile for view, tile in norway.depot_spots()]
     assert set(w.depots) <= set(spots) and (201, 14) not in w.depots
+    assert w.refused == 0                   # red was read, never clicked on
     orders = [o for o in w.orders if o[0] == "depot"]
     assert all(len(who) == 1 for what, who, where in orders)     # one SCV an order
     assert {who[0] for what, who, where in orders} == {0, 1}     # by turns
@@ -1224,6 +1227,7 @@ def test_a_depot_is_never_clicked_onto_red_or_unseen_ground(monkeypatch):
     n = len(w.clicks)
     assert norway.build_depot(w, st) == "failed"
     assert not w.depots and st.depots_placed == 0
+    assert w.refused == 0                                    # no click on red
     assert w.mode is None                                    # and out of placing
     # no SCV on the key: said so, nothing pressed for a depot
     w, st = depot_world()
@@ -1393,3 +1397,85 @@ def test_one_scv_first_the_other_added_to_the_key_later(monkeypatch):
     assert norway.get_scvs(w, m, st) == 1
     w.units[0]["x"] = 120.0
     assert norway.get_scvs(w, m, st) == 1 and not st.scvs_remade
+
+
+def test_the_attack_on_the_finland_spot_goes_out_when_it_is_due(monkeypatch):
+    """The opening before it got about two seconds shorter (one exact
+    click for a building, the Shetland drop). With a look at Finland only
+    every three seconds, the attack on the Finland spot could then go out
+    up to three seconds late; it goes out the moment it is due."""
+    game, m, watch, st = setup(monkeypatch)
+    times = {}
+    real_log = game.log
+
+    def log(text):
+        real_log(text)
+        for word, name in (("moves to Kiruna", "kiruna"),
+                           ("Barracks lifted", "lifted"),
+                           ("attacks at Russian army-Finland", "spot")):
+            if word in text and name not in times:
+                times[name] = game.t
+    game.log = log
+    # the lifts end a moment before the attack is due
+    real_sleep = game.sleep
+    norway.opening(game, watch, m, st, "first")
+    due = max(times["lifted"], st_due(times))
+    assert times["spot"] - due <= 1.0
+
+
+def st_due(times):
+    # the gather order is logged just after it is given
+    return times["kiruna"] + norway.ARMY_STAGES[1][2]
+
+
+class Still:
+    """A game that shows one real picture whatever is done: for where the
+    bot clicks when it reads that picture."""
+    def __init__(self, picture):
+        self.picture, self.clicks, self.lines, self.t = picture, [], [], 0.0
+
+    def shot(self, label, keep=True):
+        return self.picture
+
+    def card(self):
+        return self.picture.crop(live.CARD_CELL)
+
+    def hover(self, x, y):
+        pass
+
+    def sleep(self, s):
+        self.t += s
+
+    def log(self, text):
+        self.lines.append(text)
+
+    def click(self, x, y, button="left"):
+        self.clicks.append((x, y, button))
+
+    def click_with(self, held, x, y, button="left"):
+        self.clicks.append((x, y, held))
+
+
+def test_on_the_real_box_round_the_command_center_the_scvs_pictures_are_clicked():
+    """The army's box round the Command Center in trial 59 (the real
+    picture): eight selected, the SCVs third and seventh. Their pictures
+    are Shift+clicked, the seventh first and then the third where it then
+    stands among seven; six marines are left for the key."""
+    io = Still(hud("hud_box_scvs.jpg"))
+    assert norway.army_selected(io) == 6
+    seventh = live.frame_box(6, 8)
+    third = live.frame_box(2, 7)
+    mid = lambda b: ((b[0] + b[2]) // 2, (b[1] + b[3]) // 2)
+    assert io.clicks == [(*mid(seventh), "shift"), (*mid(third), "shift")]
+    # the Dropship in the box that was dragged round it
+    io = Still(hud("hud_box_dropship.jpg"))
+    assert norway.army_selected(io) == 3
+    assert io.clicks == [(*mid(live.frame_box(1, 4)), "shift")]
+    # one marine, an SCV, the Dropship, each alone
+    assert norway.army_selected(Still(hud("hud_marine.jpg"))) == 1
+    assert norway.army_selected(Still(hud("hud_scv_idle.jpg"))) == 0
+    assert norway.army_selected(Still(hud("hud_dropship.jpg"))) == 0
+    # two SCVs alone, read off the real picture: both are SCVs
+    assert norway.scvs_selected(Still(hud("hud_two_scvs.jpg"))) == 2
+    assert norway.scvs_selected(Still(hud("hud_scv_moving.jpg"))) == 1
+    assert norway.scvs_selected(Still(hud("hud_marine.jpg"))) == 0

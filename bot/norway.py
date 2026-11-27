@@ -74,6 +74,10 @@ SWEEPS = 2                     # sweeps of the screen for lost SCVs, at most
 DEPOT_BUILD = 17               # seconds an SCV is left alone after a depot
                                # order: a few to walk, about 12.5 to build (the
                                # owner's recording: 18 of 250 hit points a second)
+FIRST_WALK = 8                 # seconds more after an SCV's first order (it
+                               # may still be on its way to Arkhangelsk)
+NO_MONEY_WAIT = 15             # seconds before the next try when the depot
+                               # could not be picked (100 minerals each)
 SCV_BUSY = 5                   # seconds an SCV that showed no build menu (it is
                                # building) is left alone
 DEPOT_FAILS = 12               # depot orders that failed in a row: given up
@@ -213,6 +217,8 @@ class State:
         self.scv_look = -1e9
         self.scvs_sent = None           # when they set off for Arkhangelsk
         self.scv_busy = [0.0, 0.0]      # until when each SCV is left alone
+        self.scv_orders = [0, 0]        # depot orders each SCV has had
+        self.no_menu_shown = False
         self.sweeps = 0
         self.sweep_speed = SWEEP_SPEED
         self.port_clicked = 0
@@ -861,6 +867,9 @@ def take_scvs(io, st):
     io.sleep(0.15)
     n = scvs_selected(io, "scvs-cc")
     if not n:
+        io.shot("no-scvs-below-cc")     # (kept, to see why)
+        io.log("norway: no SCV seen below the Command Center (picture "
+               "'no-scvs-below-cc')")
         return 0
     return key_scvs(io, st, n, "below the Command Center")
 
@@ -1139,7 +1148,8 @@ def build_depot(io, st):
     """One supply depot by Arkhangelsk, the owner's way (their recording):
     one SCV selected, B, S, and a click where the depot's footprint shows
     green. Returns "placed", "wait" (no SCV free just now), "no-scv" (the
-    key holds none) or "failed"."""
+    key holds none), "no-money" (the depot could not be picked) or
+    "failed"."""
     now = io.now()
     i = free_scv(st, now)
     if i is None:
@@ -1158,9 +1168,14 @@ def build_depot(io, st):
     view = look_at_view(io, spots[todo[0]][0])
     io.key("b")                         # the build menu: only an SCV, alone,
     io.sleep(0.15)                      # and not in the middle of building
-    if not live.build_menu_shown(io.card()):
-        clear_modes(io)
-        st.scv_busy[i] = now + SCV_BUSY
+    card = io.card()
+    if not live.build_menu_shown(card):
+        if not st.no_menu_shown:
+            st.no_menu_shown = True
+            io.shot("no-build-menu")    # (kept once, to see why)
+        if not live.move_shown(card):
+            clear_modes(io)             # (nothing to close while its own
+        st.scv_busy[i] = now + SCV_BUSY  # buttons show: it is building)
         return "wait"
     io.key("s")                         # a supply depot: its footprint is on
     io.sleep(0.15)                      # the cursor, only Cancel shows
@@ -1168,7 +1183,7 @@ def build_depot(io, st):
         clear_modes(io)
         io.log("norway: the depot could not be picked from the build menu "
                "(no money for one?)")
-        return "failed"
+        return "no-money"
     hover = getattr(io, "hover", None) is not None
     for k in todo:
         if spots[k][0] != view:
@@ -1192,7 +1207,9 @@ def build_depot(io, st):
         if live.move_shown(card):       # placed: the SCV's own buttons again
             st.depot_built.add(k)
             st.depots_placed += 1
-            st.scv_busy[i] = io.now() + DEPOT_BUILD
+            st.scv_busy[i] = io.now() + DEPOT_BUILD + \
+                (0 if st.scv_orders[i] else FIRST_WALK)
+            st.scv_orders[i] += 1
             io.log(f"norway: supply depot {st.depots_placed} of {DEPOTS} "
                    f"ordered by Arkhangelsk ({tile[0]}, {tile[1]})")
             return "placed"
@@ -1753,8 +1770,15 @@ def opening(io, watch, mapdata, st, first):
             land(io, "Command Center",
                  [(x * T + 2 * T, y * T + int(1.5 * T)) for x, y in KIRUNA_LAND],
                  st)
-        # Finland: attack until no red is left (first: the opening's race)
-        if not st.finland_clear and io.now() - st.last_look >= LOOK_EVERY:
+        # Finland: attack until no red is left (first: the opening's race).
+        # A look every LOOK_EVERY seconds; and the moment the attack on the
+        # Finland spot is due (the opening before it is now about two
+        # seconds shorter: with looks three seconds apart the order could
+        # have gone out up to three seconds late)
+        spot_due = st.stage == 1 and \
+            io.now() - st.stage_at >= ARMY_STAGES[1][2]
+        if not st.finland_clear and \
+                (io.now() - st.last_look >= LOOK_EVERY or spot_due):
             st.last_look = io.now()
             red = finland_red(watch, picture)
             st.clear_looks = 0 if red else st.clear_looks + 1
@@ -1796,6 +1820,8 @@ def opening(io, watch, mapdata, st, first):
                 st.depot_fails = 0
             elif result == "failed":
                 st.depot_fails += 1
+            elif result == "no-money":  # wait for the next payday
+                st.depot_look = now + NO_MONEY_WAIT - DEPOT_EVERY
             elif result == "no-scv":
                 st.depot_fails += 3     # the SCVs are gone: soon given up
             st.depots_ordered = st.depots_placed >= DEPOTS or \
