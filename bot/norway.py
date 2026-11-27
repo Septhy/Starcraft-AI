@@ -57,11 +57,11 @@ ARMY_STAGES = [                # (tiles, attack?, seconds after the last)
     ((147, 30), True, 5),      # the "Russian army-Finland" spot (owner: 30 s)
     # the owner (trial 47): a wider flank, the marines moved to (147, 31)
     # just 2 s before they attack Germany's bunkers
-    ((147, 31), False, 8),
+    ((147, 31), False, 6),     # (trial 51: 8 s, too slow)
     # the owner (trial 49): then further in before the bunkers
     ((143, 34), False, 2),
     ((140, 39), True, 2),      # the east bunker
-    ((134, 36), True, 4),      # the west bunker; once the bunkers are down,
+    ((134, 36), True, 3),      # the west bunker; once the bunkers are down,
                                # straight on to the turrets (clear_buildings)
 ]
 CLEAN_EVERY = 4                # seconds between attacks on the red that is left
@@ -153,6 +153,7 @@ class State:
         self.targets = None            # Germany's buildings in Finland left
         self.barracks_in = False
         self.land_tried = set()
+        self.shetland_lifts = False
         self.repaired = 0
         self.last_repair = -1e9
         self.chain, self.chain_at = [], -1e9
@@ -383,6 +384,14 @@ def selected(io):
         return 0
 
 
+DENMARK = (80, 60, 95, 75)      # tiles: Denmark's marines stay out of it
+
+
+def in_denmark(x, y):
+    l, t, r, b = DENMARK
+    return l <= x / T < r and t <= y / T < b
+
+
 def start_groups(mapdata):
     """Norway's starting troops by the map (trial 45: men beside a bunker
     are hidden on the minimap by the building, so Sweden's (105, 66) and
@@ -391,6 +400,8 @@ def start_groups(mapdata):
     from collections import defaultdict
     cells = defaultdict(list)
     for x, y in mapdata["slots"][SLOT]["units"]:
+        if in_denmark(x, y):
+            continue                    # left at home (the owner, trial 51)
         cells[(x // (GROUP_W * T), y // (GROUP_H * T))].append((x, y))
     return sorted(cells.values(), key=len, reverse=True)
 
@@ -421,7 +432,8 @@ def key_army(io, watch, mapdata, st, picture):
     l, t, r, b = ARMY_AREA
     mine = {p for p in ours
             if l <= live.from_drawn(*p)[0] / T < r
-            and t <= live.from_drawn(*p)[1] / T < b}
+            and t <= live.from_drawn(*p)[1] / T < b
+            and not in_denmark(*live.from_drawn(*p))}
     st.army_px = len(mine)
     groups = sorted((g for g in live.clusters(mine, 6, 6) if len(g) >= 3),
                     key=len, reverse=True)
@@ -578,7 +590,7 @@ def red_near(picture, sx, sy, reach=BUILDING_REACH):
 
 
 CHAIN_REFRESH = 6              # seconds before the same chain of attacks is given again
-CHAIN_LONGEST = 3              # buildings a chain holds (trial 49: five a key, four
+CHAIN_LONGEST = 4              # buildings a chain holds: the four turrets (trial 49: five a key, four
                                # keys, took 6 s to give)
 FIRST_KINDS = ("Bunker", "Missile Turret")   # the owner: bunkers, then at once
                                # every turret, before anything else
@@ -625,10 +637,17 @@ def clear_buildings(io, watch, mapdata, st, picture):
             io.now() - st.chain_at < CHAIN_REFRESH:
         return 0                        # still on its way along the chain
     st.chain, st.chain_at = chain, io.now()
-    for key in st.army_keys:
+    # with the bunkers down nothing there shoots back at men on foot: the
+    # keys share the turrets out, each starting on a different one, so they
+    # fall together (the owner, trial 51: all of Finland by about 63 s, or
+    # the German army comes); while a bunker stands, all on the same one
+    split = not any(k == "Bunker" for k, x, y in left)
+    for n, key in enumerate(st.army_keys):
         io.key(key)
         io.sleep(0.05)
-        for i, (kind, x, y) in enumerate(chain):
+        mine = chain[n % len(chain):] + chain[:n % len(chain)] if split \
+            else chain
+        for i, (kind, x, y) in enumerate(mine):
             point = live.minimap_point(x, y)
             if i == 0:
                 io.key("a")
@@ -736,8 +755,8 @@ def opening(io, watch, mapdata, st, first):
     # and reached Finland 7 s behind the owner)
     key_army(io, watch, mapdata, st, io.shot("watch", keep=False) or first)
     army_into_finland(io, watch, mapdata, st, first)
-    lift(io, mapdata, st, "Factory", SHETLAND)
-    lift(io, mapdata, st, "Engineering Bay", SHETLAND)
+    # (the Factory and the Engineering Bay go to Shetland once the army's
+    # stages are given: trial 51, their lifts held the attack back 5 s)
     port = russia_starport(mapdata)
     lift(io, mapdata, st, "Starport", (port["x"], port["y"] + 8 * T),
          key=KEYS["Starport"])
@@ -751,6 +770,10 @@ def opening(io, watch, mapdata, st, first):
         if st.clock is not None:
             st.clock.update(picture)
         left = countdown(st)
+        if st.stage >= len(ARMY_STAGES) and not st.shetland_lifts:
+            st.shetland_lifts = True
+            lift(io, mapdata, st, "Factory", SHETLAND)
+            lift(io, mapdata, st, "Engineering Bay", SHETLAND)
         # the Command Center goes once its two SCVs are out, and not in the
         # middle of the army's stages (trial 44: its lift pushed the attack
         # on Finland back)

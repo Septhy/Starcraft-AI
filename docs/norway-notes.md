@@ -308,6 +308,19 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   once it is down (the owner); the Command Center lands by Kiruna at
   (141, 9) first.
 
+## Trial 51 (build afef924): late again
+
+- The owner: Finland must be taken by about 63 s (3:25), or the German
+  army comes; it did, at about 70 s, and wiped Norway's army out (the
+  turrets stood till 132 s). Ignore Denmark's marines.
+- Keyed 7-19.5 s (with Denmark's), the Factory and Engineering Bay lifts
+  held the attack on the Finland spot back to 30.4 s, and the stage gaps
+  added 16 s.
+- Now: Denmark (tiles 80-95, 60-75) left out; the Factory and the
+  Engineering Bay lifted after the army's stages; stage gaps 6, 2, 2, 3 s;
+  with the bunkers down the keys share the four turrets out (each starts
+  on a different one; turrets do not shoot men on foot).
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

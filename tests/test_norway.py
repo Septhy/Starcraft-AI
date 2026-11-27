@@ -303,7 +303,11 @@ def test_every_starting_group_is_boxed_from_the_map(monkeypatch):
     groups = norway.start_groups(m)
     tiles = {(x // 32, y // 32) for g in groups for x, y in g}
     assert (105, 66) in tiles and (141, 7) in tiles
-    assert sum(len(g) for g in groups) == len(m["slots"]["4"]["units"])
+    units = m["slots"]["4"]["units"]
+    home = [u for u in units if norway.in_denmark(*u)]
+    assert home                            # Denmark's marines (trial 51)...
+    assert sum(len(g) for g in groups) == len(units) - len(home)
+    assert not any(norway.in_denmark(*p) for g in groups for p in g)  # ...left
     boxed = []
     monkeypatch.setattr(norway, "box_start_group",
                         lambda io, pts: boxed.append(pts) or True)
@@ -452,3 +456,28 @@ def test_an_scv_repairs_the_barracks_once_it_is_down(monkeypatch):
     assert norway.repair_barracks(game, st)
     assert "r" in game.keys
     assert any("repair the Barracks" in l for l in game.lines)
+
+
+def test_with_the_bunkers_down_the_keys_share_the_turrets_out(monkeypatch):
+    """The owner (trial 51): all of Finland by about 63 s or the German
+    army comes. Turrets do not shoot men on foot: with the bunkers down,
+    each key starts on a different turret."""
+    game, m, watch, st = setup(monkeypatch)
+    st.army_keys = ["1", "2", "3", "4"]
+    turrets = [b for b in norway.german_buildings(m) if b[0] == "Missile Turret"]
+
+    class W:
+        def units(self, picture):
+            return blob(norway.heavy_industry(m), 3)
+
+        def others(self, picture, slots):
+            out = set()
+            for k, x, y in turrets:
+                out |= blob((x, y), 2)
+            return out
+    st.targets = list(turrets)
+    norway.clear_buildings(game, W(), m, st, "pic")
+    firsts = []
+    plain = [c for c in game.clicks if c[2] == "left"]
+    firsts = plain[-4:]
+    assert len(set(firsts)) == 4          # four keys, four first turrets
