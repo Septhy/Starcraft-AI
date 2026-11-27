@@ -446,3 +446,25 @@ the attack on Russia's Starport.
   click on the minimap). The SCVs are looked for at the camp, at
   Arkhangelsk and by the Command Center, then put on key 9. One of them
   (the first picture in the selection) repairs the Barracks.
+
+## Trial 56
+
+- Finland clear at 66.1 s (countdown 3:22). Russia's Starport was
+  destroyed (the light green box check worked), and the army stepped
+  aside.
+- The landing stayed red: with the mouse exactly on the light green box's
+  middle, the game drew the Starport's footprint 2 tiles right and 1 down
+  of the mouse. The footprint is now found in the picture (the
+  footprint-sized box with the most tint, exact to a pixel on four real
+  pictures). For the Barracks, Command Center and depots, the mouse is
+  moved until the footprint sits on the spot.
+- The owner: land the Starport with the mouse exactly on tile (156,5).
+  Now it is put there (PORT_MOUSE) and never moved. The bot clicks only if
+  the footprint has no red square.
+- Still no SCVs anywhere: the two made at the start were not at the camp,
+  at Arkhangelsk or by the Command Center (perhaps taken into an army box
+  near the Command Center). Now, if none are found once Finland is clear,
+  the Command Center (still at home) makes two more, with no rally. Its
+  lift waits until they are out, then they are found by it, put on key 9
+  and sent to Arkhangelsk. Depots go one order at a time to each SCV in
+  turn, every 14 s, ten in all.

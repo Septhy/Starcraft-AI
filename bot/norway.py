@@ -51,6 +51,8 @@ SCV_WAIT = (126, 17)           # tiles: where the new SCVs wait (the owner's
                                # recording: the Norwegian military camp; trial
                                # 53, sent straight on through Finland they were
                                # lost to the Germans and never arrived)
+SCV_REMAKE_WAIT = 30           # seconds for two new SCVs to come out
+SCV_TRIES = 12                 # looks for the SCVs before giving up
 SCV_WALK = 25                  # seconds they are given to reach Arkhangelsk
 FINLAND = (125, 15, 150, 50)   # tiles: where Germany's buildings in Finland stand
 NORTH_ARMY = (95, 0, 160, 33)  # tiles: our starting troops in the north
@@ -83,7 +85,7 @@ DEPOT_FIRST = 60               # seconds before the SCVs are looked for at the d
 BUSY_UNTIL = 100               # seconds: the Command Center and the depots wait
                                # for Finland till then (trial 48: they took the
                                # bot away from the fight at 45 and 63 s)
-DEPOT_EVERY = 6                # seconds between depots (one an order) (trial 42: every 3 s, the
+DEPOT_EVERY = 14                # seconds between depots (one an order) (trial 42: every 3 s, the
                                # camera sat on empty ground by Arkhangelsk)
 DEPOT_LOOKS = 30               # tries before the depots are given up
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
@@ -187,6 +189,7 @@ class State:
         self.scvs_look = -1e9
         self.scvs_tries = 0
         self.scvs_keyed = False
+        self.scvs_remade = 0
         self.cc_home = None
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
@@ -237,7 +240,6 @@ def lift(io, mapdata, st, kind, dest=None, key=None):
 # having seen the footprint (trial 54: unseen, it clicked on red).
 FOOTPRINT = {"Barracks": (4, 3), "Starport": (4, 3), "Factory": (4, 3),
              "Command": (4, 3), "Engineering": (4, 3), "depot": (3, 2)}
-OUTLINE_GREEN = 0.5            # share of the footprint green: it is shown
 OUTLINE_RED = 300              # red pixels: a square is red, do not land
 NUDGES = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, 1), (1, -1),
           (-1, -1), (2, 0), (-2, 0), (0, 2), (0, -2), (2, 2), (-2, 2), (2, -2),
@@ -246,6 +248,9 @@ NUDGES = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, 1), (1, -1),
 # Tower's light green box, or the tower is not taken. So it is never moved
 # off the spot found from the box.
 EXACT_KINDS = ("Starport",)
+PORT_MOUSE = (156, 5)          # tile the mouse is put on to land the Starport
+                               # (the owner, after trial 56: "put the mouse
+                               # cursor exactly on (156, 5)"); it is not moved
 
 
 def footprint_size(label):
@@ -255,34 +260,81 @@ def footprint_size(label):
     return (4, 3)
 
 
-def outline_colour(picture, sx, sy, size=(4, 3)):
-    """"green" (no square red), "red" (some square red) or None (no
-    footprint seen) round a screen point."""
+FOOTPRINT_SEEN = 0.5           # share of a footprint-sized box tinted: it is there
+ALIGN_TRIES = 3                # mouse corrections to bring the footprint onto a spot
+
+
+def tints(a):
+    """Masks of the footprint's green and red tint in an RGB array (the
+    box's bright green lines, G over 145, are left out)."""
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    green = (G > 70) & (G < 145) & (G > R + 35) & (G > B + 45)
+    red = (R > 70) & (G * 100 < R * 55) & (B * 100 < R * 50)
+    return green, red
+
+
+def footprint_at(picture, sx, sy, size=(4, 3)):
+    """Where the game draws the footprint near a screen point: (left, top,
+    right, bottom, red pixels inside), or None. Trial 56: the footprint is
+    not centred on the mouse (it stood 2 tiles right and 1 down of it), so
+    it is found in the picture: the footprint-sized box with the most tint."""
     import numpy as np
     tile = 32 * live.ZOOM
-    hx, hy = (size[0] / 2 + 1) * tile, (size[1] / 2 + 1) * tile
-    box = (max(0, int(sx - hx)), max(0, int(sy - hy)),
-           int(sx + hx), int(sy + hy))
-    a = np.asarray(picture.convert("RGB").crop(box)).astype(int)
-    R, G, B = a[..., 0], a[..., 1], a[..., 2]
-    green = int(((G > 70) & (G > R + 35) & (G > B + 45)).sum())
-    red = int(((R > 70) & (G * 100 < R * 55) & (B * 100 < R * 50)).sum())
-    area = size[0] * size[1] * tile * tile
-    if red >= OUTLINE_RED and red + green >= OUTLINE_GREEN * area * 0.6:
-        return "red"
-    if green >= OUTLINE_GREEN * area:
-        return "red" if red >= OUTLINE_RED else "green"
-    return None
+    w, h = int(size[0] * tile), int(size[1] * tile)
+    l, t, r, b = live.GAME_AREA
+    x0, y0 = max(l, int(sx - w - 2 * tile)), max(t, int(sy - h - 2 * tile))
+    x1, y1 = min(r, int(sx + w + 2 * tile)), min(b, int(sy + h + 2 * tile))
+    if x1 - x0 <= w or y1 - y0 <= h:
+        return None
+    a = np.asarray(picture.convert("RGB").crop((x0, y0, x1, y1))).astype(int)
+    green, red = tints(a)
+    m = (green | red).astype(np.int64)
+    I = np.pad(m.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    sums = I[h:, w:] - I[:-h, w:] - I[h:, :-w] + I[:-h, :-w]
+    j, i = np.unravel_index(int(sums.argmax()), sums.shape)
+    if sums[j, i] < FOOTPRINT_SEEN * w * h:
+        return None
+    reds = int(red[j:j + h, i:i + w].sum())
+    return (x0 + int(i), y0 + int(j), x0 + int(i) + w, y0 + int(j) + h, reds)
 
 
-def green_spot(io, sx, sy, label, nudges=None):
+def outline_colour(picture, sx, sy, size=(4, 3)):
+    """"green" (no square red), "red" (some square red) or None (no
+    footprint seen) for the footprint drawn near a screen point."""
+    fp = footprint_at(picture, sx, sy, size)
+    if fp is None:
+        return None
+    return "red" if fp[4] >= OUTLINE_RED else "green"
+
+
+def aligned(io, cx, cy, label, size):
+    """Move the mouse until the footprint's middle is on (cx, cy): hover,
+    find the footprint in the picture, move the mouse by what it is off,
+    and again. (mouse point, footprint) or (None, None) if none is seen."""
+    tile = 32 * live.ZOOM
+    mx, my = cx, cy
+    fp = None
+    for _ in range(ALIGN_TRIES):
+        io.hover(int(mx), int(my))
+        io.sleep(0.15)
+        fp = footprint_at(io.shot(label, keep=False), cx, cy, size)
+        if fp is None:
+            return None, None
+        ox = cx - (fp[0] + fp[2]) / 2
+        oy = cy - (fp[1] + fp[3]) / 2
+        if abs(ox) <= tile / 3 and abs(oy) <= tile / 3:
+            return (int(mx), int(my)), fp
+        mx, my = mx + ox, my + oy
+    return (int(mx), int(my)), fp      # the last move is not checked
+
+
+def green_spot(io, sx, sy, label, nudges=None, fixed=False):
     """With a building's footprint on the cursor (placing or landing):
-    hover over the spot and the spots round it, a tile at a time, until
-    the footprint shows no red square. The screen point to click, or None
+    bring the footprint onto the spot and the spots round it, a tile at a
+    time, until it shows no red square. The mouse point to click, or None
     (red all round, or no footprint seen: never click blind). Without a
     way to hover (tests), the spot itself."""
-    hover = getattr(io, "hover", None)
-    if hover is None:
+    if getattr(io, "hover", None) is None:
         return sx, sy
     l, t, r, b = live.GAME_AREA
     tile = 32 * live.ZOOM
@@ -292,19 +344,27 @@ def green_spot(io, sx, sy, label, nudges=None):
         x, y = sx + dx * tile, sy + dy * tile
         if not (l + 40 < x < r - 40 and t + 40 < y < b - 40):
             continue
-        hover(int(x), int(y))
-        io.sleep(0.15)
-        pic = io.shot(label, keep=False)
         try:
-            colour = outline_colour(pic, x, y, size)
+            if fixed:                   # the mouse stays where it is put
+                io.hover(int(x), int(y))
+                io.sleep(0.15)
+                mouse = (int(x), int(y))
+                fp = footprint_at(io.shot(label, keep=False), x, y, size)
+            else:
+                mouse, fp = aligned(io, x, y, label, size)
         except Exception:
             return None
+        colour = None if fp is None else (
+            "red" if fp[4] >= OUTLINE_RED else "green")
         seen.append(colour)
         if colour == "green":
             if (dx, dy) != (0, 0):
                 io.log(f"norway: {label}: red where aimed, green {dx}, {dy} "
                        f"tiles off: landing there")
-            return int(x), int(y)
+            if mouse != (int(x), int(y)):
+                io.log(f"norway: {label}: the mouse at {mouse} puts the "
+                       f"footprint on the spot")
+            return mouse
         if colour is None and (dx, dy) == (0, 0):
             break                       # no footprint seen: do not click
     io.shot(label + "-red")
@@ -433,10 +493,8 @@ def land(io, kind, spots, st):
         io.click(*LAND_BUTTON)
         io.sleep(0.15)
         exact = kind in EXACT_KINDS
-        if exact:
-            sx, sy = tower_spot(io, sx, sy, "land-tower")
         spot = green_spot(io, sx, sy, "land-" + kind.split()[0].lower(),
-                          nudges=[(0, 0)] if exact else None)
+                          nudges=[(0, 0)] if exact else None, fixed=exact)
         if spot is None:
             clear_modes(io)
             continue
@@ -576,6 +634,24 @@ def DEPOTS_XY():
     return DEPOTS_AT[0] * T, DEPOTS_AT[1] * T
 
 
+def remake_scvs(io, mapdata, st):
+    """Two new SCVs at the Command Center (still at home), no rally: they
+    stay by it until they are found, keyed and sent."""
+    cc = norway_buildings(mapdata)["Command Center"]
+    clear_modes(io)
+    if not trial.pick_building(io, cc):
+        io.log("norway: the Command Center was not found for new SCVs")
+        return False
+    io.key("s")
+    io.sleep(0.05)
+    io.key("s")
+    io.sleep(0.05)
+    st.cc_home = (cc["x"], cc["y"] + 3 * T)
+    io.log("norway: no SCV found: the Command Center makes two more (its "
+           "lift waits for them)")
+    return True
+
+
 def send_scvs(io, st):
     """Once Finland is clear: the SCVs (waiting by the Norwegian camp)
     are sent on to Arkhangelsk. True if they were."""
@@ -598,6 +674,11 @@ def build_depots(io, st):
     if not pick_scvs(io, st):
         io.log("norway: no SCV found for the depots")
         return False
+    n = selected(io)
+    if n > 1:                           # one SCV an order, by turns, so a
+        x0f, y0f, x1f, y1f = live.frame_box(st.depot_next % n, n)  # depot
+        io.click((x0f + x1f) // 2, (y0f + y1f) // 2)    # going up is not
+        io.sleep(0.15)                  # left for the next
     cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
     l, t, r, b = live.GAME_AREA
     io.key("b")                         # only SCVs have a build menu on B:
@@ -1070,7 +1151,9 @@ def opening(io, watch, mapdata, st, first):
         # the Command Center goes once its two SCVs are out, and not in the
         # middle of the army's stages (trial 44: its lift pushed the attack
         # on Finland back)
-        if not st.cc_lifted and io.now() - t0 >= 32 and \
+        waiting_scvs = st.scvs_remade and not st.scvs_sent and \
+            io.now() - st.scvs_remade < SCV_REMAKE_WAIT + 20
+        if not st.cc_lifted and io.now() - t0 >= 32 and not waiting_scvs and \
                 st.stage >= len(ARMY_STAGES) and \
                 (st.finland_clear or io.now() - t0 >= BUSY_UNTIL):
             st.cc_lifted = lift(io, mapdata, st, "Command Center",
@@ -1102,12 +1185,21 @@ def opening(io, watch, mapdata, st, first):
                        f"(countdown {trial.round_timer(st.clock.time()) if st.clock else '?'})")
             else:
                 army_into_finland(io, watch, mapdata, st, picture)
+        # the SCVs to Arkhangelsk (trials 55, 56: the two made at the start
+        # were never found again; then the Command Center, still at home,
+        # makes two more, and its lift waits until they are out and keyed)
         if st.finland_clear and not st.scvs_sent and \
-                io.now() - st.scvs_look >= 6:
+                io.now() - st.scvs_look >= 6 and \
+                (not st.scvs_remade or io.now() - st.scvs_remade >= SCV_REMAKE_WAIT):
             st.scvs_look = io.now()
             st.scvs_tries += 1
-            if send_scvs(io, st) or st.scvs_tries >= 3:
+            if send_scvs(io, st):
                 st.scvs_sent = io.now()
+            elif not st.scvs_remade and not st.cc_lifted:
+                st.scvs_remade = io.now()
+                remake_scvs(io, mapdata, st)
+            elif st.scvs_tries >= SCV_TRIES:
+                st.scvs_sent = io.now()     # given up: the log says so
         if not st.depots_ordered and io.now() - t0 >= DEPOT_FIRST and \
                 st.scvs_sent and io.now() - st.scvs_sent >= SCV_WALK and \
                 io.now() - st.depot_look >= DEPOT_EVERY:
@@ -1153,7 +1245,8 @@ def opening(io, watch, mapdata, st, first):
                 st.port_cleared = True
                 st.last_port = io.now() - RETRY_PORT + PORT_WALK
                 io.log("norway: the army steps off Russia's Starport's spot")
-            elif land(io, "Starport", [(port["x"], port["y"])], st):
+            elif land(io, "Starport", [(PORT_MOUSE[0] * T + T // 2,
+                                        PORT_MOUSE[1] * T + T // 2)], st):
                 io.log("norway: Starport landed at Murmansk on the Control "
                        "Tower")
             else:

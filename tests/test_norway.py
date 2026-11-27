@@ -520,10 +520,17 @@ def test_depots_one_at_a_time_ten_by_arkhangelsk(monkeypatch):
         return reads.pop(0) if reads else True
     monkeypatch.setattr(trial.live, "units_selected", units)
     monkeypatch.setattr(live, "scv_selected", lambda card: True)
+    monkeypatch.setattr(norway, "selected", lambda io: 2)   # two SCVs on key 9
     for _ in range(norway.DEPOTS):
         reads[:] = [False, True]
         assert norway.build_depots(game, st)
     assert st.depots_placed == norway.DEPOTS == 10
+    # each order to one SCV, by turns (both frames of the selection used)
+    frames = {(c[0], c[1]) for c in game.clicks
+              if (c[0], c[1]) in [tuple((a + b) // 2 for a, b in
+                                        zip(live.frame_box(i, 2)[:2], live.frame_box(i, 2)[2:]))
+                                  for i in range(2)]}
+    assert len(frames) == 2
     assert not any(c[2] == "shift" for c in game.clicks)     # never queued
     tiles = norway.DEPOT_TILES[:10]
     assert len(set(tiles)) == 10
@@ -553,11 +560,22 @@ def test_the_army_steps_off_the_starport_spot_before_it_lands(monkeypatch):
     assert i_attack < i_aside < i_land
 
 
+TINT = {"green": (28, 90, 20), "red": (100, 40, 25)}   # trial 54's real tints
+
+
 def outline(colour):
-    img = Image.new("RGB", (1920, 1080), (40, 40, 40))
+    img = Image.new("RGB", (1920, 1080), (29, 34, 16))
     if colour:
-        px = {"green": (20, 220, 20), "red": (220, 20, 20)}[colour]
-        img.paste(px, (900, 500, 940, 530))
+        img.paste(TINT[colour], (900, 500, 940, 530))
+    return img
+
+
+def paint(img, centre, size, colour):
+    """A footprint of `size` tiles drawn with its middle at `centre`."""
+    tile = 32 * live.ZOOM
+    w, h = size[0] * tile, size[1] * tile
+    img.paste(TINT[colour], (int(centre[0] - w / 2), int(centre[1] - h / 2),
+                             int(centre[0] + w / 2), int(centre[1] + h / 2)))
     return img
 
 
@@ -581,28 +599,15 @@ class Hover:
 
 def test_a_red_outline_is_moved_a_tile_until_green():
     sx, sy = 920, 515
-    io = Hover(lambda at: outline("green" if at != (sx, sy) else "red"))
-    img_at = {}
-
-    def colour(at):
-        img = outline(None)
-        c = "red" if at == (sx, sy) else "green"
-        tile = 32 * live.ZOOM            # a depot's 3 x 2 footprint
-        img.paste({"green": (20, 220, 20), "red": (220, 20, 20)}[c],
-                  (int(at[0] - 1.5 * tile), int(at[1] - tile),
-                   int(at[0] + 1.5 * tile), int(at[1] + tile)))
-        return img
-    io.colour_at = colour
+    io = Hover(lambda at: paint(outline(None), at, (3, 2),
+                                "red" if at == (sx, sy) else "green"))
     spot = norway.green_spot(io, sx, sy, "depot")
     assert spot != (sx, sy) and spot is not None
     assert any("green" in l for l in io.lines)
 
 
 def test_all_red_is_never_clicked_and_no_outline_clicks_as_before():
-    def red(at):
-        img = outline(None)
-        img.paste((220, 20, 20), (at[0] - 20, at[1] - 15, at[0] + 20, at[1] + 15))
-        return img
+    red = lambda at: paint(outline(None), at, (3, 2), "red")
     assert norway.green_spot(Hover(red), 920, 515, "depot") is None
     # no footprint seen: never clicked blind (trial 54)
     assert norway.green_spot(Hover(lambda at: outline(None)), 920, 515,
@@ -614,10 +619,12 @@ def test_all_red_is_never_clicked_and_no_outline_clicks_as_before():
 
 
 def test_one_red_square_is_red_and_the_starport_is_never_moved():
+    tile = 32 * live.ZOOM
+
     def part_red(at):
-        img = outline(None)
-        img.paste((20, 220, 20), (at[0] - 40, at[1] - 30, at[0] + 40, at[1] + 30))
-        img.paste((220, 20, 20), (at[0] - 40, at[1] - 30, at[0] - 10, at[1] - 10))
+        img = paint(outline(None), at, (4, 3), "green")
+        x, y = int(at[0] - 2 * tile), int(at[1] - 1.5 * tile)
+        img.paste(TINT["red"], (x, y, int(x + tile), int(y + tile)))
         return img
     io = Hover(part_red)
     seen = []
@@ -625,6 +632,20 @@ def test_one_red_square_is_red_and_the_starport_is_never_moved():
     assert norway.green_spot(io, 920, 515, "land-starport",
                              nudges=[(0, 0)]) is None
     assert seen == [(920, 515)]            # never moved off the spot
+
+
+def test_the_mouse_is_moved_until_the_footprint_sits_on_the_spot():
+    """Trial 56: with the mouse on the light green box's middle the game
+    drew the Starport's footprint 2 tiles right and 1 down of it; the
+    footprint is found in the picture and the mouse moved by what it is
+    off."""
+    tile = 32 * live.ZOOM
+    io = Hover(lambda at: paint(outline(None),
+                                (at[0] + 2 * tile, at[1] + tile), (4, 3),
+                                "green"))
+    want = (864, 396)
+    mouse = norway.green_spot(io, *want, "land-starport", nudges=[(0, 0)])
+    assert mouse == (int(want[0] - 2 * tile), int(want[1] - tile))
 
 
 def test_the_real_dim_tints_of_trial_54_are_read():
@@ -698,3 +719,27 @@ def test_the_scvs_are_rallied_the_owner_s_way(monkeypatch):
     assert game.keys[:3] == ["s", "s", "r"]
     assert game.clicks[-1][2] == "left"          # R, then a click on the minimap
     assert st.cc_home
+
+
+def test_the_starport_is_landed_with_the_mouse_on_156_5_unmoved():
+    """The owner (after trial 56): the mouse exactly on (156, 5); the bot
+    only checks that the footprint has no red square, and never moves it."""
+    assert norway.PORT_MOUSE == (156, 5)
+    tile = 32 * live.ZOOM
+    io = Hover(lambda at: paint(outline(None),
+                                (at[0] + 2 * tile, at[1] + tile), (4, 3),
+                                "green"))
+    assert norway.green_spot(io, 864, 396, "land-starport", nudges=[(0, 0)],
+                             fixed=True) == (864, 396)
+    io = Hover(lambda at: paint(outline(None),
+                                (at[0] + 2 * tile, at[1] + tile), (4, 3),
+                                "red"))
+    assert norway.green_spot(io, 864, 396, "land-starport", nudges=[(0, 0)],
+                             fixed=True) is None
+
+
+def test_with_no_scv_found_the_command_center_makes_two_more(monkeypatch):
+    game, m, watch, st = setup(monkeypatch)
+    norway.remake_scvs(game, m, st)
+    assert game.keys[-2:] == ["s", "s"]
+    assert st.cc_home and any("makes two more" in l for l in game.lines)
