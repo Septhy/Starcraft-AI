@@ -388,8 +388,9 @@ the attack on Russia's Starport.
 
 - Finland clear at 69.8 s (the last turret, 141,45, came last). Still over
   the 63 s goal.
-- The SCVs walked to Arkhangelsk straight through German Finland and were
-  lost. Now they wait by the Norwegian military camp (126,17) and go on
+- The SCVs never reached Arkhangelsk. (First put down to their being
+  lost walking through German Finland. That was wrong: they were on army
+  key 2. See the review after trial 59.) Now they wait by the Norwegian military camp (126,17) and go on
   once Finland is clear. Depots start 25 s after that.
 - Landings failed with "you can't land there". Now the bot hovers first and
   reads the outline: green means clear, red means something is in the way.
@@ -534,10 +535,10 @@ the attack on Russia's Starport.
 ## Trial 59
 
 - Finland clear at 66.0 s. The two SCVs were found on army key 2 by their
-  wireframe, but the click on their picture only brought up the game's
-  tooltip ("Click: Select Unit / Shift+Click: Deselect Unit / Ctrl+Click:
-  Select Unit Type"); the selection did not change, so nothing went on
-  key 9, and there were still no depots. Now the mouse rests on the
+  wireframe, but nothing went on key 9, and there were still no depots.
+  (First put down to the game's tooltip coming up instead of the click
+  taking. That was wrong: the click took, and the SCV check then said no,
+  as it always did. See the review after this trial.) Now the mouse rests on the
   picture for 0.15 s before the click. Ctrl+click picks every SCV in the
   group at once, then they go on key 9. Each is dropped from the army key
   with Shift+click (also after a rest). The same rest is used for picking
@@ -552,3 +553,91 @@ the attack on Russia's Starport.
   getting hold of the SCV: Norway's two were made at 4 s and lost in the
   army's boxes, so the placing step never ran in a real game. Russia's
   tax also failed in many trials, so its code is no sure cure either.
+
+## After trial 59: why the SCVs were never got hold of (a review of the code, the logs and every recording)
+
+No depot was ever ordered in a live game. The depot step never ran with
+an SCV selected. The causes, each seen in the recordings:
+
+1. **The SCVs went onto an army key.** They come out of the Command
+   Center about 2.5 s apart (ordered at 4.4 s: out at about 7 and 10 s).
+   The army's box round the Command Center was dragged at 9.8 s. In all
+   eight recorded trials (51 to 59) the selection right after that box
+   shows one or two SCV pictures among the marines, and Ctrl+2 followed.
+   From then on they marched with key 2 to Kiruna, Finland and Murmansk.
+   The owner boxes those marines at 2.8 s, before any SCV exists.
+2. **"Is this an SCV?" always said no (from trial 56).** The check looks
+   for the yellow Build button, bottom-left of the command card. The bot
+   handed it the quick card picture, which holds the first button only.
+   So it cut an empty piece and said no, also with an SCV selected. In
+   trial 59 the sweep's clicks selected an SCV at Kiruna ten times and
+   each was thrown away. The same trial: the SCVs were found on army key
+   2 by their pictures, never got onto key 9 because of this check, were
+   then taken out of key 2 all the same, and were on no key after.
+3. **A white Move button was not known.** The game draws a unit's current
+   order in white. Units on the move (and a building flying somewhere)
+   show a white Move button; the check fitted on the yellow one says "no
+   units". After a depot is placed the SCV is walking, so "placed?" would
+   have read no.
+4. **Two SCVs together have no Build buttons** (the owner's recording):
+   a building can only be ordered with one SCV selected.
+5. **The camera was two tiles off.** After a click on the minimap the
+   Russia bot's camera model puts things about two tiles too high (at the
+   start it expects the Command Center's middle at screen y 448; it is at
+   615). Boxes forgive that; a click on one unit or a building's tile does
+   not. The same error broke the Shetland drop: the right-click and the
+   click meant for the Dropship fell two tiles above it, nobody boarded,
+   U did nothing, the click on the minimap only moved the view, and the
+   army's box then took the Dropship along to Finland.
+
+What was measured and is now used:
+
+- **The exact view.** A click on the minimap moves the view in whole
+  pixels of the old small minimap (one pixel two tiles): the screen's
+  top-left tile is `2 * (floor((x - 12.4) / 2.25) - 6)`,
+  `2 * (floor((y - 817.7) / 2.2604) - 3)`. Fitted on 45 different clicks
+  (1,564 frames, all agree) and checked against buildings at Oslo, in
+  Finland, at Murmansk and at Arkhangelsk (`live.view_after_click`). The
+  Russia bot's helpers are left as they are.
+- **The footprint hangs from the tile under the mouse** (its top-left
+  tile), for landing and for building alike: nine samples, two building
+  sizes, the owner's clicks and the bot's.
+- **Pictures in the selection** tell an SCV and the Dropship from a
+  marine. On about 900 recorded frames with several units selected every
+  find was right and no marine was taken for one.
+- **Depots** take about 12.5 s to build (18 of 250 hit points a second);
+  an SCV walks about 3.6 tiles a second.
+
+What the bot does now:
+
+- Every army box: SCVs and the Dropship are taken out of the selection
+  (Shift+click on their pictures) before the key is pressed.
+- The SCVs get no rally point. They wait below the Command Center. Right
+  after the attack on the Finland spot (the army then needs nothing for
+  six seconds) they are boxed there, told by their pictures, proved by B
+  on one of them (only an SCV, alone, shows a build menu), put on key 9
+  and sent to Arkhangelsk with one order on the minimap.
+- If they are not there: the army's keys are looked through (and an SCV
+  is only taken out of an army key once it is on key 9); then the
+  Command Center makes two more; after Finland, the arrow-key sweep.
+- Depots, once Finland is clear and the SCVs have had 40 s to walk: key
+  9, one SCV picked by its picture, the view set to the tile, B, S, the
+  mouse on the footprint's top-left tile, the footprint read (green or
+  red) where the click will go, the click, and "placed" read off the
+  Move button in either colour. One order to whichever SCV has been free
+  the longest; an SCV is left alone for 17 s after an order. Fourteen
+  spots west of Arkhangelsk's own place (which Russia taxes), in two
+  views; ten are built.
+- The repair: one SCV, R, a click on the Barracks where it really
+  landed (noted at the landing).
+- The Shetland drop with the exact view: the men boxed, right-clicked
+  onto the Dropship itself, the Dropship clicked, U (a target is asked
+  for only if someone is aboard), Shetland on the minimap.
+- Buildings are picked with one exact click (the old way, several tries,
+  is the fallback). Landing starts with the mouse on the footprint's
+  top-left tile and reads the colour where it clicks.
+
+Not tried in a live game yet. Things to look at in the next recording:
+whether the SCVs stand below the Command Center at about 26 s, the log
+line "2 SCVs below the Command Center, on key 9", the walk to
+Arkhangelsk (they pass north of Finland), and the first depot.

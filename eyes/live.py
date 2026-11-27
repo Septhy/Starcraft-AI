@@ -50,6 +50,57 @@ def on_screen(map_x, map_y, camera):
             int(CENTRE[1] + (map_y - camera[1]) * ZOOM))
 
 
+# ------------------------------------- the exact view after a minimap click
+# (Norway, after trial 59.) A left click on the minimap moves the view in
+# whole pixels of the old, small minimap: 128 wide, drawn 2.25 times
+# bigger here, one pixel two tiles. So after a click the screen's top-left
+# corner always sits on an even tile, six old pixels left of the click
+# and three above it. Fitted on 47 different clicks seen in the screen
+# recordings of trials 51 to 59 (1,564 frames, every one agrees) and
+# checked against buildings of known place at Oslo, in Finland, at
+# Murmansk and at Arkhangelsk: each lands on its picture.
+# The older camera_after_click with CENTRE puts things about two tiles too
+# high: good enough for boxes, not for clicking one thing or for placing a
+# building on a chosen tile.
+MM_X0, MM_Y0 = 12.4, 817.7     # screen x, y where the old minimap's first pixel starts
+MM_SX, MM_SY = 2.25, 217 / 96  # screen pixels to one old minimap pixel
+MM_HALF = (6, 3)               # old pixels from the view's left and top to the click
+TILE_PX = 72                   # screen pixels a tile
+MAP_TILES = (256, 192)
+
+
+def view_after_click(px, py):
+    """Top-left tile (left, top) of the screen after a left click on the
+    minimap at screen pixel (px, py)."""
+    kx = int((px - MM_X0) // MM_SX) - MM_HALF[0]
+    ky = int((py - MM_Y0) // MM_SY) - MM_HALF[1]
+    kx = min(max(kx, 0), int((MAP_TILES[0] - SCREEN[0] / TILE_PX) // 2))
+    ky = min(max(ky, 0), MAP_TILES[1] // 2 - 2 * MM_HALF[1])
+    return 2 * kx, 2 * ky
+
+
+def click_for_view(left, top):
+    """The minimap pixel to click so that the screen's top-left tile comes
+    to (left, top), rounded to the nearest even tiles."""
+    kx = max(0, int(round(left / 2)))
+    ky = max(0, int(round(top / 2)))
+    return (int(round(MM_X0 + (kx + MM_HALF[0] + 0.5) * MM_SX)),
+            int(round(MM_Y0 + (ky + MM_HALF[1] + 0.5) * MM_SY)))
+
+
+def tile_xy(tx, ty, view):
+    """Screen pixel of a tile point (a tile's top-left corner; fractions
+    of a tile allowed) for a view (left, top) from view_after_click."""
+    return (tx - view[0]) * TILE_PX, (ty - view[1]) * TILE_PX
+
+
+def mm_point(tx, ty):
+    """The minimap pixel that stands for tile (tx, ty): for an order given
+    on the minimap (the middle of its old pixel)."""
+    return (int(round(MM_X0 + (int(tx) // 2 + 0.5) * MM_SX)),
+            int(round(MM_Y0 + (int(ty) // 2 + 0.5) * MM_SY)))
+
+
 def minimap_showing(screen):
     """True when the live game's minimap is on screen: its pale top
     border line is where it should be."""
@@ -116,6 +167,52 @@ def units_selected(screen):
     return _first_button_is(screen, "units_card.png")
 
 
+def move_shown(picture):
+    """True when the first command button is Move, drawn yellow or white.
+    The game draws a unit's current order in white, so units on the move
+    (and a building in the air that is flying somewhere) show a white
+    Move button, which units_selected, fitted on the yellow one, does not
+    know (the repository owner's recording; Norway trial 59)."""
+    return _first_button_is(picture, "units_card.png") or \
+        _first_button_is(picture, "units_moving_card.png")
+
+
+def build_menu_shown(picture):
+    """True when the first command button is the build menu's first
+    building: what an SCV, and only an SCV, shows after B."""
+    return _first_button_is(picture, "build_menu_card.png")
+
+
+def placing_shown(picture):
+    """True when the first command button is empty, as while a building
+    is being placed (only Cancel shows then, bottom right)."""
+    return _first_button_is(picture, "blank_card.png")
+
+
+def building_card(picture):
+    """A building's own buttons: not empty, not Move in either colour,
+    not an SCV's build menu."""
+    return not placing_shown(picture) and not move_shown(picture) and \
+        not build_menu_shown(picture)
+
+
+ATTACK_CELL = (1850, 825, 1900, 873)   # inside the third command button
+ATTACK_ICON = 200                      # bright icon pixels there: an Attack button
+
+
+def attack_shown(screen):
+    """True when the third command button holds an icon: Attack, which
+    marines and SCVs have and a Dropship or a building in the air has not
+    (measured: about 560 bright pixels against 2). Needs the whole
+    screen."""
+    if screen is None or tuple(getattr(screen, "size", ())) != tuple(SCREEN):
+        return False
+    a = np.asarray(screen.convert("RGB").crop(ATTACK_CELL)).astype(int)
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    icon = ((R > 180) & (G > 160) & (B < 110)) | (a.min(axis=2) > 200)
+    return int(icon.sum()) >= ATTACK_ICON
+
+
 BUILD_CELL = (1640, 1010, 1690, 1058)   # inside the bottom-left command button
 BUILD_YELLOW = 200                     # yellow pixels there: an SCV's Build button
 
@@ -124,7 +221,13 @@ def scv_selected(screen):
     """True when the bottom-left command button is the yellow Build
     button, which only SCVs have (marines and buildings show an empty
     plate there). Norway trial 55: a click near the depots' place left two
-    marines selected and they were taken for SCVs."""
+    marines selected and they were taken for SCVs.
+
+    It needs the whole screen. Trials 56 to 59: it was handed the quick
+    card picture, which holds the first button only, cut an empty piece
+    out of it and so said no every time, also with an SCV selected."""
+    if screen is None or tuple(getattr(screen, "size", ())) != tuple(SCREEN):
+        return False
     try:
         a = np.asarray(screen.convert("RGB").crop(BUILD_CELL)).astype(int)
     except Exception:
@@ -307,6 +410,7 @@ def frame_box(i, n=12):
 
 
 SCV_FRAME_MATCH = 0.4                 # overlap with the SCV wireframe: an SCV
+FRAME_KINDS = {"scv": "scv_frame.png", "dropship": "dropship_frame.png"}
 
 
 def _frame_lines(a, box):
@@ -315,14 +419,16 @@ def _frame_lines(a, box):
     return (c.max(axis=2) > 100) & (c[..., 2] < np.maximum(c[..., 0], c[..., 1]) - 20)
 
 
-def scv_frames(screen, n):
-    """Which of the n framed pictures of a selection are SCVs, told by
-    their wireframe (bulky, no gun) against a marine's (Norway trial 58:
-    two SCVs had been boxed into an army key with the marines)."""
-    if "scv_frame" not in _templates:
-        _templates["scv_frame"] = np.asarray(
-            Image.open(data_path("scv_frame.png")).convert("L")) > 127
-    t = _templates["scv_frame"]
+def frames_like(screen, n, kind):
+    """Which of the n framed pictures of a selection show a unit of
+    `kind` ("scv", "dropship"), told by its wireframe. Checked on every
+    recorded frame of trials 51 to 59 with several units selected (about
+    900): each one found was that kind of unit, never a marine."""
+    name = FRAME_KINDS[kind]
+    if name not in _templates:
+        _templates[name] = np.asarray(
+            Image.open(data_path(name)).convert("L")) > 127
+    t = _templates[name]
     a = np.asarray(screen.convert("RGB")).astype(int)
     out = []
     for i in range(n):
@@ -337,6 +443,31 @@ def scv_frames(screen, n):
         if best >= SCV_FRAME_MATCH:
             out.append(i)
     return out
+
+
+def scv_frames(screen, n):
+    """Which of the n framed pictures of a selection are SCVs, told by
+    their wireframe (bulky, no gun) against a marine's (Norway trial 58:
+    two SCVs had been boxed into an army key with the marines)."""
+    return frames_like(screen, n, "scv")
+
+
+def frames_shown(screen):
+    """How many framed pictures the bottom panel shows: 2 to 12 with
+    several units selected, 0 with one unit or none. Unlike
+    selected_count it does not ask for a yellow Move button, so it also
+    counts units that are on the move."""
+    a = np.asarray(screen.convert("RGB")).astype(int)
+    count = 0
+    for row in range(2):
+        for col in range(6):
+            x = SLOT_ORIGIN[0] + col * SLOT_STEP[0]
+            y = SLOT_ORIGIN[1] + row * SLOT_STEP[1]
+            top = a[y - 1:y + 5, x + 8:x + SLOT_SIZE - 8].max(axis=2).max(axis=0)
+            left = a[y + 8:y + SLOT_SIZE - 8, x - 1:x + 7].max(axis=2).max(axis=1)
+            if (top > 120).mean() > 0.7 and (left > 120).mean() > 0.7:
+                count += 1
+    return count
 
 
 def selected_count(screen):

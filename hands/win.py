@@ -132,20 +132,22 @@ class WinIO:
         self._mouse(up)
         self.log(f"click {button} {int(x)},{int(y)}", quiet=True)
 
-    def click_with(self, held, x, y):
+    def click_with(self, held, x, y, button="left"):
         """Click while holding a key: "ctrl" picks every unit of that kind
-        on screen, "shift" adds a unit to or drops it from the selection."""
+        on screen, "shift" adds a unit to or drops it from the selection;
+        with the right button, Shift queues the order after the last."""
         self._check()
+        down, up = (LEFT_DOWN, LEFT_UP) if button == "left" else (RIGHT_DOWN, RIGHT_UP)
         self._key(held)
         time.sleep(0.04)
         self._move(x, y)
         time.sleep(0.01)
-        self._mouse(LEFT_DOWN)
+        self._mouse(down)
         time.sleep(0.035)
-        self._mouse(LEFT_UP)
+        self._mouse(up)
         time.sleep(0.03)
         self._key(held, up=True)
-        self.log(f"click {held}+left {int(x)},{int(y)}", quiet=True)
+        self.log(f"click {held}+{button} {int(x)},{int(y)}", quiet=True)
 
     def drag(self, x0, y0, x1, y1):
         self._check()

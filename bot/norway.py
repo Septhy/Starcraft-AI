@@ -5,8 +5,9 @@ owner's rules for the first minutes:
 
 - the opening line "AF Norway AI v0.01" to everyone, then allied chat;
 - the starting Dropship drops on Shetland at once;
-- two SCVs, rallied to the far north-east, where they build the supply
-  depots (for safety);
+- two SCVs, which wait below the Command Center, are put on key 9 once
+  the army has left, and walk to Arkhangelsk in the far north-east, where
+  they build ten supply depots (for safety);
 - the Factory and the Engineering Bay lifted and floated over Shetland;
 - the Starport lifted and flown to Murmansk; the Barracks lifted and
   flown to Finland; the Command Center lifted (once its SCVs are out)
@@ -39,23 +40,43 @@ T = 32                         # map pixels a tile
 SHETLAND = (64 * T + 6 * T, 33 * T + 4 * T)     # the middle of Shetland 300
 KIRUNA_LAND = [(139, 8), (130, 1), (128, 2), (126, 2), (133, 3)]   # Command Center (tiles,
                                # top left), the sample games' spots by Kiruna
-DEPOTS_AT = (200, 18)          # tiles: by Arkhangelsk, where the repository
-                               # owner built them (for safety; trial 40)
-# where the owner put their depots by Arkhangelsk (their recording:
-# tiles 184-209, 13-27), a depot's width (3 tiles) and more apart
-DEPOT_TILES = [(199, 20), (195, 20), (203, 20), (199, 16), (195, 16),
-               (203, 16), (207, 20), (207, 24), (199, 24), (203, 24),
-               (195, 24), (207, 16)]
+DEPOTS_AT = (196, 20)          # tiles: by Arkhangelsk, where the repository
+                               # owner built theirs (for safety; trial 40): where
+                               # the SCVs walk to, beside the depots' ground
+# Where the depots go (a depot's top-left tile, 3 by 2 tiles), by the view
+# they are placed from (the screen's top-left tile; rows that would lie
+# under the bottom panel need the second view). West of Arkhangelsk's own
+# place (tiles 208 to 220, which Russia taxes) and round Russia's two
+# depots there, as the owner's were (their recording: about 198 to 207,
+# 14 to 27); a tile's gap between them so the SCVs can walk through.
+DEPOT_FIELD = [
+    ((188, 10), [(201, 14), (197, 14), (205, 14), (201, 11), (197, 11),
+                 (205, 11), (201, 17), (205, 17), (197, 17)]),
+    ((188, 20), [(202, 22), (198, 22), (202, 25), (198, 25), (206, 25)]),
+]
+DEPOT_SIZE = (3, 2)            # tiles
 DEPOTS = 10                    # the owner: ten depots by Arkhangelsk
-SCV_WAIT = (126, 17)           # tiles: where the new SCVs wait (the owner's
-                               # recording: the Norwegian military camp; trial
-                               # 53, sent straight on through Finland they were
-                               # lost to the Germans and never arrived)
-SCV_REMAKE_WAIT = 45           # seconds for two new SCVs to come out and
-                               # walk to Kiruna
-SCV_OUT = 30                   # seconds the Command Center's lift waits for them
-SCV_TRIES = 12                 # looks for the SCVs before giving up
-SCV_WALK = 25                  # seconds they are given to reach Arkhangelsk
+SCV_KEY = "9"                  # the SCVs, from the moment they are found
+CC_EXIT = (90.7, 56.4)         # tile point below the Command Center where new
+                               # SCVs come out and stand (trials 51-59: both
+                               # within a tile of it at 10 and at 18 s)
+SCV_BOX = (-3.9, -1.7, 4.3, 2.6)   # tiles round it boxed to take them
+SCV_OUT = 7                    # seconds from the order until both are out (the
+                               # recordings: about 2.5 s an SCV)
+SCV_RETRY = 8                  # seconds between tries to get hold of them
+SCV_TRIES = 8                  # tries before the depots are given up
+SCV_SLACK = 2.5                # seconds the army must not need the bot for
+SCV_WALK = 40                  # seconds from Oslo to Arkhangelsk (the owner's
+                               # recording: about 3.6 tiles a second)
+SCV_REMADE_WAIT = 12           # seconds the Command Center's lift waits for
+                               # two new SCVs if the first were lost
+SWEEPS = 2                     # sweeps of the screen for lost SCVs, at most
+DEPOT_BUILD = 17               # seconds an SCV is left alone after a depot
+                               # order: a few to walk, about 12.5 to build (the
+                               # owner's recording: 18 of 250 hit points a second)
+SCV_BUSY = 5                   # seconds an SCV that showed no build menu (it is
+                               # building) is left alone
+DEPOT_FAILS = 12               # depot orders that failed in a row: given up
 FINLAND = (125, 15, 150, 50)   # tiles: where Germany's buildings in Finland stand
 NORTH_ARMY = (95, 0, 160, 33)  # tiles: our starting troops in the north
 # The repository owner's way into Finland (their recording, trial 40):
@@ -83,13 +104,12 @@ ARMY_BOXES = 16                # boxes at most to key the army (each ~1 s;
                                # trial 43: 10 left Narvik's men unkeyed)
 GROUP_W, GROUP_H = 20, 8       # tiles: a box's patch of ground (the screen
                                # shows about 26 by 10 tiles)
-DEPOT_FIRST = 60               # seconds before the SCVs are looked for at the depots
 BUSY_UNTIL = 100               # seconds: the Command Center and the depots wait
                                # for Finland till then (trial 48: they took the
                                # bot away from the fight at 45 and 63 s)
-DEPOT_EVERY = 14                # seconds between depots (one an order) (trial 42: every 3 s, the
-                               # camera sat on empty ground by Arkhangelsk)
-DEPOT_LOOKS = 30               # tries before the depots are given up
+DEPOT_EVERY = 4                # seconds between looks at the depots (an order
+                               # goes out when an SCV is free; trial 42: every
+                               # 3 s the camera sat on empty ground there)
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
 BARRACKS_WAIT = (127 * T, 22 * T)  # where the Barracks floats till the army
                                # has taken the Finland spot: the Norwegian camp
@@ -108,7 +128,6 @@ BARRACKS_BY = 3 * 60 + 25      # the countdown (3:25) by which the Barracks is d
 OUT_OF_WAY = 7                 # tiles our men step away from the landing spot
 LAND_BUTTON = trial.LIFT_BUTTON  # a lifted building's bottom-right button: Land
 KEYS = {"Barracks": "6", "Starport": "7", "Command Center": "8"}
-SCV_KEY = "9"                  # the two SCVs, once found at the camp
 LOOK_EVERY = 3                 # real seconds between looks at Finland
 PORT_ASIDE = (148 * T, 16 * T)  # where the army steps to, off the Starport's spot
 PORT_WALK = 4                  # seconds it is given to get there
@@ -164,8 +183,7 @@ class State:
         self.last_look = -1e9
         self.port_tries = 0
         self.last_port = -1e9
-        self.depots_ordered = False
-        self.scvs_at = None
+        self.depots_ordered = False     # the depots are done with (or given up)
         self.cc_lifted = False
         self.army_keys = []
         self.stage = 0
@@ -184,18 +202,21 @@ class State:
         self.last_repair = -1e9
         self.chain, self.chain_at = [], -1e9
         self.depot_look = -1e9
-        self.depot_looks = 0
-        self.depot_next = 0
+        self.depot_fails = 0
+        self.depot_done = set()         # depot spots tried (indices)
+        self.depot_built = set()        # depot spots a depot was ordered on
         self.depots_placed = 0
-        self.scvs_sent = 0
-        self.scvs_look = -1e9
-        self.scvs_tries = 0
-        self.scvs_keyed = False
+        self.scvs_made = None           # when the SCVs were ordered
         self.scvs_remade = 0
+        self.scv_count = 0              # SCVs on SCV_KEY
+        self.scv_tries = 0
+        self.scv_look = -1e9
+        self.scvs_sent = None           # when they set off for Arkhangelsk
+        self.scv_busy = [0.0, 0.0]      # until when each SCV is left alone
+        self.sweeps = 0
         self.sweep_speed = SWEEP_SPEED
-        self.army_checked = False
         self.port_clicked = 0
-        self.cc_home = None
+        self.at = {}                    # building -> tile where it landed
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
         self.boxes = self.empty = self.empty_skipped = 0
@@ -208,11 +229,11 @@ def lift(io, mapdata, st, kind, dest=None, key=None):
     True if it went up."""
     b = norway_buildings(mapdata).get(kind)
     clear_modes(io)
-    if b is None or not trial.pick_building(io, b):
+    if b is None or not pick(io, b):
         io.log(f"norway: the {kind} was not found")
         return False
     io.sleep(0.2)
-    if live.units_selected(io.card()):
+    if live.move_shown(io.card()):
         # something in the air is selected, not this building on the ground
         # (trial 50: a floating Starport, whose bottom-right button is Land)
         clear_modes(io)
@@ -222,7 +243,7 @@ def lift(io, mapdata, st, kind, dest=None, key=None):
     io.sleep(0.15)
     io.key("l")                         # (the button, and its key, in case)
     io.sleep(0.4)
-    if not live.units_selected(io.card()):      # a lifted building shows Move
+    if not live.move_shown(io.card()):  # a lifted building shows Move
         io.log(f"norway: the {kind} did not lift")
         return False
     if key:
@@ -313,12 +334,15 @@ def outline_colour(picture, sx, sy, size=(4, 3)):
 
 
 def aligned(io, cx, cy, label, size):
-    """Move the mouse until the footprint's middle is on (cx, cy): hover,
-    find the footprint in the picture, move the mouse by what it is off,
-    and again. (mouse point, footprint) or (None, None) if none is seen."""
+    """Move the mouse until the footprint's middle is within half a tile
+    of (cx, cy). The game hangs the footprint from the tile under the
+    mouse (its top-left tile), so the mouse starts on that tile; if the
+    footprint is read elsewhere the mouse is moved by what it is off and
+    it is read again. (mouse point, footprint read at that point), or
+    (None, None) if none is seen or it will not settle."""
     tile = 32 * live.ZOOM
-    mx, my = cx, cy
-    fp = None
+    mx = cx - (size[0] - 1) * tile / 2
+    my = cy - (size[1] - 1) * tile / 2
     for _ in range(ALIGN_TRIES):
         io.hover(int(mx), int(my))
         io.sleep(0.15)
@@ -327,10 +351,10 @@ def aligned(io, cx, cy, label, size):
             return None, None
         ox = cx - (fp[0] + fp[2]) / 2
         oy = cy - (fp[1] + fp[3]) / 2
-        if abs(ox) <= tile / 3 and abs(oy) <= tile / 3:
+        if abs(ox) <= tile / 2 + 2 and abs(oy) <= tile / 2 + 2:
             return (int(mx), int(my)), fp
         mx, my = mx + ox, my + oy
-    return (int(mx), int(my)), fp      # the last move is not checked
+    return None, None
 
 
 def green_spot(io, sx, sy, label, nudges=None, fixed=False):
@@ -512,10 +536,10 @@ def is_down(io, key):
     one quick read still showed the SCV's build menu)."""
     io.key(key)
     io.sleep(0.25)
-    if not live.building_selected(io.card()):
+    if not live.building_card(io.card()):
         return False
     io.sleep(0.25)
-    return live.building_selected(io.card())
+    return live.building_card(io.card())
 
 
 def dest_name(mapdata, xy):
@@ -535,12 +559,14 @@ def land(io, kind, spots, st):
             return True                 # down already (from an earlier try)
         io.key(key)
         io.sleep(0.15)
-        if not live.units_selected(io.card()):
+        if not live.move_shown(io.card()):
             return False                # the key does not hold it in the air
         cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
         sx, sy = live.on_screen(x, y, cam)
         if not (l + 40 < sx < r - 40 and t + 40 < sy < b - 40):
             continue
+        # (where the screen really is, to note where it lands)
+        view = live.view_after_click(*live.minimap_point(*trial.centred(x, y)))
         io.click(*LAND_BUTTON)
         io.sleep(0.15)
         exact = kind in EXACT_KINDS
@@ -555,6 +581,11 @@ def land(io, kind, spots, st):
             continue
         io.click(*spot)
         st.land_tried.add(kind)
+        # where it comes down, for later (the repair): the footprint hangs
+        # from the tile under the mouse, and this is its middle
+        size = footprint_size("land-" + kind)
+        st.at[kind] = (view[0] + spot[0] // live.TILE_PX + size[0] / 2,
+                       view[1] + spot[1] // live.TILE_PX + size[1] / 2)
         io.sleep(0.3)
         io.key("esc")                   # out of placing if the spot was refused
         io.sleep(0.1)
@@ -572,96 +603,365 @@ def land(io, kind, spots, st):
     return False
 
 
-REPAIR_TRIES = 3
-REPAIR_EVERY = 12
+# ------------------------------------------------------------ the exact view
+# (After trial 59.) Where a click on the minimap really puts the screen is
+# known to the tile (live.view_after_click). Norway uses it wherever one
+# thing has to be clicked or a building put on a chosen tile; the Russia
+# bot's camera helpers stay as they are for its own play.
+FREE_MIDDLE = (960, 400)       # the middle of the screen that is free of panels
 
 
-def repair_barracks(io, st):
-    """One SCV repairs the Barracks by the Heavy Industry: the SCVs on
-    their key, the first of them picked from the selection, R, then a
-    click on the Barracks. True if the order was given."""
-    if not pick_scvs(io, st):
-        io.log("norway: no SCV found to repair the Barracks")
-        return False
-    n = selected(io)
-    if n > 1:                           # just one of them
-        frame_click(io, 0, n)
-    bx, by = BARRACKS_SPOT
-    cam = trial.look_at(io, *trial.centred(bx, by), wait=0.3)
-    io.key("r")                         # repair
-    io.sleep(0.08)
-    io.click(*live.on_screen(bx, by, cam))
-    io.sleep(0.05)
-    io.log("norway: an SCV goes to repair the Barracks")
-    return True
+def look(io, tx, ty, at=FREE_MIDDLE, wait=0.25):
+    """Move the view so that tile point (tx, ty) comes near screen point
+    `at` (the view moves in steps of two tiles, so within a tile of it).
+    The view (left, top) in tiles, for live.tile_xy."""
+    px, py = live.click_for_view(tx - at[0] / live.TILE_PX,
+                                 ty - at[1] / live.TILE_PX)
+    io.click(px, py)
+    io.sleep(wait)
+    return live.view_after_click(px, py)
+
+
+def look_at_view(io, view, wait=0.25):
+    """Move the view to a known top-left tile."""
+    io.click(*live.click_for_view(*view))
+    io.sleep(wait)
+    return live.view_after_click(*live.click_for_view(*view))
+
+
+def on_view(tx, ty, view):
+    """Screen pixel (whole numbers) of a tile point in a view."""
+    x, y = live.tile_xy(tx, ty, view)
+    return int(round(x)), int(round(y))
+
+
+def in_free_area(x, y, margin=30):
+    l, t, r, b = live.GAME_AREA
+    return l + margin < x < r - margin and t + margin < y < b - margin
+
+
+def pick(io, b):
+    """Click one of our buildings where it stands, with the exact view
+    (one click); if that does not show a building's buttons, the Russia
+    bot's way (several tries round where it thinks the building is)."""
+    tx, ty = b["x"] / T, b["y"] / T
+    view = look(io, tx, ty)
+    x, y = on_view(tx, ty, view)
+    if in_free_area(x, y, 5):
+        io.click(x, y)
+        io.sleep(0.12)
+        if live.building_card(io.card()):
+            return True
+    return trial.pick_building(io, b)
+
+
+# ------------------------------------------------------- the Shetland drop
+LOAD_WAIT = 1.0                # seconds the men are given to walk in
+UNLOAD_TRIES = 2
 
 
 def drop_on_shetland(io, mapdata):
-    """The starting Dropship (with its men aboard) unloads on Shetland:
-    picked where it stands, U, then a click on Shetland."""
+    """The starting Dropship takes the men beside it and unloads them on
+    Shetland: the men boxed and right-clicked onto it, the Dropship clicked,
+    U, then a click on Shetland on the minimap.
+
+    Trials 51 to 59 (found in the recordings): the right-click and the
+    click were aimed with the Russia bot's camera, two tiles above the
+    Dropship, so nobody boarded, the Dropship was never picked on its own,
+    U did nothing, and the click on the minimap only moved the view. Then
+    the army's box took the Dropship along to Finland."""
     d = next((a for a in mapdata["slots"][SLOT]["air"]
               if a["type"] == "Dropship"), None)
     if d is None:
         return False
-    # the men standing by it board it first (it starts empty; the
-    # repository owner boxed the few beside it and right-clicked it)
-    cam = trial.look_at(io, *trial.centred(d["x"], d["y"]), wait=0.2)
+    tx, ty = d["x"] / T, d["y"] / T
+    view = look(io, tx, ty, wait=0.2)
     l, t, r, b = live.GAME_AREA
     x0, y0, x1, y1 = LOAD_BOX
-    a = live.on_screen(d["x"] + x0 * T, d["y"] + y0 * T, cam)
-    z = live.on_screen(d["x"] + x1 * T, d["y"] + y1 * T, cam)
+    a = on_view(tx + x0, ty + y0, view)
+    z = on_view(tx + x1, ty + y1, view)
     box = (max(l + 3, a[0]), max(t + 3, a[1]), min(r - 3, z[0]), min(b - 3, z[1]))
+    ship = on_view(tx, ty, view)
     if box[2] - box[0] > 20 and box[3] - box[1] > 20:
         io.drag(*box)
         io.sleep(0.1)
-        io.click(*live.on_screen(d["x"], d["y"], cam), button="right")
-        io.sleep(1.5)                   # they walk in
-    if trial.click_unit(io, d["x"], d["y"]) is None:
-        io.log("norway: the Dropship was not found")
-        return False
-    io.key("u")                         # unload, there
+        io.click(*ship, button="right")     # the men walk in
+        io.sleep(LOAD_WAIT)
+    for attempt in range(UNLOAD_TRIES):
+        io.click(*ship)                     # the Dropship alone
+        io.sleep(0.12)
+        if not live.move_shown(io.card()):
+            io.sleep(0.4)
+            continue
+        io.key("u")                         # unload: a target is asked for
+        io.sleep(0.12)                      # (only Cancel shows) if anyone
+        if live.placing_shown(io.card()):   # is aboard
+            io.click(*live.mm_point(SHETLAND[0] // T, SHETLAND[1] // T))
+            io.sleep(0.05)
+            io.log("norway: the Dropship goes to unload on Shetland")
+            return True
+        io.sleep(0.5)                       # nobody aboard yet: once more
+    clear_modes(io)
+    io.log("norway: the Dropship was not sent to Shetland (it was not "
+           "picked, or nobody had boarded)")
+    return False
+
+
+# ----------------------------------------------------------------- the SCVs
+# What went wrong before (trials 51 to 59, found in the recordings):
+# - the two new SCVs come out of the Command Center at about 7 and 10 s,
+#   just as the army's box is dragged round it, so they went on army key 2
+#   and marched to Finland and Murmansk with the marines;
+# - from trial 56 on, "is this an SCV?" looked for the Build button in a
+#   picture that held the first command button only, so it said no every
+#   time, also with an SCV selected (trial 59: ten times);
+# - units on the move show a white Move button, which the check fitted on
+#   the yellow one does not know;
+# - with two SCVs selected the game shows no Build buttons at all (the
+#   owner's recording): a building can only be ordered with one selected.
+# Now: SCVs (and the Dropship) are taken out of every army box by their
+# picture in the selection; the SCVs wait below the Command Center, are
+# boxed there once the army has left, told by their pictures, proved by B
+# (only an SCV, alone, gets a build menu), put on key 9 and sent to
+# Arkhangelsk. From then on they are only ever called by that key, and
+# every order goes to one of them, picked by its picture.
+FRAME_HOVER = 0.08             # seconds the mouse rests on a picture in the
+                               # selection before it is clicked
+
+
+def frame_click(io, i, n, held=None, rest=FRAME_HOVER):
+    """Click the i-th of n pictures in the selection card (with Ctrl: every
+    unit of that kind in the selection; with Shift: that one dropped;
+    plain: that one alone)."""
+    x0, y0, x1, y1 = live.frame_box(i, n)
+    x, y = (x0 + x1) // 2, (y0 + y1) // 2
+    if getattr(io, "hover", None) is not None and rest:
+        io.hover(x, y)
+        io.sleep(rest)
+    if held:
+        io.click_with(held, x, y)
+    else:
+        io.click(x, y)
+    io.sleep(0.12)
+
+
+NOT_ARMY = ("scv", "dropship")  # kinds an army key must not hold
+
+
+def army_only(io, pic, n):
+    """SCVs and the Dropship in a selection meant for an army key are
+    taken out (Shift+click on each one's picture, from the last). Returns
+    how many units stay selected, and whether any were taken out."""
+    if n < 2:
+        return n, False
+    odd = sorted({i for kind in NOT_ARMY
+                  for i in live.frames_like(pic, n, kind)}, reverse=True)
+    m = n
+    for i in odd:
+        if m < 2:
+            break                       # one left: its picture is not shown
+        frame_click(io, i, m, held="shift")
+        m -= 1
+    if odd and len(odd) >= n:
+        m = 0                           # nothing but SCVs and the Dropship
+    return m, bool(odd)
+
+
+def proved_scv(io):
+    """With one unit selected: B. Only an SCV shows a build menu then (Esc
+    closes it again). True if it did."""
+    io.key("b")
+    io.sleep(0.15)
+    card = io.card()
+    if live.build_menu_shown(card):
+        io.key("esc")
+        io.sleep(0.1)
+        return True
+    if not live.move_shown(card) and not live.placing_shown(card):
+        io.key("esc")                   # something else came up: away with it
+        io.sleep(0.1)
+    return False
+
+
+def scvs_selected(io, label="scvs"):
+    """Whatever is selected, cut down to its SCVs by their pictures: with
+    others among them, Ctrl+click on an SCV's picture picks every SCV of
+    the selection. How many SCVs are selected after (0: none; then the
+    selection is whatever it was)."""
+    if not live.move_shown(io.card()):
+        return 0
+    pic = io.shot(label, keep=False)
+    n = live.frames_shown(pic)
+    if n < 2:                           # one unit: an SCV has the Build button
+        return 1 if live.scv_selected(pic) else 0
+    idx = live.frames_like(pic, n, "scv")
+    if not idx:
+        return 0
+    if len(idx) == n:
+        return n
+    frame_click(io, idx[0], n, held="ctrl")
+    pic = io.shot(label, keep=False)
+    m = live.frames_shown(pic)
+    if m < 2:
+        return 1 if live.scv_selected(pic) else 0
+    return m if len(live.frames_like(pic, m, "scv")) == m else 0
+
+
+def key_scvs(io, st, n, where):
+    """The SCVs now selected (n of them, told by their pictures) go on
+    SCV_KEY, proved by B on one of them. How many the key holds after."""
+    if n == 1 and not proved_scv(io):
+        io.log(f"norway: what was taken for an SCV {where} showed no build "
+               f"menu: left alone")
+        return 0
+    io.combo("shift" if st.scv_count else "ctrl", SCV_KEY)
     io.sleep(0.05)
-    io.click(*live.minimap_point(*SHETLAND))
-    io.sleep(0.05)
-    io.log("norway: the Dropship goes to unload on Shetland")
-    return True
+    if n >= 2:                          # the proof needs one alone
+        frame_click(io, 0, n)
+        if not proved_scv(io):
+            st.scv_count = 0            # the key is not to be trusted
+            io.shot("not-scvs")
+            io.log(f"norway: what was taken for SCVs {where} showed no build "
+                   f"menu (picture 'not-scvs'): key {SCV_KEY} is not used")
+            return 0
+    st.scv_count += n
+    io.log(f"norway: {n} SCV{'s' if n > 1 else ''} {where}, on key {SCV_KEY}"
+           + (f" ({st.scv_count} in all)" if st.scv_count > n else ""))
+    return n
 
 
 def make_scvs(io, mapdata, st=None):
-    """Two SCVs at the Command Center, rallied to the Norwegian camp."""
+    """Two SCVs at the Command Center. No rally point: they come out below
+    it and wait there, a known place, until they are put on their key."""
     cc = norway_buildings(mapdata)["Command Center"]
     if st is not None:
-        st.cc_home = (cc["x"], cc["y"] + 3 * T)   # where they come out
-    if not trial.pick_building(io, cc):
+        st.scvs_made = io.now()         # (also if it fails: they are then
+    if not pick(io, cc):                # looked for, and made again)
         io.log("norway: the Command Center was not found")
         return False
     io.key("s")
     io.sleep(0.05)
     io.key("s")
     io.sleep(0.05)
-    io.key("r")                         # rally, the owner's way: R, then
-    io.sleep(0.05)                      # a click on the minimap
-    io.click(*live.minimap_point(SCV_WAIT[0] * T, SCV_WAIT[1] * T))
-    io.sleep(0.05)
-    io.log("norway: 2 SCVs ordered, rallied to the Norwegian military camp "
-           "(they go on to Arkhangelsk once Finland is clear)")
+    io.log("norway: 2 SCVs ordered at the Command Center (they wait below it "
+           f"and go on key {SCV_KEY} once the army has left)")
     return True
 
 
-# Looking for the SCVs by moving the game screen with the arrow keys (the
-# owner, after trial 56), not by jumping about with the minimap: a sweep
-# over Kiruna, the Norwegian camp and Murmansk. Where the view is, is read
-# from the minimap's white box after each move.
+def take_scvs(io, st):
+    """The new SCVs, standing below the Command Center, are boxed there
+    and put on SCV_KEY. How many were taken."""
+    clear_modes(io)
+    view = look(io, *CC_EXIT)
+    x0, y0, x1, y1 = SCV_BOX
+    a = on_view(CC_EXIT[0] + x0, CC_EXIT[1] + y0, view)
+    z = on_view(CC_EXIT[0] + x1, CC_EXIT[1] + y1, view)
+    l, t, r, b = live.GAME_AREA
+    io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
+    io.sleep(0.15)
+    n = scvs_selected(io, "scvs-cc")
+    if not n:
+        return 0
+    return key_scvs(io, st, n, "below the Command Center")
+
+
+def scvs_from_army(io, st):
+    """SCVs that got onto an army key all the same: found by their
+    pictures in the key's selection, put on SCV_KEY, and only then taken
+    out of the army key (trial 59: they were taken out without having got
+    onto their own key, and were on none after). How many were found."""
+    found = 0
+    for key in st.army_keys:
+        clear_modes(io)
+        io.key(key)
+        io.sleep(0.2)
+        pic = io.shot("army-key", keep=False)
+        n = live.frames_shown(pic)
+        if n < 2 or not live.frames_like(pic, n, "scv"):
+            continue
+        k = scvs_selected(io, "army-key")
+        if not k or not key_scvs(io, st, k, f"on army key {key}"):
+            continue
+        found += k
+        io.key(key)                     # and now out of the army key
+        io.sleep(0.2)
+        pic = io.shot("army-key", keep=False)
+        left, changed = army_only(io, pic, live.frames_shown(pic))
+        if changed and left:
+            io.combo("ctrl", key)
+            io.sleep(0.05)
+    return found
+
+
+def call_scvs(io, st):
+    """Press the SCVs' key. How many SCVs it selects (told by their
+    pictures; one alone by its Build button): 0 if it holds none."""
+    io.key(SCV_KEY)
+    io.sleep(0.2)
+    if not live.move_shown(io.card()):
+        return 0
+    pic = io.shot("scvs", keep=False)
+    n = live.frames_shown(pic)
+    if n < 2:
+        return 1 if live.scv_selected(pic) else 0
+    return n if len(live.frames_like(pic, n, "scv")) == n else 0
+
+
+def one_scv(io, st, i):
+    """One SCV selected: the key, then (with several on it) the i-th one's
+    picture. The number of SCVs on the key, 0 if none."""
+    n = call_scvs(io, st)
+    if n >= 2:
+        frame_click(io, i % n, n)
+    st.scv_count = n
+    return n
+
+
+def send_scvs(io, st):
+    """The SCVs on their key walk to Arkhangelsk: one order on the
+    minimap (the game finds the way, north of Finland and round the White
+    Sea, as the owner sent theirs)."""
+    if not call_scvs(io, st):
+        io.log(f"norway: key {SCV_KEY} holds no SCV")
+        st.scv_count = 0
+        return False
+    io.click(*live.mm_point(*DEPOTS_AT), button="right")
+    io.sleep(0.05)
+    st.scvs_sent = io.now()
+    io.log("norway: the SCVs walk to Arkhangelsk")
+    return True
+
+
+def remake_scvs(io, mapdata, st):
+    """Two new SCVs at the Command Center (still at home): they wait below
+    it like the first."""
+    cc = norway_buildings(mapdata)["Command Center"]
+    clear_modes(io)
+    if not pick(io, cc):
+        io.log("norway: the Command Center was not found for new SCVs")
+        return False
+    io.key("s")
+    io.sleep(0.05)
+    io.key("s")
+    io.sleep(0.05)
+    st.scvs_made = st.scvs_remade = io.now()
+    io.log("norway: no SCV found: the Command Center makes two more (its "
+           "lift waits for them)")
+    return True
+
+
+# Looking for lost SCVs by moving the game screen with the arrow keys (the
+# owner, after trial 56): the last resort. Where the view is, is read from
+# the minimap's white box after each move (to two tiles).
 SWEEP_VIEWS = [(133, 10), (155, 10), (155, 20), (133, 20), (200, 18)]
                                # tiles: view middles (Kiruna, Murmansk, the
-                               # camp, then Arkhangelsk, where the owner's
-                               # SCVs were by 68 s)
+                               # camp, then Arkhangelsk)
 SWEEP_NEAR = (3, 2)            # tiles: a view this close is close enough
 SWEEP_SPEED = 15.0             # tiles a second an arrow key scrolls (first guess;
                                # measured as it goes)
 SWEEP_MOVES = 8                # moves at most to reach one view
 SWEEP_HOLD = 1.5               # seconds an arrow is held at most at once
-PROBES = 10                     # spots clicked at most in one view
+PROBES = 6                     # spots clicked at most in one view
 SCV_CELL = 24                  # screen pixels: the grid SCVs are looked for in
 SCV_ORANGE = 30                # orange pixels in a cell (trial 57: the SCV at
                                # Murmansk was darker, about (164, 100, 26))
@@ -735,212 +1035,200 @@ def scroll_to(io, st, tx, ty):
 
 
 def probe_scvs(io, st):
-    """Click each spot on the screen that may be an SCV; each that shows
-    the Build button joins the SCVs on SCV_KEY. How many were found."""
+    """Click each spot on the screen that may be an SCV. Whether it is one
+    is asked of the game itself: B, and a build menu shows only for an
+    SCV (trials 57 to 59: the check used then never said yes). Each one
+    found goes on SCV_KEY. How many were found."""
     found = 0
-    spots = scv_spots(io.shot("scv-look", keep=False))[:PROBES]
-    for x, y in spots:
+    for x, y in scv_spots(io.shot("scv-look", keep=False))[:PROBES]:
         io.click(x, y)
-        io.sleep(0.15)
-        if not live.scv_selected(io.card()):
+        io.sleep(0.12)
+        if not live.move_shown(io.card()):
             continue
-        if st.scvs_keyed:               # add it to the ones on the key
-            io.key(SCV_KEY)
-            io.sleep(0.1)
-            io.click_with("shift", x, y)
-            io.sleep(0.1)
-        io.combo("ctrl", SCV_KEY)
-        io.sleep(0.05)
-        st.scvs_keyed = True
-        found += 1
-        io.log(f"norway: sweep: an SCV at screen {x}, {y}, put on key "
-               f"{SCV_KEY}")
+        if key_scvs(io, st, 1, f"at screen {x}, {y} (sweep)"):
+            found += 1
+            if st.scv_count >= 2:
+                break
     return found
 
 
 def sweep_for_scvs(io, st):
-    """Move the screen over Kiruna, the Norwegian camp and Murmansk with
-    the arrow keys and look for our SCVs on it. True if any were found
-    (they are then on SCV_KEY)."""
+    """Move the screen over Kiruna, Murmansk, the Norwegian camp and
+    Arkhangelsk with the arrow keys and look for our SCVs on it. How many
+    were found (they are then on SCV_KEY)."""
     clear_modes(io)
     total = 0
     for tx, ty in SWEEP_VIEWS:
         if not scroll_to(io, st, tx, ty):
             continue
         total += probe_scvs(io, st)
-        if total >= 2:
+        if st.scv_count >= 2:
             break
     if total:
         io.log(f"norway: sweep found {total} SCV(s)")
-    return total > 0
+    return total
 
 
-FRAME_HOVER = 0.15             # seconds the mouse rests on a picture in the
-                               # selection before it is clicked (trial 59: a
-                               # click at once only brought up its tooltip)
+def get_scvs(io, mapdata, st):
+    """One try at getting the SCVs onto their key and on their way: below
+    the Command Center; from the second try on the army's keys too; then,
+    with the Command Center still at home, two new ones; after Finland a
+    sweep of the screen. With one SCV on the key already, only the place
+    below the Command Center is looked at for the other. How many are on
+    the key."""
+    st.scv_tries += 1
+    had = st.scv_count
+    n = take_scvs(io, st)
+    if not n and not had and st.scv_tries >= 2:
+        n = scvs_from_army(io, st)
+    if not n and not had and st.finland_clear and st.scv_tries >= 3 and \
+            st.sweeps < SWEEPS:
+        st.sweeps += 1
+        n = sweep_for_scvs(io, st)
+    if n:
+        send_scvs(io, st)
+        return st.scv_count
+    if had:
+        return had                      # one is on its way: that will do
+    if st.scv_tries >= 2 and not st.scvs_remade and \
+            "Command Center" not in st.lifted:
+        remake_scvs(io, mapdata, st)
+    elif st.scv_tries >= SCV_TRIES:
+        io.log("norway: no SCV was found: no depots, no repair")
+    return 0
 
 
-def frame_click(io, i, n, held=None):
-    """Click the i-th of n pictures in the selection card: the mouse is put
-    on it first and left there a moment, then clicked (with Ctrl: every
-    unit of that kind in the selection; with Shift: that one dropped)."""
-    x0, y0, x1, y1 = live.frame_box(i, n)
-    x, y = (x0 + x1) // 2, (y0 + y1) // 2
-    if getattr(io, "hover", None) is not None:
-        io.hover(x, y)
-        io.sleep(FRAME_HOVER)
-    if held:
-        io.click_with(held, x, y)
-    else:
-        io.click(x, y)
-    io.sleep(0.15)
+# ------------------------------------------------------- the supply depots
+def depot_spots():
+    """Every depot spot in turn: (view, top-left tile)."""
+    return [(view, tile) for view, tiles in DEPOT_FIELD for tile in tiles]
 
 
-def scvs_from_army(io, st):
-    """The SCVs boxed into the army keys with the marines (trial 58: both
-    were there; the army's boxes by the Command Center took them at
-    18 s): Ctrl+click on an SCV's picture in the key's selection picks
-    every SCV in it, they go on SCV_KEY, then each is dropped from the
-    army key with Shift+click. How many were found."""
-    found = 0
-    for key in st.army_keys:
-        clear_modes(io)
-        io.key(key)
-        io.sleep(0.2)
-        try:
-            pic = io.shot("army-key", keep=False)
-            n = live.selected_count(pic)
-            idx = live.scv_frames(pic, n) if n > 1 else []
-        except Exception:
-            continue
-        if not idx:
-            continue
-        frame_click(io, idx[0], n, held="ctrl")     # all the SCVs in it
-        if not live.scv_selected(io.card()):
-            io.shot("army-key-scv")
-            io.log(f"norway: the SCVs on army key {key} could not be picked "
-                   f"(picture 'army-key-scv')")
-            continue
-        io.combo("shift" if st.scvs_keyed else "ctrl", SCV_KEY)
-        io.sleep(0.05)
-        st.scvs_keyed = True
-        found += len(idx)
-        io.key(key)                     # and out of the army key
-        io.sleep(0.2)
-        m = n
-        for i in sorted(idx, reverse=True):
-            frame_click(io, i, m, held="shift")
-            m -= 1
-        io.combo("ctrl", key)
-        io.sleep(0.05)
-        io.log(f"norway: {len(idx)} SCV(s) found on army key {key}, put on "
-               f"key {SCV_KEY} and taken out of key {key}")
-    return found
+def free_scv(st, now):
+    """The SCV (0 or 1) that has been free the longest, or None."""
+    n = max(1, min(st.scv_count, len(st.scv_busy)))
+    i = min(range(n), key=lambda k: st.scv_busy[k])
+    return i if st.scv_busy[i] <= now else None
 
 
-def pick_scvs(io, st):
-    """The SCVs selected: by their key once they have one, else looked for
-    by sweeping the screen over Kiruna, the camp and Murmansk. True if
-    SCVs are selected."""
-    if st.scvs_keyed:
-        io.key(SCV_KEY)
+def footprint_on(io, view, tile, size, label):
+    """With a building on the cursor: put its footprint on a tile (its
+    top-left) and read it. The game hangs the footprint from the tile
+    under the mouse (the owner's recording, and trials 56 to 59), so the
+    mouse goes to that tile's middle; if the footprint is read elsewhere,
+    the mouse is moved by what it is off, once. Returns (mouse, colour):
+    colour "green", "red", or None if no footprint is seen there."""
+    tile_px = live.TILE_PX
+    want = live.tile_xy(tile[0], tile[1], view)         # its top-left corner
+    mid = (want[0] + size[0] * tile_px / 2, want[1] + size[1] * tile_px / 2)
+    mx, my = want[0] + tile_px / 2, want[1] + tile_px / 2
+    for _ in range(2):
+        io.hover(int(mx), int(my))
         io.sleep(0.15)
-        if live.scv_selected(io.card()):
-            return True
-    if not st.army_checked:
-        st.army_checked = True
-        if scvs_from_army(io, st):
-            io.key(SCV_KEY)
-            io.sleep(0.15)
-            if live.scv_selected(io.card()):
-                return True
-    if sweep_for_scvs(io, st):
-        io.key(SCV_KEY)
-        io.sleep(0.15)
-        return live.scv_selected(io.card())
-    return False
+        fp = footprint_at(io.shot(label, keep=False), mid[0], mid[1], size)
+        if fp is None:
+            return (int(mx), int(my)), None
+        ox, oy = want[0] - fp[0], want[1] - fp[1]
+        if abs(ox) <= tile_px / 2 and abs(oy) <= tile_px / 2:
+            return (int(mx), int(my)), "red" if fp[4] >= OUTLINE_RED else "green"
+        mx, my = mx + ox, my + oy
+    return (int(mx), int(my)), None
 
 
-def DEPOTS_XY():
-    return DEPOTS_AT[0] * T, DEPOTS_AT[1] * T
-
-
-def remake_scvs(io, mapdata, st):
-    """Two new SCVs at the Command Center (still at home), no rally: they
-    stay by it until they are found, keyed and sent."""
-    cc = norway_buildings(mapdata)["Command Center"]
+def build_depot(io, st):
+    """One supply depot by Arkhangelsk, the owner's way (their recording):
+    one SCV selected, B, S, and a click where the depot's footprint shows
+    green. Returns "placed", "wait" (no SCV free just now), "no-scv" (the
+    key holds none) or "failed"."""
+    now = io.now()
+    i = free_scv(st, now)
+    if i is None:
+        return "wait"
+    spots = depot_spots()
+    todo = [k for k in range(len(spots)) if k not in st.depot_done]
+    if not todo:
+        st.depot_done = set(st.depot_built)     # every spot tried: once more
+        todo = [k for k in range(len(spots)) if k not in st.depot_done]
+        if not todo:
+            return "failed"
     clear_modes(io)
-    if not trial.pick_building(io, cc):
-        io.log("norway: the Command Center was not found for new SCVs")
-        return False
-    io.key("s")
-    io.sleep(0.05)
-    io.key("s")
-    io.sleep(0.05)
-    io.key("r")                         # rallied by Kiruna, where the
-    io.sleep(0.05)                      # sweep looks
-    io.click(*live.minimap_point(SWEEP_VIEWS[0][0] * T, SWEEP_VIEWS[0][1] * T))
-    io.sleep(0.05)
-    st.cc_home = (cc["x"], cc["y"] + 3 * T)
-    io.log("norway: no SCV found: the Command Center makes two more, "
-           "rallied by Kiruna (its lift waits for them)")
-    return True
-
-
-def send_scvs(io, st):
-    """Once Finland is clear: the SCVs (waiting by the Norwegian camp)
-    are sent on to Arkhangelsk. True if they were."""
-    if not pick_scvs(io, st):
-        io.log("norway: no SCV by the Norwegian camp or the Command Center")
-        return False
-    io.click(*live.minimap_point(*DEPOTS_XY()), button="right")
-    io.sleep(0.05)
-    io.log("norway: the SCVs go on to Arkhangelsk")
-    return True
-
-
-def build_depots(io, st):
-    """One supply depot by Arkhangelsk, the repository owner's way (their
-    recording): the SCVs boxed where they stand, B, S, and a click on the
-    next free spot; one depot an order (trial 52: four queued with Shift
-    in one order, none was built, and the click had picked marines). True
-    if a depot was placed."""
-    x0, y0 = DEPOTS_XY()
-    if not pick_scvs(io, st):
-        io.log("norway: no SCV found for the depots")
-        return False
-    n = selected(io)
-    if n > 1:                           # one SCV an order, by turns, so a
-        frame_click(io, st.depot_next % n, n)   # depot going up is not left
-    cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
-    l, t, r, b = live.GAME_AREA
-    io.key("b")                         # only SCVs have a build menu on B:
-    io.sleep(0.12)                      # the Move button goes
-    if live.units_selected(io.card()):
+    if not one_scv(io, st, i):
+        io.log(f"norway: key {SCV_KEY} holds no SCV for the depots")
+        return "no-scv"
+    view = look_at_view(io, spots[todo[0]][0])
+    io.key("b")                         # the build menu: only an SCV, alone,
+    io.sleep(0.15)                      # and not in the middle of building
+    if not live.build_menu_shown(io.card()):
         clear_modes(io)
-        io.log("norway: what stands at the depots' place is not an SCV")
-        return False
-    io.key("s")
-    io.sleep(0.15)
-    for _ in range(len(DEPOT_TILES)):
-        tx, ty = DEPOT_TILES[st.depot_next % len(DEPOT_TILES)]
-        st.depot_next += 1
-        px, py = live.on_screen(tx * T + T, ty * T + T // 2, cam)
-        if not (l + 30 < px < r - 30 and t + 30 < py < b - 30):
-            continue
-        spot = green_spot(io, px, py, "depot")
-        if spot is None:
-            continue                    # red all round: the next spot
-        io.click(*spot)
-        io.sleep(0.25)
-        if live.units_selected(io.card()):      # placed: the SCV's own buttons
+        st.scv_busy[i] = now + SCV_BUSY
+        return "wait"
+    io.key("s")                         # a supply depot: its footprint is on
+    io.sleep(0.15)                      # the cursor, only Cancel shows
+    if not live.placing_shown(io.card()):
+        clear_modes(io)
+        io.log("norway: the depot could not be picked from the build menu "
+               "(no money for one?)")
+        return "failed"
+    hover = getattr(io, "hover", None) is not None
+    for k in todo:
+        if spots[k][0] != view:
+            continue                    # another view's: next time
+        tile = spots[k][1]
+        if hover:
+            mouse, colour = footprint_on(io, view, tile, DEPOT_SIZE, "depot")
+        else:                           # (tests without eyes)
+            mouse, colour = on_view(tile[0] + 0.5, tile[1] + 0.5, view), "green"
+        if colour is None:
+            io.shot("depot-unseen")
+            io.log("norway: no depot footprint seen under the cursor "
+                   "(picture 'depot-unseen'): not clicking")
+            break
+        st.depot_done.add(k)
+        if colour == "red":
+            continue                    # something is in the way: the next
+        io.click(*mouse)
+        io.sleep(0.3)
+        card = io.card()
+        if live.move_shown(card):       # placed: the SCV's own buttons again
+            st.depot_built.add(k)
             st.depots_placed += 1
+            st.scv_busy[i] = io.now() + DEPOT_BUILD
             io.log(f"norway: supply depot {st.depots_placed} of {DEPOTS} "
-                   f"ordered by Arkhangelsk ({tx}, {ty})")
-            return True
-        # refused (taken, or not ground): still placing, try the next spot
+                   f"ordered by Arkhangelsk ({tile[0]}, {tile[1]})")
+            return "placed"
+        if not live.placing_shown(card):
+            break                       # neither placed nor placing: stop
+        # refused (still placing): the next spot
     clear_modes(io)
-    return False
+    return "failed"
+
+
+REPAIR_TRIES = 3
+REPAIR_EVERY = 12
+REPAIR_TIME = 45               # seconds the repairing SCV is left alone
+
+
+def repair_barracks(io, st):
+    """One SCV repairs the Barracks by the Heavy Industry: one SCV alone
+    (by its picture), R, then a click on the Barracks where it landed.
+    True if the order was given."""
+    now = io.now()
+    i = free_scv(st, now)
+    if i is None:
+        return False
+    clear_modes(io)
+    if not one_scv(io, st, i):
+        io.log("norway: no SCV on its key to repair the Barracks")
+        return False
+    bx, by = st.at.get("Barracks", (BARRACKS_SPOT[0] / T, BARRACKS_SPOT[1] / T))
+    view = look(io, bx, by)
+    io.key("r")                         # repair
+    io.sleep(0.1)
+    io.click(*on_view(bx, by, view))
+    io.sleep(0.05)
+    st.scv_busy[i] = now + REPAIR_TIME
+    io.log("norway: an SCV goes to repair the Barracks")
+    return True
 
 
 def selected(io):
@@ -949,6 +1237,30 @@ def selected(io):
         return live.selected_count(io.shot("count", keep=False))
     except Exception:
         return 0
+
+
+def army_selected(io):
+    """A box meant for an army key: the SCVs and the Dropship in it are
+    taken out of the selection first (trials 51 to 59: the box round the
+    Command Center put the new SCVs on key 2, and the one round the
+    Dropship took it off its way to Shetland). How many units are left
+    selected for the key (0: none)."""
+    try:
+        pic = io.shot("count", keep=False)
+        n = live.frames_shown(pic)
+    except Exception:
+        return selected(io) or 1
+    if n < 2:                           # one unit alone: an SCV (it has the
+        try:                            # Build button) or the Dropship (it
+            return 0 if live.scv_selected(pic) or \
+                not live.attack_shown(pic) else 1   # has no Attack) is not
+        except Exception:               # for the army
+            return 1
+    left, changed = army_only(io, pic, n)
+    if changed:
+        io.log(f"norway: {n - left} SCV/Dropship taken out of an army box "
+               f"({left} marines left in it)")
+    return left
 
 
 DENMARK = (80, 60, 95, 75)      # tiles: Denmark's marines stay out of it
@@ -1023,7 +1335,9 @@ def key_army(io, watch, mapdata, st, picture):
             trial.select_group(io, group, st, watch, margin=60)
         if not ok:
             continue
-        n = selected(io) or 1
+        n = army_selected(io)
+        if not n:
+            continue                    # nothing for the army in this box
         key = next((k for k in st.army_keys if held[k] + n <= 12), None)
         if key is None:
             if len(st.army_keys) >= len(ARMY_KEYS):
@@ -1317,7 +1631,7 @@ def try_land_port(io, st):
     clear_modes(io)
     io.key(key)
     io.sleep(0.15)
-    if not live.units_selected(io.card()):
+    if not live.move_shown(io.card()):
         return "none"
     x, y = PORT_MOUSE[0] * T + T // 2, PORT_MOUSE[1] * T + T // 2
     cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
@@ -1349,40 +1663,15 @@ def russia_port_gone(io, st, port):
     clear_modes(io)
     io.key(KEYS["Starport"])
     io.sleep(0.15)
-    if not live.units_selected(io.card()):
+    if not live.move_shown(io.card()):
         return False
-    cam = trial.look_at(io, *trial.centred(port["x"], port["y"]), wait=0.25)
-    io.click(*live.on_screen(port["x"], port["y"], cam))
+    # (the exact view: Russia's Starport itself is clicked, not the ground
+    # two tiles above it)
+    tx, ty = port["x"] / T, port["y"] / T
+    view = look(io, tx, ty)
+    io.click(*on_view(tx, ty, view))
     io.sleep(0.2)
-    card = io.card()
-    return live.units_selected(card)            # still ours: nothing there
-
-
-def port_gone(io, st, port):
-    """True once Russia's Starport is destroyed: with ours held over its
-    spot to land, the game draws the light green box where the Control
-    Tower would join (the owner's recording); while Russia's stands, it
-    does not. Without a way to hover (tests): True."""
-    if getattr(io, "hover", None) is None:
-        return True
-    key = KEYS["Starport"]
-    clear_modes(io)
-    io.key(key)
-    io.sleep(0.15)
-    if not live.units_selected(io.card()):
-        return False                    # ours is not in the air on its key
-    cam = trial.look_at(io, *trial.centred(port["x"], port["y"]), wait=0.25)
-    sx, sy = live.on_screen(port["x"], port["y"], cam)
-    io.click(*LAND_BUTTON)
-    io.sleep(0.15)
-    io.hover(int(sx), int(sy))
-    io.sleep(0.15)
-    try:
-        box = tower_box(io.shot("port-check", keep=False), sx, sy)
-    except Exception:
-        box = None
-    clear_modes(io)
-    return box is not None
+    return live.move_shown(io.card())   # still ours: nothing stands there
 
 
 def attack_russian_starport(io, watch, mapdata, st, picture):
@@ -1401,6 +1690,17 @@ def attack_russian_starport(io, watch, mapdata, st, picture):
         io.click(sx, sy)
         io.sleep(0.05)
     return len(st.army_keys)
+
+
+def army_slack(io, st):
+    """Seconds until the army's next order is due: time the bot may spend
+    elsewhere without holding the attack on Finland back."""
+    if st.finland_clear:
+        return 99.0
+    due = st.last_look + LOOK_EVERY
+    if st.stage < len(ARMY_STAGES):
+        due = max(due, st.stage_at + ARMY_STAGES[st.stage][2])
+    return due - io.now()
 
 
 def opening(io, watch, mapdata, st, first):
@@ -1438,7 +1738,8 @@ def opening(io, watch, mapdata, st, first):
         # the Command Center goes once its two SCVs are out, and not in the
         # middle of the army's stages (trial 44: its lift pushed the attack
         # on Finland back)
-        waiting_scvs = st.scvs_remade and io.now() - st.scvs_remade < SCV_OUT
+        waiting_scvs = st.scvs_remade and not st.scv_count and \
+            io.now() - st.scvs_remade < SCV_REMADE_WAIT
         if not st.cc_lifted and io.now() - t0 >= 32 and not waiting_scvs and \
                 st.stage >= len(ARMY_STAGES) and \
                 (st.finland_clear or io.now() - t0 >= BUSY_UNTIL):
@@ -1471,29 +1772,38 @@ def opening(io, watch, mapdata, st, first):
                        f"(countdown {trial.round_timer(st.clock.time()) if st.clock else '?'})")
             else:
                 army_into_finland(io, watch, mapdata, st, picture)
-        # the SCVs to Arkhangelsk (trials 55, 56: the two made at the start
-        # were never found again; then the Command Center, still at home,
-        # makes two more, and its lift waits until they are out and keyed)
-        if st.finland_clear and not st.scvs_sent and \
-                io.now() - st.scvs_look >= 6 and \
-                (not st.scvs_remade or io.now() - st.scvs_remade >= SCV_REMAKE_WAIT):
-            st.scvs_look = io.now()
-            st.scvs_tries += 1
-            if send_scvs(io, st):
-                st.scvs_sent = io.now()
-            elif not st.scvs_remade and not st.cc_lifted:
-                st.scvs_remade = io.now()
-                remake_scvs(io, mapdata, st)
-            elif st.scvs_tries >= SCV_TRIES:
-                st.scvs_sent = io.now()     # given up: the log says so
-        if not st.depots_ordered and io.now() - t0 >= DEPOT_FIRST and \
-                st.scvs_sent and io.now() - st.scvs_sent >= SCV_WALK and \
-                io.now() - st.depot_look >= DEPOT_EVERY:
-            st.depot_look = io.now()
-            st.depot_looks += 1
-            build_depots(io, st)
+        # the SCVs: onto their key below the Command Center once the army
+        # has left it, and off to Arkhangelsk; only while the army does not
+        # need the bot (the first try falls in the six seconds after the
+        # attack on the Finland spot)
+        now = io.now()
+        if st.scv_count < 2 and st.scvs_made is not None and \
+                st.scv_tries < (3 if st.scv_count else SCV_TRIES) and \
+                st.stage >= 2 and now - st.scvs_made >= SCV_OUT and \
+                now - st.scv_look >= SCV_RETRY and army_slack(io, st) >= SCV_SLACK:
+            st.scv_look = now
+            get_scvs(io, mapdata, st)
+        # ten depots by Arkhangelsk, one order at a time to whichever SCV
+        # is free (the owner's way: one SCV, B, S, a click on green)
+        now = io.now()
+        if not st.depots_ordered and st.scv_count and \
+                st.scvs_sent is not None and now - st.scvs_sent >= SCV_WALK and \
+                (st.finland_clear or now - t0 >= BUSY_UNTIL) and \
+                now - st.depot_look >= DEPOT_EVERY:
+            st.depot_look = now
+            result = build_depot(io, st)
+            if result == "placed":
+                st.depot_fails = 0
+            elif result == "failed":
+                st.depot_fails += 1
+            elif result == "no-scv":
+                st.depot_fails += 3     # the SCVs are gone: soon given up
             st.depots_ordered = st.depots_placed >= DEPOTS or \
-                st.depot_looks >= DEPOT_LOOKS
+                st.depot_fails >= DEPOT_FAILS
+            if st.depots_ordered:
+                io.log(f"norway: {st.depots_placed} of {DEPOTS} supply depots "
+                       f"ordered by Arkhangelsk" +
+                       ("" if st.depots_placed >= DEPOTS else " (given up)"))
         # the Barracks: down by the Heavy Industry before 3:25
         if "Barracks" in st.lifted and "Barracks" not in st.landed and \
                 st.finland_clear and st.port_tries >= 1 and \
@@ -1548,9 +1858,13 @@ def opening(io, watch, mapdata, st, first):
                     st.last_port = io.now() - RETRY_PORT + PORT_WALK
                     io.log("norway: the army steps off Russia's Starport's "
                            "spot again")
-        # an SCV comes and repairs the Barracks (the owner, trial 50)
+        # an SCV comes and repairs the Barracks (the owner, trial 50), once
+        # the SCVs have reached Arkhangelsk and one of them is free
         if "Barracks" in st.landed and st.repaired < REPAIR_TRIES and \
-                io.now() - st.last_repair >= REPAIR_EVERY:
+                st.scv_count and st.scvs_sent is not None and \
+                io.now() - st.scvs_sent >= SCV_WALK and \
+                io.now() - st.last_repair >= REPAIR_EVERY and \
+                free_scv(st, io.now()) is not None:
             st.last_repair = io.now()
             if repair_barracks(io, st):
                 st.repaired = REPAIR_TRIES

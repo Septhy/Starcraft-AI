@@ -32,6 +32,7 @@ class Game:
         self.port_attacked = 0
         self.red_looks = red_looks
         self.attacks = 0
+        self.targeting = False          # after U: the game asks for a target
 
     def now(self):
         return self.t
@@ -46,7 +47,7 @@ class Game:
         return label
 
     def card(self):
-        return self.selected
+        return "blank" if self.targeting else self.selected
 
     def type_text(self, text):
         self.lines.append(f"typed {text}")
@@ -63,8 +64,11 @@ class Game:
             self.selected = self.on_key[name]
         if name == "esc":
             self.placing = False
+            self.targeting = False
+        if name == "u" and self.selected == "units":
+            self.targeting = True
 
-    def click_with(self, held, x, y):
+    def click_with(self, held, x, y, button="left"):
         self.clicks.append((x, y, held))
 
     def drag(self, *box):
@@ -73,6 +77,9 @@ class Game:
     def click(self, x, y, button="left"):
         self.clicks.append((x, y, button))
         self.t += 0.05
+        if self.targeting:
+            self.targeting = False      # the target is given
+            return
         if (x, y) == trial.LIFT_BUTTON and self.selected in self.up:
             self.placing = True         # Land: a spot is clicked next
             return
@@ -113,6 +120,35 @@ def setup(monkeypatch, **kw):
                         lambda card: card == "units" or card in game.up)
     monkeypatch.setattr(live, "building_selected",
                         lambda card: card in game.down)
+    # (the checks added after trial 59, read off this small game's state)
+    monkeypatch.setattr(live, "move_shown",
+                        lambda card: card == "units" or card in game.up)
+    monkeypatch.setattr(live, "building_card", lambda card: card in game.down)
+    monkeypatch.setattr(live, "placing_shown", lambda card: card == "blank")
+    monkeypatch.setattr(live, "build_menu_shown", lambda card: False)
+    # the SCVs, the depots and the repair have their own tests (World,
+    # below); in this small game they simply work
+    monkeypatch.setattr(norway, "army_selected",
+                        lambda io: norway.selected(io) or 1)
+
+    def take(io, st):
+        st.scv_count = 2
+        io.log("norway: 2 SCVs below the Command Center, on key 9")
+        return 2
+    monkeypatch.setattr(norway, "take_scvs", take)
+    monkeypatch.setattr(norway, "call_scvs", lambda io, st: st.scv_count)
+
+    def depot(io, st):
+        st.depots_placed += 1
+        io.log(f"norway: supply depot {st.depots_placed} of {norway.DEPOTS} "
+               f"ordered by Arkhangelsk")
+        return "placed"
+    monkeypatch.setattr(norway, "build_depot", depot)
+
+    def repair(io, st):
+        io.log("norway: an SCV goes to repair the Barracks")
+        return True
+    monkeypatch.setattr(norway, "repair_barracks", repair)
     real_key = game.key
 
     def key(name):
@@ -152,6 +188,15 @@ def test_the_opening_in_the_owner_s_order(monkeypatch):
     # Shetland drop, SCVs, and every building lifted, keyed where it is landed
     assert any("Dropship goes to unload on Shetland" in l for l in game.lines)
     assert any("2 SCVs ordered" in l for l in game.lines)
+    # the SCVs on their key once the army has left, sent to Arkhangelsk,
+    # ten depots there and the Barracks repaired
+    order = [l for l in game.lines if l.startswith("norway:")]
+    i_scv = next(i for i, l in enumerate(order) if "Command Center, on key 9" in l)
+    i_spot = next(i for i, l in enumerate(order) if "attacks at Russian army-Finland" in l)
+    i_walk = next(i for i, l in enumerate(order) if "walk to Arkhangelsk" in l)
+    assert i_spot < i_scv < i_walk
+    assert st.depots_placed == norway.DEPOTS and st.depots_ordered
+    assert any("repair the Barracks" in l for l in game.lines)
     assert {"Factory", "Engineering Bay", "Starport", "Barracks",
             "Command Center"} <= set(st.lifted)
     assert game.on_key["6"] == "Barracks" and game.on_key["7"] == "Starport"
@@ -443,23 +488,11 @@ def test_a_quick_wrong_read_never_counts_as_landed(monkeypatch):
     game.on_key["7"] = "Starport"
     reads = iter(["build-menu"] + [None] * 50)
     real_card = game.card
-    monkeypatch.setattr(trial.live, "building_selected",
+    monkeypatch.setattr(trial.live, "building_card",
                         lambda card: card in game.down or card == "build-menu")
     game.card = lambda: next(reads, None) or real_card()
     norway.land(game, "Starport", [(4992, 176)], st)
     assert "Starport" not in st.landed or "Starport" in game.down
-
-
-def test_an_scv_repairs_the_barracks_once_it_is_down(monkeypatch):
-    """The owner (trial 50): after Finland, an SCV comes and repairs the
-    Barracks in Helsinki (R, then a click on it)."""
-    game, m, watch, st = setup(monkeypatch)
-    monkeypatch.setattr(live, "scv_selected", lambda card: True)
-    st.scvs_keyed = True                    # found by the sweep earlier
-    assert norway.repair_barracks(game, st)
-    assert norway.SCV_KEY in game.keys
-    assert "r" in game.keys
-    assert any("repair the Barracks" in l for l in game.lines)
 
 
 def test_with_the_bunkers_down_the_keys_share_the_turrets_out(monkeypatch):
@@ -508,48 +541,6 @@ def test_the_barracks_waits_out_of_the_bunkers_reach_then_moves_over(monkeypatch
     assert i_lift > i_clear               # the Shetland lifts after Finland
 
 
-def test_depots_one_at_a_time_ten_by_arkhangelsk(monkeypatch):
-    """The owner (trial 52): ten depots by Arkhangelsk, as in their
-    recording: the SCVs boxed, B, S, a click on a free spot, one depot an
-    order (four queued in one order were never built)."""
-    game, m, watch, st = setup(monkeypatch)
-    reads = []
-
-    def units(card):
-        # after the box: units; after B: the build menu; after the click:
-        # the SCV's own buttons again
-        return reads.pop(0) if reads else True
-    monkeypatch.setattr(trial.live, "units_selected", units)
-    monkeypatch.setattr(live, "scv_selected", lambda card: True)
-    monkeypatch.setattr(norway, "selected", lambda io: 2)   # two SCVs on key 9
-    st.scvs_keyed = True
-    for _ in range(norway.DEPOTS):
-        reads[:] = [False, True]
-        assert norway.build_depots(game, st)
-    assert st.depots_placed == norway.DEPOTS == 10
-    # each order to one SCV, by turns (both frames of the selection used)
-    frames = {(c[0], c[1]) for c in game.clicks
-              if (c[0], c[1]) in [tuple((a + b) // 2 for a, b in
-                                        zip(live.frame_box(i, 2)[:2], live.frame_box(i, 2)[2:]))
-                                  for i in range(2)]}
-    assert len(frames) == 2
-    assert not any(c[2] == "shift" for c in game.clicks)     # never queued
-    tiles = norway.DEPOT_TILES[:10]
-    assert len(set(tiles)) == 10
-    for (ax, ay) in tiles:                # a depot's width apart
-        for (bx, by) in tiles:
-            if (ax, ay) != (bx, by):
-                assert abs(ax - bx) >= 3 or abs(ay - by) >= 3
-    # what stands there is not an SCV (B leaves Move): no depot
-    reads[:] = [True]
-    assert not norway.build_depots(game, st)
-    # no SCV anywhere (trial 55: two marines left selected were taken
-    # for SCVs): no depot, nothing pressed for one
-    monkeypatch.setattr(live, "scv_selected", lambda card: False)
-    st.scvs_keyed = False
-    assert not norway.build_depots(game, st)
-
-
 def test_the_starport_is_landed_once_after_the_attack(monkeypatch):
     """Trial 58: the landing is one step after Russia's Starport is gone,
     one click, then only a wait for it to come down."""
@@ -596,57 +587,6 @@ class Hover:
 
     def shot(self, label, keep=True):
         return self.colour_at(self.at)
-
-
-def test_a_red_outline_is_moved_a_tile_until_green():
-    sx, sy = 920, 515
-    io = Hover(lambda at: paint(outline(None), at, (3, 2),
-                                "red" if at == (sx, sy) else "green"))
-    spot = norway.green_spot(io, sx, sy, "depot")
-    assert spot != (sx, sy) and spot is not None
-    assert any("green" in l for l in io.lines)
-
-
-def test_all_red_is_never_clicked_and_no_outline_clicks_as_before():
-    red = lambda at: paint(outline(None), at, (3, 2), "red")
-    assert norway.green_spot(Hover(red), 920, 515, "depot") is None
-    # no footprint seen: never clicked blind (trial 54)
-    assert norway.green_spot(Hover(lambda at: outline(None)), 920, 515,
-                             "depot") is None
-
-    class NoHover:
-        pass
-    assert norway.green_spot(NoHover(), 920, 515, "x") == (920, 515)
-
-
-def test_one_red_square_is_red_and_the_starport_is_never_moved():
-    tile = 32 * live.ZOOM
-
-    def part_red(at):
-        img = paint(outline(None), at, (4, 3), "green")
-        x, y = int(at[0] - 2 * tile), int(at[1] - 1.5 * tile)
-        img.paste(TINT["red"], (x, y, int(x + tile), int(y + tile)))
-        return img
-    io = Hover(part_red)
-    seen = []
-    io.hover = lambda x, y: (seen.append((x, y)), setattr(io, "at", (x, y)))
-    assert norway.green_spot(io, 920, 515, "land-starport",
-                             nudges=[(0, 0)]) is None
-    assert seen == [(920, 515)]            # never moved off the spot
-
-
-def test_the_mouse_is_moved_until_the_footprint_sits_on_the_spot():
-    """Trial 56: with the mouse on the light green box's middle the game
-    drew the Starport's footprint 2 tiles right and 1 down of it; the
-    footprint is found in the picture and the mouse moved by what it is
-    off."""
-    tile = 32 * live.ZOOM
-    io = Hover(lambda at: paint(outline(None),
-                                (at[0] + 2 * tile, at[1] + tile), (4, 3),
-                                "green"))
-    want = (864, 396)
-    mouse = norway.green_spot(io, *want, "land-starport", nudges=[(0, 0)])
-    assert mouse == (int(want[0] - 2 * tile), int(want[1] - tile))
 
 
 def test_the_real_dim_tints_of_trial_54_are_read():
@@ -714,38 +654,6 @@ def test_an_scv_is_told_by_its_build_button_not_by_move():
     assert not live.scv_selected(real("marines_card.jpg"))
 
 
-def test_the_scvs_are_rallied_the_owner_s_way(monkeypatch):
-    game, m, watch, st = setup(monkeypatch)
-    norway.make_scvs(game, m, st)
-    assert game.keys[:3] == ["s", "s", "r"]
-    assert game.clicks[-1][2] == "left"          # R, then a click on the minimap
-    assert st.cc_home
-
-
-def test_the_starport_is_landed_with_the_mouse_on_156_5_unmoved():
-    """The owner (after trial 56): the mouse exactly on (156, 5); the bot
-    only checks that the footprint has no red square, and never moves it."""
-    assert norway.PORT_MOUSE == (156, 5)
-    tile = 32 * live.ZOOM
-    io = Hover(lambda at: paint(outline(None),
-                                (at[0] + 2 * tile, at[1] + tile), (4, 3),
-                                "green"))
-    assert norway.green_spot(io, 864, 396, "land-starport", nudges=[(0, 0)],
-                             fixed=True) == (864, 396)
-    io = Hover(lambda at: paint(outline(None),
-                                (at[0] + 2 * tile, at[1] + tile), (4, 3),
-                                "red"))
-    assert norway.green_spot(io, 864, 396, "land-starport", nudges=[(0, 0)],
-                             fixed=True) is None
-
-
-def test_with_no_scv_found_the_command_center_makes_two_more(monkeypatch):
-    game, m, watch, st = setup(monkeypatch)
-    norway.remake_scvs(game, m, st)
-    assert game.keys[-3:] == ["s", "s", "r"]     # rallied by Kiruna
-    assert st.cc_home and any("makes two more" in l for l in game.lines)
-
-
 def test_an_scv_is_spotted_on_the_screen_and_the_view_read_from_the_minimap():
     """The owner (after trial 56): the SCVs are looked for on the game
     screen. The SCV in the owner's recording is spotted; the view is read
@@ -758,63 +666,6 @@ def test_an_scv_is_spotted_on_the_screen_and_the_view_read_from_the_minimap():
     assert cam and abs(cam[0] / 32 - 181) < 2 and abs(cam[1] / 32 - 27) < 2
     cam = live.camera_from_minimap(Image.open("tests/data/minimap_top_edge.jpg"))
     assert cam and abs(cam[0] / 32 - 157) < 2
-
-
-class Sweep:
-    """A screen moved by the arrow keys: the view middle (tiles) moves 20
-    tiles a second; one SCV stands near tile (150, 12)."""
-
-    def __init__(self):
-        self.view = [100.0, 40.0]
-        self.held, self.lines, self.combos, self.clicks = [], [], [], []
-        self.picked = False
-
-    def hold_key(self, name, secs):
-        self.held.append(name)
-        d = 20 * secs
-        self.view[0] += {"right": d, "left": -d}.get(name, 0)
-        self.view[1] += {"down": d, "up": -d}.get(name, 0)
-
-    def shot(self, label, keep=True):
-        return label
-
-    def sleep(self, s):
-        pass
-
-    def log(self, t):
-        self.lines.append(t)
-
-    def key(self, name):
-        pass
-
-    def click(self, x, y, button="left"):
-        self.clicks.append((x, y))
-        self.picked = abs(self.view[0] - 150) < 14 and abs(self.view[1] - 12) < 6
-
-    def click_with(self, held, x, y):
-        pass
-
-    def combo(self, held, name):
-        self.combos.append((held, name))
-
-    def card(self):
-        return "scv" if self.picked else None
-
-
-def test_the_screen_is_swept_with_the_arrow_keys_until_the_scvs_are_found(monkeypatch):
-    io = Sweep()
-    monkeypatch.setattr(live, "camera_from_minimap",
-                        lambda pic: (io.view[0] * 32, io.view[1] * 32))
-    monkeypatch.setattr(norway, "scv_spots", lambda pic: [(900, 400)])
-    monkeypatch.setattr(live, "scv_selected", lambda card: card == "scv")
-    st = norway.State()
-    assert norway.sweep_for_scvs(io, st)
-    assert set(io.held) <= {"up", "down", "left", "right"} and io.held
-    assert ("ctrl", norway.SCV_KEY) in io.combos
-    # the minimap is never clicked to move the view
-    l, t = live.MINIMAP["left"], live.MINIMAP["top"]
-    assert not any(l <= x <= l + live.MINIMAP["width"] and t <= y <= t + live.MINIMAP["height"]
-                   for x, y in io.clicks)
 
 
 def test_the_starport_lands_on_the_box_the_owner_s_way():
@@ -855,24 +706,6 @@ def test_the_scvs_in_an_army_key_are_told_by_their_wireframe():
     assert live.scv_frames(pic, 10) == [1, 6]
 
 
-def test_the_scvs_are_taken_from_the_army_key(monkeypatch):
-    game, m, watch, st = setup(monkeypatch)
-    st.army_keys = ["1", "2"]
-    pic = Image.open("tests/data/army_key_with_scvs.jpg")
-    game.shot = lambda label, keep=True: pic
-    monkeypatch.setattr(live, "selected_count", lambda p: 10)
-    monkeypatch.setattr(live, "scv_selected", lambda card: True)
-    game.hover = lambda x, y: game.lines.append(f"hover {x},{y}")
-    found = norway.scvs_from_army(game, st)
-    assert found == 4 and st.scvs_keyed              # two on each key here
-    assert ("ctrl", norway.SCV_KEY) in game.combos
-    assert ("shift", norway.SCV_KEY) in game.combos
-    assert any(c[2] == "ctrl" for c in game.clicks)  # Ctrl+click: all SCVs
-    assert any(l.startswith("hover") for l in game.lines)   # rested on first
-    assert ("ctrl", "1") in game.combos and ("ctrl", "2") in game.combos
-    assert any(c[2] == "shift" for c in game.clicks)  # taken out with Shift
-
-
 def test_russia_s_starport_is_looked_at_by_a_click_not_by_land(monkeypatch):
     """The owner (trial 58): one landing attempt only. Whether Russia's
     Starport still stands is seen by clicking it with ours selected: no
@@ -895,3 +728,668 @@ def test_russia_s_starport_is_looked_at_by_a_click_not_by_land(monkeypatch):
     game.selected = None
     assert norway.russia_port_gone(game, st, port)
     assert trial.LIFT_BUTTON not in [(c[0], c[1]) for c in game.clicks]
+
+
+# ---------------------------------------------------------------------------
+# After trial 59: the SCVs, the depots, the Dropship.
+#
+# What the recordings showed (docs/norway-notes.md): the new SCVs and the
+# Dropship were swept onto the army's keys; "is this an SCV?" never said
+# yes in a live game; units on the move show a white Move button; with two
+# SCVs selected there are no Build buttons; the footprint of a building
+# hangs from the tile under the mouse; and the Russia bot's camera puts
+# things two tiles too high. The tests below use real pictures for what
+# the bot reads, and a small model of the game (World) for what it does.
+
+def hud(name):
+    """A real picture of the bottom panel (cut at 560, 780) put back on a
+    full screen."""
+    import os
+    img = Image.new("RGB", (1920, 1080), (0, 0, 0))
+    img.paste(Image.open(os.path.join(os.path.dirname(__file__), "data",
+                                      name)), (560, 780))
+    return img
+
+
+def card_of(img):
+    """What the live bot's quick card look returns: the first button only."""
+    return img.crop(live.CARD_CELL)
+
+
+def test_the_scv_check_needs_the_whole_screen_and_says_so():
+    """Trials 56 to 59: scv_selected was handed the quick card picture (the
+    first button only), cut an empty piece out of it and said no every
+    time, with an SCV selected too. With the whole screen it is right; with
+    the small picture it must not pretend to know."""
+    scv = hud("hud_scv_idle.jpg")
+    assert live.scv_selected(scv)
+    assert live.scv_selected(hud("hud_scv_moving.jpg"))
+    assert not live.scv_selected(card_of(scv))          # cannot tell: no
+    assert not live.scv_selected(hud("hud_two_scvs.jpg"))   # two: no Build buttons
+    assert not live.scv_selected(hud("hud_build_menu.jpg"))
+    assert not live.scv_selected(hud("hud_box_scvs.jpg"))
+
+
+def test_a_white_move_button_is_still_move():
+    """The game draws a unit's current order in white: an SCV on the move
+    shows a white Move button. The check fitted on the yellow one says no
+    (so a moving SCV, or a building flying somewhere, was not seen as
+    selected); move_shown knows both, on the whole screen and on the quick
+    card picture alike."""
+    idle, moving = hud("hud_scv_idle.jpg"), hud("hud_scv_moving.jpg")
+    assert live.units_selected(idle) and not live.units_selected(moving)
+    for pic in (idle, moving, hud("hud_two_scvs.jpg"), hud("hud_box_scvs.jpg")):
+        assert live.move_shown(pic) and live.move_shown(card_of(pic))
+        assert not live.building_card(card_of(pic))
+    for pic in (hud("hud_build_menu.jpg"), hud("hud_placing.jpg")):
+        assert not live.move_shown(pic) and not live.move_shown(card_of(pic))
+
+
+def test_the_build_menu_and_placing_are_told_apart():
+    menu, placing = hud("hud_build_menu.jpg"), hud("hud_placing.jpg")
+    assert live.build_menu_shown(card_of(menu))
+    assert not live.build_menu_shown(card_of(placing))
+    assert live.placing_shown(card_of(placing))
+    assert not live.placing_shown(card_of(menu))
+    assert not live.building_card(card_of(menu))        # not a building's card
+    for name in ("hud_scv_idle.jpg", "hud_scv_moving.jpg", "hud_two_scvs.jpg"):
+        assert not live.build_menu_shown(card_of(hud(name)))
+        assert not live.placing_shown(card_of(hud(name)))
+
+
+def test_scvs_and_the_dropship_are_told_by_their_pictures():
+    """The army's box round the Command Center at 10 s (trial 59): eight
+    selected, the SCVs third and seventh. The box round the Dropship: four,
+    the Dropship second. Two SCVs alone (the owner's recording)."""
+    box = hud("hud_box_scvs.jpg")
+    assert live.frames_shown(box) == 8
+    assert live.frames_like(box, 8, "scv") == [2, 6]
+    assert live.frames_like(box, 8, "dropship") == []
+    ship = hud("hud_box_dropship.jpg")
+    assert live.frames_shown(ship) == 4
+    assert live.frames_like(ship, 4, "dropship") == [1]
+    assert live.frames_like(ship, 4, "scv") == []
+    two = hud("hud_two_scvs.jpg")
+    assert live.frames_shown(two) == 2 and live.frames_like(two, 2, "scv") == [0, 1]
+    assert live.frames_shown(hud("hud_scv_idle.jpg")) == 0   # one unit: no frames
+
+
+def test_the_view_after_a_minimap_click_is_known_to_the_tile():
+    """45 different clicks on the minimap seen in the screen recordings of
+    trials 51 to 59, with where the view's white box then stood (1,564
+    frames): the model gives the box's place for every one."""
+    import json
+    import os
+    pairs = json.load(open(os.path.join(os.path.dirname(__file__), "data",
+                                        "minimap_clicks.json")))
+    assert len(pairs) >= 40
+    for px, py, col, row, left, top, frames in pairs:
+        assert live.view_after_click(px, py) == (left, top), (px, py)
+    # and back: the click that gives a wanted view
+    for left in range(0, 228, 2):
+        for top in range(0, 170, 2):
+            assert live.view_after_click(*live.click_for_view(left, top)) == (left, top)
+    # the Command Center at the start (trial 59: the bot clicked the
+    # minimap at 115, 878 and the Command Center, tile 91, 54.5, stood at
+    # screen 937, 615; the Russia bot's camera put it at 934, 448)
+    view = live.view_after_click(115, 878)
+    assert view == (78, 46)
+    x, y = live.tile_xy(91, 54.5, view)
+    assert abs(x - 937) <= 6 and abs(y - 615) <= 6
+
+
+def test_a_depots_footprint_is_read_on_the_owner_s_pictures():
+    """Four moments of the owner placing a depot: the footprint is found,
+    green on three and red on the one that overlaps a depot, and the mouse
+    is in the footprint's top-left tile each time (not in its middle)."""
+    import json
+    import os
+    here = os.path.join(os.path.dirname(__file__), "data")
+    meta = json.load(open(os.path.join(here, "depot_footprints.json")))
+    colours = {}
+    for name, info in meta.items():
+        img = Image.new("RGB", (1920, 1080), (0, 0, 0))
+        img.paste(Image.open(os.path.join(here, name)), tuple(info["at"]))
+        mx, my = info["mouse"]
+        fp = norway.footprint_at(img, mx + 72, my + 36, (3, 2))
+        assert fp is not None, name
+        assert abs((fp[2] - fp[0]) - 216) <= 2 and abs((fp[3] - fp[1]) - 144) <= 2
+        assert -2 <= mx - fp[0] <= 74 and -2 <= my - fp[1] <= 74, (name, mx - fp[0], my - fp[1])
+        colours[name] = "red" if fp[4] >= norway.OUTLINE_RED else "green"
+    assert colours["depot_footprint_0239.jpg"] == "red"
+    assert [c for n, c in colours.items() if "0239" not in n] == ["green"] * 3
+
+
+class Snap:
+    """What the World shows at one moment (stands in for a screenshot)."""
+    def __init__(self, w):
+        self.kinds = [w.units[i]["kind"] for i in w.sel]
+        self.mode, self.mouse, self.view = w.mode, w.mouse, w.view
+        self.building = w.building
+        self.world = w
+        if w.mode in ("placing", "unload", "repair"):
+            self.card = "blank"
+        elif w.mode == "menu":
+            self.card = "menu"
+        elif w.sel:
+            self.card = "move"
+        elif w.building:
+            self.card = "building"
+        else:
+            self.card = None
+
+
+class World:
+    """A small model of the game for the SCVs, the depots and the
+    Dropship: units with a kind and a tile, control groups, the selection
+    (its pictures in the bottom panel can be clicked), the command card's
+    modes, the view moved by clicks on the minimap exactly as the real one
+    is, and buildings placed with the footprint hanging from the tile
+    under the mouse. As in the real game: only one SCV alone gets a build
+    menu, and an SCV that is building does not."""
+    TILE = 72
+
+    def __init__(self, units, blocked=()):
+        self.t = 0.0
+        self.units = [dict(kind=k, x=x, y=y, busy=0.0, inside=False)
+                      for k, x, y in units]
+        self.sel, self.building, self.mode = [], None, None
+        self.groups, self.view, self.mouse = {}, (0, 0), (0, 0)
+        self.depots, self.blocked = [], set(blocked)
+        self.orders = []                # (what, unit indices, tile)
+        self.loaded = 0
+        self.lines, self.keys, self.combos, self.clicks = [], [], [], []
+        self.cc = None                  # the Command Center's tile, if it makes SCVs
+
+    # -- time and the log
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+    def log(self, text):
+        self.lines.append(text)
+
+    # -- eyes
+    def shot(self, label, keep=True):
+        return Snap(self)
+
+    def card(self):
+        return Snap(self)
+
+    # -- helpers
+    def kinds(self, key=None):
+        idx = self.sel if key is None else self.groups.get(key, [])
+        return sorted(self.units[i]["kind"] for i in idx)
+
+    def _on_minimap(self, x, y):
+        return 12 <= x <= 302 and 817 <= y <= 1036
+
+    def _minimap_tile(self, x, y):
+        return (2 * int((x - live.MM_X0) // live.MM_SX),
+                2 * int((y - live.MM_Y0) // live.MM_SY))
+
+    def _tile(self, x, y):
+        return self.view[0] + x / self.TILE, self.view[1] + y / self.TILE
+
+    def _frame(self, x, y):
+        n = len(self.sel)
+        if n < 2:
+            return None
+        for i in range(n):
+            x0, y0, x1, y1 = live.frame_box(i, n)
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return i
+        return None
+
+    def _unit_at(self, x, y):
+        tx, ty = self._tile(x, y)
+        near = [(abs(u["x"] - tx) + abs(u["y"] - ty), u["kind"] != "dropship", i)
+                for i, u in enumerate(self.units)
+                if not u["inside"] and abs(u["x"] - tx) <= 0.6 and abs(u["y"] - ty) <= 0.6]
+        return min(near)[2] if near else None
+
+    def footprint(self, size):
+        """(left, top, right, bottom, red pixels) of the footprint on the
+        cursor, hanging from the tile under the mouse; None unless placing."""
+        if self.mode != "placing":
+            return None
+        tx, ty = (int(v) for v in self._tile(*self.mouse))
+        l, t = (tx - self.view[0]) * self.TILE, (ty - self.view[1]) * self.TILE
+        return (l, t, l + size[0] * self.TILE, t + size[1] * self.TILE,
+                self.TILE ** 2 * len(self._in_the_way(tx, ty, size)))
+
+    def _in_the_way(self, tx, ty, size):
+        tiles = {(tx + i, ty + j) for i in range(size[0]) for j in range(size[1])}
+        taken = {(dx + i, dy + j) for dx, dy in self.depots
+                 for i in range(3) for j in range(2)}
+        return tiles & (self.blocked | taken)
+
+    # -- hands
+    def hover(self, x, y):
+        self.mouse = (x, y)
+
+    def drag(self, x0, y0, x1, y1):
+        a, z = self._tile(x0, y0), self._tile(x1, y1)
+        self.sel = [i for i, u in enumerate(self.units) if not u["inside"]
+                    and a[0] <= u["x"] <= z[0] and a[1] <= u["y"] <= z[1]]
+        self.building, self.mode = None, None
+        self.t += 0.1
+
+    def click(self, x, y, button="left"):
+        self.clicks.append((x, y, button))
+        self.mouse = (x, y)
+        self.t += 0.05
+        if button == "right":
+            if not self.sel:
+                return
+            if self._on_minimap(x, y):
+                self.orders.append(("move", tuple(self.sel), self._minimap_tile(x, y)))
+                return
+            i = self._unit_at(x, y)
+            if i is not None and self.units[i]["kind"] == "dropship":
+                tx, ty = self.units[i]["x"], self.units[i]["y"]
+                for j in list(self.sel):    # the men beside it walk in
+                    u = self.units[j]
+                    if u["kind"] == "marine" and abs(u["x"] - tx) <= 6 and abs(u["y"] - ty) <= 6:
+                        u["inside"] = True
+                        self.loaded += 1
+                return
+            self.orders.append(("move", tuple(self.sel), self._tile(x, y)))
+            return
+        if self._on_minimap(x, y):
+            assert self.mode != "placing", "a click on the minimap while placing"
+            if self.mode == "unload":
+                self.orders.append(("unload", tuple(self.sel), self._minimap_tile(x, y)))
+                self.mode = None
+            else:
+                self.view = live.view_after_click(x, y)
+            return
+        if y > 760:                         # the bottom panel
+            i = self._frame(x, y)
+            if i is not None:
+                self.sel, self.mode = [self.sel[i]], None
+            return
+        if self.mode == "placing":
+            tx, ty = (int(v) for v in self._tile(x, y))
+            if self._in_the_way(tx, ty, (3, 2)):
+                return                      # refused: still placing
+            self.depots.append((tx, ty))
+            self.orders.append(("depot", tuple(self.sel), (tx, ty)))
+            self.units[self.sel[0]]["busy"] = self.t + 14.0   # walks, then builds
+            self.mode = None
+            return
+        if self.mode == "repair":
+            self.orders.append(("repair", tuple(self.sel), self._tile(x, y)))
+            self.mode = None
+            return
+        i = self._unit_at(x, y)
+        if i is not None:
+            self.sel, self.building, self.mode = [i], None, None
+        elif self.cc and abs(self._tile(x, y)[0] - self.cc[0]) <= 2 \
+                and abs(self._tile(x, y)[1] - self.cc[1]) <= 1.5:
+            self.sel, self.building, self.mode = [], "Command Center", None
+
+    def click_with(self, held, x, y, button="left"):
+        self.clicks.append((x, y, held))
+        self.t += 0.1
+        i = self._frame(x, y)
+        if i is None:
+            return
+        if held == "shift":
+            del self.sel[i]
+        elif held == "ctrl":
+            kind = self.units[self.sel[i]]["kind"]
+            self.sel = [j for j in self.sel if self.units[j]["kind"] == kind]
+
+    def key(self, name):
+        self.keys.append(name)
+        self.t += 0.05
+        if name.isdigit():
+            self.sel = [i for i in self.groups.get(name, [])]
+            self.building, self.mode = None, None
+        elif name == "esc":
+            self.mode = {"placing": "menu"}.get(self.mode)
+        elif name == "b":
+            if self.mode is None and len(self.sel) == 1 and \
+                    self.units[self.sel[0]]["kind"] == "scv" and \
+                    self.units[self.sel[0]]["busy"] <= self.t:
+                self.mode = "menu"
+        elif name == "s":
+            if self.mode == "menu":
+                self.mode = "placing"
+            elif self.building == "Command Center":
+                self.units.append(dict(kind="scv", x=norway.CC_EXIT[0] + 0.6 * len(self.units) % 2,
+                                       y=norway.CC_EXIT[1], busy=0.0, inside=False))
+        elif name == "u":
+            if self.mode is None and self.loaded and \
+                    [self.units[i]["kind"] for i in self.sel] == ["dropship"]:
+                self.mode = "unload"
+        elif name == "r":
+            if self.mode is None and len(self.sel) == 1 and \
+                    self.units[self.sel[0]]["kind"] == "scv":
+                self.mode = "repair"
+
+    def combo(self, held, name):
+        self.combos.append((held, name))
+        self.t += 0.1
+        if held == "ctrl" and name.isdigit():
+            self.groups[name] = list(self.sel)
+        elif held == "shift" and name.isdigit():
+            self.groups[name] = self.groups.get(name, []) + \
+                [i for i in self.sel if i not in self.groups.get(name, [])]
+
+
+def eyes_on(monkeypatch):
+    """The bot's ways of reading the screen, pointed at a World's Snap."""
+    monkeypatch.setattr(live, "move_shown", lambda s: s.card == "move")
+    monkeypatch.setattr(live, "build_menu_shown", lambda s: s.card == "menu")
+    monkeypatch.setattr(live, "placing_shown", lambda s: s.card == "blank")
+    monkeypatch.setattr(live, "building_card", lambda s: s.card == "building")
+    monkeypatch.setattr(live, "frames_shown",
+                        lambda s: len(s.kinds) if len(s.kinds) >= 2 else 0)
+    monkeypatch.setattr(live, "frames_like",
+                        lambda s, n, kind: [i for i, k in enumerate(s.kinds) if k == kind])
+    monkeypatch.setattr(live, "scv_selected",
+                        lambda s: s.kinds == ["scv"] and s.card == "move")
+    monkeypatch.setattr(live, "attack_shown",
+                        lambda s: bool(s.kinds) and "dropship" not in s.kinds)
+    monkeypatch.setattr(norway, "footprint_at",
+                        lambda s, sx, sy, size: s.world.footprint(size))
+    monkeypatch.setattr(trial, "pick_building", lambda io, b: False)
+
+
+OSLO = [("marine", 87.0, 56.3), ("marine", 87.8, 56.5), ("marine", 88.5, 56.2),
+        ("marine", 98.4, 54.4), ("scv", 89.6, 56.4), ("scv", 91.7, 56.4)]
+
+
+def test_scvs_and_the_dropship_are_taken_out_of_an_army_box(monkeypatch):
+    """Trials 51 to 59: the army's box round the Command Center put the
+    new SCVs on army key 2, and the box round the Dropship took it off
+    its way to Shetland. They are taken out of the selection before the
+    key is pressed; the marines stay."""
+    eyes_on(monkeypatch)
+    w = World(OSLO + [("dropship", 88.0, 55.0)])
+    w.view = (78, 46)
+    w.drag(300, 500, 1700, 800)
+    assert sorted(w.kinds()) == ["dropship"] + ["marine"] * 4 + ["scv"] * 2
+    assert norway.army_selected(w) == 4
+    assert w.kinds() == ["marine"] * 4
+    assert any("taken out of an army box" in l for l in w.lines)
+    # an SCV alone in a box is not for the army at all, nor the Dropship
+    w.sel = [4]
+    assert norway.army_selected(w) == 0
+    w.sel = [6]
+    assert norway.army_selected(w) == 0
+    w.sel = [0]
+    assert norway.army_selected(w) == 1
+    # and a box of marines costs no clicks
+    w.sel, n = [0, 1, 2], len(w.clicks)
+    assert norway.army_selected(w) == 3 and len(w.clicks) == n
+
+
+def test_the_scvs_are_taken_below_the_command_center_onto_their_key(monkeypatch):
+    """The SCVs wait below the Command Center; once the army has left they
+    are boxed there, told by their pictures, proved by B on one of them
+    (two together show no Build buttons), put on key 9 and sent to
+    Arkhangelsk. A marine left standing there is not taken along."""
+    eyes_on(monkeypatch)
+    w = World([("marine", 89.0, 56.9), ("scv", 89.6, 56.4), ("scv", 91.7, 56.4),
+               ("marine", 120.0, 20.0)])
+    st = norway.State()
+    assert norway.take_scvs(w, st) == 2 and st.scv_count == 2
+    assert w.kinds("9") == ["scv", "scv"]
+    assert "b" in w.keys and w.mode is None          # proved, and the menu closed
+    assert norway.send_scvs(w, st) and st.scvs_sent is not None
+    what, who, where = w.orders[-1]
+    assert what == "move" and sorted(w.units[i]["kind"] for i in who) == ["scv", "scv"]
+    assert abs(where[0] - norway.DEPOTS_AT[0]) <= 2 and abs(where[1] - norway.DEPOTS_AT[1]) <= 2
+    # nothing there: nothing taken, the key untouched
+    w2, st2 = World([("marine", 89.0, 56.9)]), norway.State()
+    assert norway.take_scvs(w2, st2) == 0 and "9" not in w2.groups
+
+
+def test_scvs_on_an_army_key_are_moved_to_their_own_never_dropped(monkeypatch):
+    """Trial 59: found on army key 2, the SCVs were taken out of it without
+    having got onto key 9, and were on no key after. Now they go onto
+    their key first; if that cannot be proved they stay where they are."""
+    eyes_on(monkeypatch)
+    w = World(OSLO)
+    w.groups = {"1": [0, 1], "2": [2, 4, 3, 5]}
+    st = norway.State()
+    st.army_keys = ["1", "2"]
+    assert norway.scvs_from_army(w, st) == 2
+    assert w.kinds("9") == ["scv", "scv"]
+    assert w.kinds("2") == ["marine", "marine"] and w.kinds("1") == ["marine"] * 2
+    # the proof fails: nothing is taken out of the army key
+    w = World(OSLO)
+    w.groups = {"2": [2, 4, 3, 5]}
+    st = norway.State()
+    st.army_keys = ["2"]
+    monkeypatch.setattr(norway, "proved_scv", lambda io: False)
+    assert norway.scvs_from_army(w, st) == 0 and st.scv_count == 0
+    assert w.kinds("2") == ["marine", "marine", "scv", "scv"]
+
+
+def depot_world():
+    w = World([("scv", 196.0, 20.0), ("scv", 196.5, 20.5)],
+              blocked={(x, y) for x in (198, 199, 200) for y in (19, 20)} |   # Russia's depot
+                      {(201, 14), (202, 15)})                                # something in the way
+    w.groups["9"] = [0, 1]
+    st = norway.State()
+    st.scv_count, st.scvs_sent = 2, 0.0
+    return w, st
+
+
+def test_ten_depots_by_arkhangelsk_one_scv_an_order(monkeypatch):
+    """The owner's way: one SCV selected (with two there is no build
+    menu), B, S, and a click where the footprint shows green. Ten depots,
+    each on its own free ground, the two SCVs by turns, and an SCV is left
+    alone until its depot is up."""
+    eyes_on(monkeypatch)
+    w, st = depot_world()
+    results = []
+    while st.depots_placed < norway.DEPOTS and w.t < 400:
+        results.append(norway.build_depot(w, st))
+        w.sleep(norway.DEPOT_EVERY)
+    assert st.depots_placed == 10 and len(w.depots) == 10
+    assert len(set(w.depots)) == 10
+    for dx, dy in w.depots:                 # none on taken ground
+        assert not {(dx + i, dy + j) for i in range(3) for j in range(2)} & w.blocked
+    spots = [tile for view, tile in norway.depot_spots()]
+    assert set(w.depots) <= set(spots) and (201, 14) not in w.depots
+    orders = [o for o in w.orders if o[0] == "depot"]
+    assert all(len(who) == 1 for what, who, where in orders)     # one SCV an order
+    assert {who[0] for what, who, where in orders} == {0, 1}     # by turns
+    assert "wait" in results                                     # both were busy at times
+    # an order to an SCV only once its last depot is up (about 12.5 s)
+    times = {0: [], 1: []}
+    t = 0.0
+    w2, st2 = depot_world()
+    while st2.depots_placed < 4:
+        before = len(w2.orders)
+        norway.build_depot(w2, st2)
+        if len(w2.orders) > before:
+            times[w2.orders[-1][1][0]].append(w2.t)
+        w2.sleep(norway.DEPOT_EVERY)
+    for i in times:
+        assert all(b - a >= 12.5 for a, b in zip(times[i], times[i][1:]))
+
+
+def test_a_depot_is_never_clicked_onto_red_or_unseen_ground(monkeypatch):
+    eyes_on(monkeypatch)
+    w, st = depot_world()
+    w.blocked |= {(x, y) for x in range(190, 215) for y in range(8, 30)}   # all of it
+    n = len(w.clicks)
+    assert norway.build_depot(w, st) == "failed"
+    assert not w.depots and st.depots_placed == 0
+    assert w.mode is None                                    # and out of placing
+    # no SCV on the key: said so, nothing pressed for a depot
+    w, st = depot_world()
+    w.groups["9"] = []
+    assert norway.build_depot(w, st) == "no-scv" and "b" not in w.keys
+
+
+def test_one_scv_repairs_the_barracks_where_it_landed(monkeypatch):
+    eyes_on(monkeypatch)
+    w, st = depot_world()
+    st.at["Barracks"] = (147.0, 37.5)
+    assert norway.repair_barracks(w, st)
+    what, who, where = w.orders[-1]
+    assert what == "repair" and len(who) == 1
+    assert abs(where[0] - 147.0) <= 0.6 and abs(where[1] - 37.5) <= 0.6
+    assert max(st.scv_busy) > w.t                 # it is left alone for a while
+    assert norway.free_scv(st, w.t) is not None   # the other builds on
+
+
+def test_the_dropship_takes_the_men_beside_it_to_shetland(monkeypatch):
+    """Trials 51 to 59: the clicks meant for the Dropship fell two tiles
+    above it, so nobody boarded, U did nothing, the click on the minimap
+    only moved the view, and the army's box then took the Dropship to
+    Finland. With the exact view the men board, the Dropship alone is
+    selected, U asks for a target and Shetland is given on the minimap."""
+    eyes_on(monkeypatch)
+    m = trial.load_map()
+    d = next(a for a in m["slots"]["4"]["air"] if a["type"] == "Dropship")
+    tx, ty = d["x"] / 32, d["y"] / 32
+    w = World([("dropship", tx, ty), ("marine", tx - 1.1, ty - 0.6),
+               ("marine", tx - 1.1, ty + 0.3), ("marine", tx + 9.0, ty + 1.0)])
+    assert norway.drop_on_shetland(w, m)
+    assert w.loaded == 2 and not w.units[3]["inside"]
+    what, who, where = w.orders[-1]
+    assert what == "unload" and [w.units[i]["kind"] for i in who] == ["dropship"]
+    sx, sy = norway.SHETLAND[0] / 32, norway.SHETLAND[1] / 32
+    assert abs(where[0] - sx) <= 2 and abs(where[1] - sy) <= 2
+    # nobody near to board: no order, and it says so
+    w = World([("dropship", tx, ty)])
+    assert not norway.drop_on_shetland(w, m)
+    assert not w.orders and any("was not sent to Shetland" in l for l in w.lines)
+
+
+def test_two_scvs_are_ordered_with_no_rally_and_made_again_if_lost(monkeypatch):
+    eyes_on(monkeypatch)
+    m = trial.load_map()
+    cc = norway.norway_buildings(m)["Command Center"]
+    w = World([])
+    w.cc = (cc["x"] / 32, cc["y"] / 32)
+    st = norway.State()
+    assert norway.make_scvs(w, m, st)
+    assert w.keys[-2:] == ["s", "s"] and "r" not in w.keys       # no rally
+    assert sum(u["kind"] == "scv" for u in w.units) == 2
+    assert st.scvs_made is not None
+    # they stand below the Command Center: found there
+    w.sleep(8)
+    assert norway.get_scvs(w, m, st) == 2 and w.kinds("9") == ["scv", "scv"]
+    assert any("walk to Arkhangelsk" in l for l in w.lines)
+    # lost (none there, none on an army key): the second try makes two more
+    w = World([])
+    w.cc = (cc["x"] / 32, cc["y"] / 32)
+    st = norway.State()
+    st.scvs_made = 0.0
+    assert norway.get_scvs(w, m, st) == 0 and not st.scvs_remade
+    assert norway.get_scvs(w, m, st) == 0 and st.scvs_remade
+    w.sleep(8)
+    assert norway.get_scvs(w, m, st) == 2
+
+
+def test_a_footprint_hangs_from_the_tile_under_the_mouse(monkeypatch):
+    """Landing the Barracks or the Command Center: the mouse starts on the
+    footprint's top-left tile, and the colour is read where the click goes
+    (before, the mouse was moved once more after the last look)."""
+    tile = 72
+
+    class Land:
+        def __init__(self, red_tiles=()):
+            self.at, self.lines, self.hovers = (0, 0), [], []
+            self.red = set(red_tiles)
+
+        def hover(self, x, y):
+            self.at = (x, y)
+            self.hovers.append((x, y))
+
+        def sleep(self, s):
+            pass
+
+        def log(self, text):
+            self.lines.append(text)
+
+        def shot(self, label, keep=True):
+            img = Image.new("RGB", (1920, 1080), (29, 34, 16))
+            gx, gy = self.at[0] // tile, self.at[1] // tile
+            for i in range(4):
+                for j in range(3):
+                    c = TINT["red" if (gx + i, gy + j) in self.red else "green"]
+                    img.paste(c, ((gx + i) * tile, (gy + j) * tile,
+                                  (gx + i + 1) * tile, (gy + j + 1) * tile))
+            return img
+    io = Land()
+    cx, cy = 10 * tile + 144, 5 * tile + 108       # a footprint on tiles 10..13, 5..7
+    mouse = norway.green_spot(io, cx, cy, "land-barracks")
+    assert mouse is not None and mouse[0] // tile == 10 and mouse[1] // tile == 5
+    assert len(io.hovers) == 1                     # right the first time
+    # red there: the spot is moved a tile at a time until green, and the
+    # click goes where green was read
+    io = Land(red_tiles={(13, 5), (13, 6), (13, 7)})
+    mouse = norway.green_spot(io, cx, cy, "land-barracks")
+    assert mouse is not None and mouse == io.hovers[-1]
+    gx, gy = mouse[0] // tile, mouse[1] // tile
+    assert not {(gx + i, gy + j) for i in range(4) for j in range(3)} & io.red
+    # red all round, or no footprint to be seen: never a click
+    io = Land(red_tiles={(x, y) for x in range(0, 27) for y in range(0, 15)})
+    assert norway.green_spot(io, cx, cy, "land-barracks") is None
+
+    class Blind(Land):
+        def shot(self, label, keep=True):
+            return Image.new("RGB", (1920, 1080), (29, 34, 16))
+    assert norway.green_spot(Blind(), cx, cy, "land-barracks") is None
+
+
+def test_a_lost_scv_found_by_the_sweep_is_proved_by_b(monkeypatch):
+    """Trial 59: the sweep clicked right on an SCV ten times and the check
+    said no each time. Now the game itself is asked: B, and a build menu."""
+    eyes_on(monkeypatch)
+    w = World([("marine", 133.0, 10.0), ("scv", 136.0, 11.0)])
+    w.view = (120, 5)
+    st = norway.State()
+    spots = [tuple(int(v) for v in live.tile_xy(133.0, 10.0, w.view)),
+             tuple(int(v) for v in live.tile_xy(136.0, 11.0, w.view))]
+    monkeypatch.setattr(norway, "scv_spots", lambda pic: spots)
+    assert norway.probe_scvs(w, st) == 1
+    assert w.kinds("9") == ["scv"] and st.scv_count == 1
+
+
+def test_a_dropship_alone_is_told_by_its_missing_attack_button():
+    """One unit alone shows no small pictures: an SCV is told by its Build
+    button, the Dropship by having no Attack button (marines and SCVs do)."""
+    assert not live.attack_shown(hud("hud_dropship.jpg"))
+    assert live.move_shown(hud("hud_dropship.jpg"))
+    for name in ("hud_marine.jpg", "hud_scv_idle.jpg", "hud_scv_moving.jpg",
+                 "hud_box_scvs.jpg", "hud_two_scvs.jpg"):
+        assert live.attack_shown(hud(name)), name
+    assert not live.attack_shown(card_of(hud("hud_marine.jpg")))   # needs the whole screen
+
+
+def test_one_scv_first_the_other_added_to_the_key_later(monkeypatch):
+    """If only one SCV stands below the Command Center at the first look
+    (the other comes out later), it goes on the key and off to
+    Arkhangelsk; the other is added to the key at the next look."""
+    eyes_on(monkeypatch)
+    m = trial.load_map()
+    w = World([("scv", 91.7, 56.4)])
+    st = norway.State()
+    st.scvs_made = 0.0
+    assert norway.get_scvs(w, m, st) == 1 and w.kinds("9") == ["scv"]
+    w.units[0]["x"], w.units[0]["y"] = 120.0, 30.0       # it walked off
+    w.units.append(dict(kind="scv", x=89.6, y=56.4, busy=0.0, inside=False))
+    assert norway.get_scvs(w, m, st) == 2 and w.kinds("9") == ["scv", "scv"]
+    assert ("shift", "9") in w.combos
+    moves = [o for o in w.orders if o[0] == "move"]
+    assert len(moves[-1][1]) == 2                        # both sent on
+    # with one on the key and nothing more to find: no new SCVs are made
+    w = World([("scv", 91.7, 56.4)])
+    st = norway.State()
+    st.scvs_made = 0.0
+    assert norway.get_scvs(w, m, st) == 1
+    w.units[0]["x"] = 120.0
+    assert norway.get_scvs(w, m, st) == 1 and not st.scvs_remade
