@@ -37,7 +37,7 @@ OPENING_TIME = 300             # real seconds the opening is played at most
 
 T = 32                         # map pixels a tile
 SHETLAND = (64 * T + 6 * T, 33 * T + 4 * T)     # the middle of Shetland 300
-KIRUNA_LAND = [(130, 1), (128, 2), (126, 2), (133, 3)]   # Command Center (tiles,
+KIRUNA_LAND = [(139, 8), (130, 1), (128, 2), (126, 2), (133, 3)]   # Command Center (tiles,
                                # top left), the sample games' spots by Kiruna
 DEPOTS_AT = (200, 18)          # tiles: by Arkhangelsk, where the repository
                                # owner built them (for safety; trial 40)
@@ -152,6 +152,9 @@ class State:
         self.army_px = 0
         self.targets = None            # Germany's buildings in Finland left
         self.barracks_in = False
+        self.land_tried = set()
+        self.repaired = 0
+        self.last_repair = -1e9
         self.chain, self.chain_at = [], -1e9
         self.depot_look = -1e9
         self.depot_looks = 0
@@ -166,8 +169,16 @@ def lift(io, mapdata, st, kind, dest=None, key=None):
     start), put it on a key if asked, and float it to a map point.
     True if it went up."""
     b = norway_buildings(mapdata).get(kind)
+    clear_modes(io)
     if b is None or not trial.pick_building(io, b):
         io.log(f"norway: the {kind} was not found")
+        return False
+    io.sleep(0.2)
+    if live.units_selected(io.card()):
+        # something in the air is selected, not this building on the ground
+        # (trial 50: a floating Starport, whose bottom-right button is Land)
+        clear_modes(io)
+        io.log(f"norway: the {kind} was not picked (something else was)")
         return False
     io.click(*trial.LIFT_BUTTON)
     io.sleep(0.15)
@@ -188,6 +199,26 @@ def lift(io, mapdata, st, kind, dest=None, key=None):
     return True
 
 
+def clear_modes(io):
+    """Out of any placing or targeting mode (Esc twice)."""
+    io.key("esc")
+    io.sleep(0.08)
+    io.key("esc")
+    io.sleep(0.08)
+
+
+def is_down(io, key):
+    """True if the building on `key` has landed: pressed, and read twice a
+    moment apart, its card shows a building's buttons, not Move (trial 50:
+    one quick read still showed the SCV's build menu)."""
+    io.key(key)
+    io.sleep(0.25)
+    if not live.building_selected(io.card()):
+        return False
+    io.sleep(0.25)
+    return live.building_selected(io.card())
+
+
 def dest_name(mapdata, xy):
     return trial.place_name(mapdata, *xy) if xy else "-"
 
@@ -198,12 +229,15 @@ def land(io, kind, spots, st):
     has landed the key shows a building, not Move."""
     key = KEYS[kind]
     l, t, r, b = live.GAME_AREA
+    clear_modes(io)
     for x, y in spots:
-        io.key(key)
-        io.sleep(0.1)
-        if live.building_selected(io.card()):
+        if kind in st.land_tried and is_down(io, key):
             st.landed.add(kind)
-            return True                 # down already
+            return True                 # down already (from an earlier try)
+        io.key(key)
+        io.sleep(0.15)
+        if not live.units_selected(io.card()):
+            return False                # the key does not hold it in the air
         cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
         sx, sy = live.on_screen(x, y, cam)
         if not (l + 40 < sx < r - 40 and t + 40 < sy < b - 40):
@@ -211,25 +245,52 @@ def land(io, kind, spots, st):
         io.click(*LAND_BUTTON)
         io.sleep(0.15)
         io.click(sx, sy)
+        st.land_tried.add(kind)
         io.sleep(0.3)
         io.key("esc")                   # out of placing if the spot was refused
         io.sleep(0.1)
-        io.key(key)
-        io.sleep(0.1)
-        if live.building_selected(io.card()):
+        if is_down(io, key):
             st.landed.add(kind)
             io.log(f"norway: {kind} landed by {x // T}, {y // T}")
             return True
         # landing takes a moment: the building still shows Move while it
         # comes down, so look again before the next spot
         io.sleep(2.5)
-        io.key(key)
-        io.sleep(0.1)
-        if live.building_selected(io.card()):
+        if is_down(io, key):
             st.landed.add(kind)
             io.log(f"norway: {kind} landed by {x // T}, {y // T}")
             return True
     return False
+
+
+REPAIR_TRIES = 3
+REPAIR_EVERY = 12
+
+
+def repair_barracks(io, st):
+    """An SCV from the depots' place repairs the Barracks by the Heavy
+    Industry: picked there by a click, R, then a click on the Barracks.
+    True if the order was given."""
+    x0, y0 = DEPOTS_AT[0] * T, DEPOTS_AT[1] * T
+    clear_modes(io)
+    cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
+    sx, sy = live.on_screen(x0, y0, cam)
+    for dx, dy in trial.SCV_PICK:
+        io.click(sx + dx, sy + dy)
+        io.sleep(0.1)
+        if live.units_selected(io.card()):
+            break
+    else:
+        io.log("norway: no SCV found to repair the Barracks")
+        return False
+    bx, by = BARRACKS_SPOT
+    cam = trial.look_at(io, *trial.centred(bx, by), wait=0.3)
+    io.key("r")                         # repair
+    io.sleep(0.08)
+    io.click(*live.on_screen(bx, by, cam))
+    io.sleep(0.05)
+    io.log("norway: an SCV goes to repair the Barracks")
+    return True
 
 
 def drop_on_shetland(io, mapdata):
@@ -738,7 +799,8 @@ def opening(io, watch, mapdata, st, first):
         if st.finland_clear and "Starport" not in st.landed and \
                 io.now() - st.last_port >= RETRY_PORT:
             st.last_port = io.now()
-            if land(io, "Starport", [(port["x"], port["y"])], st):
+            if st.port_tries and \
+                    land(io, "Starport", [(port["x"], port["y"])], st):
                 io.log("norway: Starport landed at Murmansk on the Control "
                        "Tower")
             else:
@@ -747,6 +809,14 @@ def opening(io, watch, mapdata, st, first):
                 if n:
                     io.log(f"norway: {n} groups of marines attack Russia's "
                            f"Starport at Murmansk")
+        # an SCV comes and repairs the Barracks (the owner, trial 50)
+        if "Barracks" in st.landed and st.repaired < REPAIR_TRIES and \
+                io.now() - st.last_repair >= REPAIR_EVERY:
+            st.last_repair = io.now()
+            if repair_barracks(io, st):
+                st.repaired = REPAIR_TRIES
+            else:
+                st.repaired += 1
         cc_done = "Command Center" in st.landed or \
             (st.cc_lifted and "Command Center" not in st.lifted)
         if {"Barracks", "Starport"} <= st.landed and cc_done and \

@@ -287,6 +287,27 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   the west bunker; then chains of three, bunkers and turrets before
   anything else, given again every 6 s.
 
+## Trial 50 (build 79dcc22): Finland taken
+
+- Every German building in Finland gone, Finland clear at 71.7 s (3:13
+  on the countdown). The owner: good work.
+- Then two faults: the Starport's key was read too soon after the
+  depots (the SCV's build menu still showed) and counted as landed, so
+  Russia's Starport was never attacked and the Barracks (waiting for that
+  attack) never landed; and the Command Center's pick missed, the
+  floating Starport stayed selected and its bottom-right button (Land)
+  was pressed: "Select Location" over Oslo from 77 s on.
+- The owner's recording after Finland: every key to Murmansk (155, 10)
+  and at Russia's Starport (63-65 s); depots by Arkhangelsk in rounds
+  from 68 s; the Barracks down at 104 s; the Command Center by Kiruna
+  (141, 9) at 114 s, then the Starport; Dropships from it.
+- Now: Esc twice before every lift and landing; a building counts as
+  down only after its landing was tried and two reads a moment apart
+  agree; the army attacks Russia's Starport first, then Norway's tries
+  to land there; an SCV from the depots' place repairs the Barracks
+  once it is down (the owner); the Command Center lands by Kiruna at
+  (141, 9) first.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

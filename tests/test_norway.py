@@ -166,10 +166,13 @@ def test_the_opening_in_the_owner_s_order(monkeypatch):
 
 
 def test_with_russia_s_starport_gone_norway_s_simply_lands(monkeypatch):
+    """As the owner: the army goes at Russia's Starport first (one attack,
+    at an empty spot if it has gone), then Norway's lands there."""
     game, m, watch, st = setup(monkeypatch, port_blocks=False)
     norway.opening(game, watch, m, st, "first")
     assert "Starport" in st.landed
-    assert not any("attack Russia's Starport" in l for l in game.lines)
+    attacks = [l for l in game.lines if "attack Russia's Starport" in l]
+    assert len(attacks) == 1
 
 
 def test_with_finland_not_cleared_the_barracks_keeps_floating_over_it(monkeypatch):
@@ -421,3 +424,31 @@ def test_germany_s_buildings_are_attacked_in_one_chain(monkeypatch):
     assert all(k in norway.FIRST_KINDS for k, x, y in st.chain)
     game.t += 2
     assert norway.clear_buildings(game, W(), m, st, "pic") == 0   # on its way
+
+
+def test_a_quick_wrong_read_never_counts_as_landed(monkeypatch):
+    """Trial 50: right after the depots, the Starport's key was read too
+    soon (the SCV's build menu still showed) and it counted as landed;
+    its landing was never tried and the Barracks never came down. A
+    building counts as down only after a landing was tried and two reads
+    agree."""
+    game, m, watch, st = setup(monkeypatch)
+    game.up.add("Starport")
+    game.on_key["7"] = "Starport"
+    reads = iter(["build-menu"] + [None] * 50)
+    real_card = game.card
+    monkeypatch.setattr(trial.live, "building_selected",
+                        lambda card: card in game.down or card == "build-menu")
+    game.card = lambda: next(reads, None) or real_card()
+    norway.land(game, "Starport", [(4992, 176)], st)
+    assert "Starport" not in st.landed or "Starport" in game.down
+
+
+def test_an_scv_repairs_the_barracks_once_it_is_down(monkeypatch):
+    """The owner (trial 50): after Finland, an SCV comes and repairs the
+    Barracks in Helsinki (R, then a click on it)."""
+    game, m, watch, st = setup(monkeypatch)
+    game.selected = "units"                 # the click picks an SCV
+    assert norway.repair_barracks(game, st)
+    assert "r" in game.keys
+    assert any("repair the Barracks" in l for l in game.lines)
