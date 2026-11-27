@@ -317,15 +317,35 @@ def test_germany_s_buildings_are_cleared_one_by_one_turrets_too(monkeypatch):
     st.army_keys = ["1", "2"]
     kinds = [k for k, x, y in norway.german_buildings(m)]
     assert kinds.count("Missile Turret") == 4 and "Bunker" in kinds
-    standing = {"n": 3}
+    standing = {"on": True}
+    buildings = norway.german_buildings(m)
 
-    def red(pic, sx, sy, reach=0):
-        return 0 if standing["n"] <= 0 else 20
-    monkeypatch.setattr(norway, "red_near", red)
-    assert norway.clear_buildings(game, watch, m, st, "pic") == 2
+    class W:
+        def units(self, picture):
+            return blob(norway.heavy_industry(m), 3)
+
+        def others(self, picture, slots):
+            out = set()
+            for k, x, y in buildings:
+                if standing["on"] or (x, y) != first_xy[0]:
+                    out |= blob((x, y), 2)
+            return out
+
+        def forget(self, pixels):
+            pass
+    first_xy = [None]
+    w = W()
+    # trial 46: gone is told by the minimap, not the screen's red
+    monkeypatch.setattr(norway, "red_near", lambda *a, **k: 0)
+    st.targets = norway.german_buildings(m)
+    hx, hy = norway.heavy_industry(m)
+    st.targets.sort(key=lambda b: (b[1] - hx) ** 2 + (b[2] - hy) ** 2)
+    first_xy[0] = st.targets[0][1:]
+    assert norway.clear_buildings(game, w, m, st, "pic") == 2
     first = st.targets[0]
-    standing["n"] = 0                     # it falls
-    norway.clear_buildings(game, watch, m, st, "pic")
+    assert first[1:] == first_xy[0]       # still there: attacked, not crossed off
+    standing["on"] = False                # it falls
+    norway.clear_buildings(game, w, m, st, "pic")
     assert first not in st.targets
     assert any("is gone" in l for l in game.lines)
 
@@ -345,3 +365,16 @@ def test_the_barracks_waits_out_of_reach_and_the_army_goes_first(monkeypatch):
     i_army = next(i for i, l in enumerate(lines) if "moves to Kiruna" in l)
     i_lift = next(i for i, l in enumerate(lines) if "Factory lifted" in l)
     assert i_army < i_lift
+
+
+def test_the_barracks_flies_in_as_the_army_moves_on_to_helsinki(monkeypatch):
+    """The owner (trial 46): the Barracks must reach Helsinki much sooner.
+    It flies in over Finland when the army moves on to Helsinki, long
+    before Finland is clear."""
+    game, m, watch, st = setup(monkeypatch)
+    norway.opening(game, watch, m, st, "first")
+    lines = [l for l in game.lines if l.startswith("norway:")]
+    i_in = next(i for i, l in enumerate(lines) if "Barracks flies in" in l)
+    i_move = next(i for i, l in enumerate(lines) if "moves to Helsinki" in l)
+    i_clear = next(i for i, l in enumerate(lines) if "Finland cleared" in l)
+    assert i_in <= i_move + 1 and i_in < i_clear

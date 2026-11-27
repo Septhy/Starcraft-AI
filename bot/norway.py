@@ -69,8 +69,10 @@ DEPOT_EVERY = 12               # seconds between looks (trial 42: every 3 s, the
                                # camera sat on empty ground by Arkhangelsk)
 DEPOT_LOOKS = 5                # looks before the depots are given up
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
-BARRACKS_WAIT = (127 * T, 22 * T)  # where the Barracks floats till Finland is
-                               # clear: the Norwegian military camp
+BARRACKS_WAIT = (127 * T, 22 * T)  # where the Barracks floats till the army
+                               # has taken the Finland spot: the Norwegian camp
+BARRACKS_IN_AT = 3             # the stage (the move on to Helsinki) at which
+                               # it flies in over Finland
 RED = [0]                      # Germany
 CLEAR_LOOKS = 2                # looks in a row with no red in Finland: cleared
 BARRACKS_BY = 3 * 60 + 25      # the countdown (3:25) by which the Barracks is down
@@ -136,6 +138,7 @@ class State:
         self.last_clean = -1e9
         self.army_px = 0
         self.targets = None            # Germany's buildings in Finland left
+        self.barracks_in = False
         self.depot_look = -1e9
         self.depot_looks = 0
         self.army_held = {}
@@ -426,6 +429,20 @@ def army_into_finland(io, watch, mapdata, st, picture):
         # attack back 45 s; the owner attacked 5 s after the gather order
         # and the stragglers caught up)
         st.stage, st.stage_at = st.stage + 1, now
+        if st.stage == BARRACKS_IN_AT and "Barracks" in st.lifted and \
+                not st.barracks_in:
+            # the Barracks flies in over Finland now (the owner, trial 46:
+            # much sooner; it floats slowly, ~20 s across, and must be
+            # over Helsinki and Factory 10 before 3:25)
+            st.barracks_in = True
+            hx, hy = heavy_industry(mapdata)
+            io.key(KEYS["Barracks"])
+            io.sleep(0.05)
+            io.click(*live.minimap_point(hx - int(1.5 * T), hy - int(4.5 * T)),
+                     button="right")
+            io.sleep(0.05)
+            io.log("norway: the Barracks flies in over Finland (by the Heavy "
+                   "Industry)")
         n = order_army(io, st, (xy[0] * T, xy[1] * T), attack)
         io.log(f"norway: the army {'attacks at' if attack else 'moves to'} "
                f"{trial.place_name(mapdata, xy[0] * T, xy[1] * T)} "
@@ -469,6 +486,7 @@ def german_buildings(mapdata):
 
 
 GONE_LEAST = 8                 # red screen pixels round a building: still there
+GONE_REACH = 2                 # minimap pixels round a building looked at for red
 BUILDING_REACH = 55            # screen pixels round its middle looked at
 
 
@@ -495,14 +513,17 @@ def clear_buildings(io, watch, mapdata, st, picture):
         if not st.targets:
             return None
         kind, x, y = st.targets[0]
-        cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
-        pic = io.shot("finland-target", keep=False)
-        sx, sy = live.on_screen(x, y, cam)
+        # gone when the minimap shows no red on it any more (trial 46: the
+        # screen's bright team red was too little on Germany's buildings,
+        # three were crossed off in one second while still standing)
         try:
-            there = red_near(pic, sx, sy)
+            on_map = len(trial.near(watch.others(picture, RED), (x, y),
+                                    GONE_REACH))
         except Exception:
-            there = GONE_LEAST
-        if there < GONE_LEAST:
+            on_map = 1
+        cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
+        sx, sy = live.on_screen(x, y, cam)
+        if on_map == 0:
             st.targets.pop(0)
             io.log(f"norway: Germany's {kind} at {x // T}, {y // T} is gone "
                    f"({len(st.targets)} left)")

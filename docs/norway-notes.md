@@ -234,6 +234,21 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   Helsinki at 37-41 s (the owner: 30 s and 41-44 s), but was gone by
   about 73 s with 100 red pixels left.
 
+## Trial 46 (build eca55e7): still too slow; the Barracks too late
+
+- Five keys (12, 12, 12, 11, 4); Finland attacked 29.5 s, Helsinki
+  42.8 s, as the owner. But three of Germany's buildings were crossed off
+  in one second at 46 s while still standing (the screen's bright team
+  red is too little on their buildings), the army moved on and was gone
+  by about 80 s with red still on the minimap.
+- The owner: the Barracks must reach Helsinki much sooner. A floating
+  building is slow (about 20 s across Finland) and it waited for
+  Finland to be clear.
+- Now: a building is gone when the minimap shows no red on it (2
+  pixels round); the Barracks flies in over Finland (by the Heavy
+  Industry) as soon as the army moves on to Helsinki, and lands once
+  Finland is clear.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,
