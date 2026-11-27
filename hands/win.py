@@ -22,6 +22,12 @@ SCAN = {"esc": 0x01, "shift": 0x2A, "ctrl": 0x1D, "alt": 0x38,
 SCAN.update(dict(zip("qwertyuiop", range(0x10, 0x1A))))
 SCAN.update(dict(zip("asdfghjkl", range(0x1E, 0x27))))
 SCAN.update(dict(zip("zxcvbnm", range(0x2C, 0x33))))
+# the arrow keys move the game screen (the owner, after trial 56: look
+# for the SCVs by moving the screen, not by the minimap); they are
+# "extended" keys
+SCAN.update({"up": 0x48, "down": 0x50, "left": 0x4B, "right": 0x4D})
+EXTENDED = {"up", "down", "left", "right"}
+KEY_EXTENDED = 0x01
 
 ULONG_PTR = ctypes.c_size_t
 
@@ -100,7 +106,9 @@ class WinIO:
 
     def _key(self, name, up=False):
         i = INPUT(type=1)
-        i.u.ki = KEYBDINPUT(0, SCAN[name], KEY_SCAN | (KEY_UP if up else 0), 0, 0)
+        flags = KEY_SCAN | (KEY_UP if up else 0) | \
+            (KEY_EXTENDED if name in EXTENDED else 0)
+        i.u.ki = KEYBDINPUT(0, SCAN[name], flags, 0, 0)
         self._send(i)
 
     # The pauses below are about as short as the game reliably accepts:
@@ -176,6 +184,18 @@ class WinIO:
         time.sleep(0.03)
         self._key(name, up=True)
         self.log(f"key {name}", quiet=True)
+
+    def hold_key(self, name, seconds):
+        """Hold a key down for a while (an arrow key scrolls the screen)."""
+        self._check()
+        self._key(name)
+        try:
+            end = time.time() + seconds
+            while time.time() < end:
+                time.sleep(min(0.05, max(0.0, end - time.time())))
+        finally:
+            self._key(name, up=True)
+        self.log(f"key {name} held {seconds:.2f}s", quiet=True)
 
     def combo(self, held, name):
         """Press a key while holding another, e.g. combo("ctrl", "3")."""

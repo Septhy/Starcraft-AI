@@ -51,7 +51,9 @@ SCV_WAIT = (126, 17)           # tiles: where the new SCVs wait (the owner's
                                # recording: the Norwegian military camp; trial
                                # 53, sent straight on through Finland they were
                                # lost to the Germans and never arrived)
-SCV_REMAKE_WAIT = 30           # seconds for two new SCVs to come out
+SCV_REMAKE_WAIT = 45           # seconds for two new SCVs to come out and
+                               # walk to Kiruna
+SCV_OUT = 30                   # seconds the Command Center's lift waits for them
 SCV_TRIES = 12                 # looks for the SCVs before giving up
 SCV_WALK = 25                  # seconds they are given to reach Arkhangelsk
 FINLAND = (125, 15, 150, 50)   # tiles: where Germany's buildings in Finland stand
@@ -190,6 +192,7 @@ class State:
         self.scvs_tries = 0
         self.scvs_keyed = False
         self.scvs_remade = 0
+        self.sweep_speed = SWEEP_SPEED
         self.cc_home = None
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
@@ -594,39 +597,139 @@ def make_scvs(io, mapdata, st=None):
     return True
 
 
-def box_scvs(io, x0, y0, w=6, h=4):
-    """Look at a map point and box what stands round it. True if SCVs (and
-    only SCVs: their Build button shows) are then selected."""
-    clear_modes(io)
-    cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
+# Looking for the SCVs by moving the game screen with the arrow keys (the
+# owner, after trial 56), not by jumping about with the minimap: a sweep
+# over Kiruna, the Norwegian camp and Murmansk. Where the view is, is read
+# from the minimap's white box after each move.
+SWEEP_VIEWS = [(133, 10), (155, 10), (155, 20), (133, 20)]   # tiles: view middles
+SWEEP_NEAR = (3, 2)            # tiles: a view this close is close enough
+SWEEP_SPEED = 15.0             # tiles a second an arrow key scrolls (first guess;
+                               # measured as it goes)
+SWEEP_MOVES = 8                # moves at most to reach one view
+SWEEP_HOLD = 1.5               # seconds an arrow is held at most at once
+PROBES = 8                     # spots clicked at most in one view
+SCV_CELL = 24                  # screen pixels: the grid SCVs are looked for in
+
+
+def scv_spots(picture):
+    """Screen points that may be one of our SCVs: its yellow-orange
+    patches (about (213, 129, 29)) beside its pale blue-white body; our
+    marines are a darker red-orange and have no pale body. Buildings with
+    much pale metal are left out. Most orange first."""
+    import numpy as np
     l, t, r, b = live.GAME_AREA
-    a = live.on_screen(x0 - w * T, y0 - h * T, cam)
-    z = live.on_screen(x0 + w * T, y0 + h * T, cam)
-    io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
-    io.sleep(0.15)
-    return live.scv_selected(io.card())
+    a = np.asarray(picture.convert("RGB").crop((l, t, r, b))).astype(int)
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    orange = (R > 180) & (G > 100) & (G < 165) & (B < 70) & (R - G > 50)
+    pale = (np.minimum(np.minimum(R, G), B) > 140) & (B >= R - 25)
+    c = SCV_CELL
+    h, w = orange.shape[0] // c, orange.shape[1] // c
+    o = orange[:h * c, :w * c].reshape(h, c, w, c).sum((1, 3))
+    p = pale[:h * c, :w * c].reshape(h, c, w, c).sum((1, 3))
+    pp = np.pad(p, 1)
+    p3 = sum(pp[dy:dy + h, dx:dx + w] for dy in range(3) for dx in range(3))
+    op = np.pad(o, 1)
+    o3max = np.max([op[dy:dy + h, dx:dx + w] for dy in range(3)
+                    for dx in range(3)], axis=0)
+    spots = []
+    for j in range(h):
+        for i in range(w):
+            if o[j, i] >= 50 and 100 <= p3[j, i] <= 500 and o[j, i] == o3max[j, i]:
+                spots.append((int(o[j, i]), l + i * c + c // 2, t + j * c + c // 2))
+    spots.sort(reverse=True)
+    return [(x, y) for _, x, y in spots]
+
+
+def view_now(io):
+    try:
+        return live.camera_from_minimap(io.shot("sweep", keep=False))
+    except Exception:
+        return None
+
+
+def scroll_to(io, st, tx, ty):
+    """Move the screen with the arrow keys until the view's middle is near
+    tile (tx, ty). True if it got there."""
+    hold = getattr(io, "hold_key", None)
+    if hold is None:
+        return False
+    for _ in range(SWEEP_MOVES):
+        cam = view_now(io)
+        if cam is None:
+            io.log("norway: sweep: the view cannot be read from the minimap")
+            return False
+        dx, dy = tx - cam[0] / T, ty - cam[1] / T
+        if abs(dx) <= SWEEP_NEAR[0] and abs(dy) <= SWEEP_NEAR[1]:
+            return True
+        for d, plus, minus in ((dx, "right", "left"), (dy, "down", "up")):
+            if abs(d) > 1:
+                secs = min(SWEEP_HOLD, abs(d) / st.sweep_speed)
+                hold(plus if d > 0 else minus, secs)
+                io.sleep(0.1)
+                after = view_now(io)
+                if after is not None:
+                    i = 0 if plus == "right" else 1
+                    moved = abs(after[i] - cam[i]) / T
+                    if moved >= 1:
+                        st.sweep_speed = max(3.0, min(60.0, moved / secs))
+                    cam = after
+    return False
+
+
+def probe_scvs(io, st):
+    """Click each spot on the screen that may be an SCV; each that shows
+    the Build button joins the SCVs on SCV_KEY. How many were found."""
+    found = 0
+    spots = scv_spots(io.shot("scv-look", keep=False))[:PROBES]
+    for x, y in spots:
+        io.click(x, y)
+        io.sleep(0.15)
+        if not live.scv_selected(io.card()):
+            continue
+        if st.scvs_keyed:               # add it to the ones on the key
+            io.key(SCV_KEY)
+            io.sleep(0.1)
+            io.click_with("shift", x, y)
+            io.sleep(0.1)
+        io.combo("ctrl", SCV_KEY)
+        io.sleep(0.05)
+        st.scvs_keyed = True
+        found += 1
+        io.log(f"norway: sweep: an SCV at screen {x}, {y}, put on key "
+               f"{SCV_KEY}")
+    return found
+
+
+def sweep_for_scvs(io, st):
+    """Move the screen over Kiruna, the Norwegian camp and Murmansk with
+    the arrow keys and look for our SCVs on it. True if any were found
+    (they are then on SCV_KEY)."""
+    clear_modes(io)
+    total = 0
+    for tx, ty in SWEEP_VIEWS:
+        if not scroll_to(io, st, tx, ty):
+            continue
+        total += probe_scvs(io, st)
+        if total >= 2:
+            break
+    if total:
+        io.log(f"norway: sweep found {total} SCV(s)")
+    return total > 0
 
 
 def pick_scvs(io, st):
-    """The SCVs selected: by their key once they have one, else found at
-    the Norwegian camp or still by the Command Center's first place, and
-    put on SCV_KEY. True if SCVs are selected."""
+    """The SCVs selected: by their key once they have one, else looked for
+    by sweeping the screen over Kiruna, the camp and Murmansk. True if
+    SCVs are selected."""
     if st.scvs_keyed:
         io.key(SCV_KEY)
         io.sleep(0.15)
         if live.scv_selected(io.card()):
             return True
-    places = [(SCV_WAIT[0] * T, SCV_WAIT[1] * T), DEPOTS_XY()]
-    if st.cc_home:
-        places.append(st.cc_home)
-    for x, y in places:
-        if box_scvs(io, x, y):
-            io.combo("ctrl", SCV_KEY)
-            io.sleep(0.05)
-            st.scvs_keyed = True
-            io.log(f"norway: SCVs found by {x // T}, {y // T}, put on key "
-                   f"{SCV_KEY}")
-            return True
+    if sweep_for_scvs(io, st):
+        io.key(SCV_KEY)
+        io.sleep(0.15)
+        return live.scv_selected(io.card())
     return False
 
 
@@ -646,9 +749,13 @@ def remake_scvs(io, mapdata, st):
     io.sleep(0.05)
     io.key("s")
     io.sleep(0.05)
+    io.key("r")                         # rallied by Kiruna, where the
+    io.sleep(0.05)                      # sweep looks
+    io.click(*live.minimap_point(SWEEP_VIEWS[0][0] * T, SWEEP_VIEWS[0][1] * T))
+    io.sleep(0.05)
     st.cc_home = (cc["x"], cc["y"] + 3 * T)
-    io.log("norway: no SCV found: the Command Center makes two more (its "
-           "lift waits for them)")
+    io.log("norway: no SCV found: the Command Center makes two more, "
+           "rallied by Kiruna (its lift waits for them)")
     return True
 
 
@@ -1151,8 +1258,7 @@ def opening(io, watch, mapdata, st, first):
         # the Command Center goes once its two SCVs are out, and not in the
         # middle of the army's stages (trial 44: its lift pushed the attack
         # on Finland back)
-        waiting_scvs = st.scvs_remade and not st.scvs_sent and \
-            io.now() - st.scvs_remade < SCV_REMAKE_WAIT + 20
+        waiting_scvs = st.scvs_remade and io.now() - st.scvs_remade < SCV_OUT
         if not st.cc_lifted and io.now() - t0 >= 32 and not waiting_scvs and \
                 st.stage >= len(ARMY_STAGES) and \
                 (st.finland_clear or io.now() - t0 >= BUSY_UNTIL):

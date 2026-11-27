@@ -455,8 +455,9 @@ def test_an_scv_repairs_the_barracks_once_it_is_down(monkeypatch):
     Barracks in Helsinki (R, then a click on it)."""
     game, m, watch, st = setup(monkeypatch)
     monkeypatch.setattr(live, "scv_selected", lambda card: True)
+    st.scvs_keyed = True                    # found by the sweep earlier
     assert norway.repair_barracks(game, st)
-    assert ("ctrl", norway.SCV_KEY) in game.combos     # found once, then keyed
+    assert norway.SCV_KEY in game.keys
     assert "r" in game.keys
     assert any("repair the Barracks" in l for l in game.lines)
 
@@ -521,6 +522,7 @@ def test_depots_one_at_a_time_ten_by_arkhangelsk(monkeypatch):
     monkeypatch.setattr(trial.live, "units_selected", units)
     monkeypatch.setattr(live, "scv_selected", lambda card: True)
     monkeypatch.setattr(norway, "selected", lambda io: 2)   # two SCVs on key 9
+    st.scvs_keyed = True
     for _ in range(norway.DEPOTS):
         reads[:] = [False, True]
         assert norway.build_depots(game, st)
@@ -741,5 +743,76 @@ def test_the_starport_is_landed_with_the_mouse_on_156_5_unmoved():
 def test_with_no_scv_found_the_command_center_makes_two_more(monkeypatch):
     game, m, watch, st = setup(monkeypatch)
     norway.remake_scvs(game, m, st)
-    assert game.keys[-2:] == ["s", "s"]
+    assert game.keys[-3:] == ["s", "s", "r"]     # rallied by Kiruna
     assert st.cc_home and any("makes two more" in l for l in game.lines)
+
+
+def test_an_scv_is_spotted_on_the_screen_and_the_view_read_from_the_minimap():
+    """The owner (after trial 56): the SCVs are looked for on the game
+    screen. The SCV in the owner's recording is spotted; the view is read
+    from the minimap's white box, also with its top cut off at the map's
+    edge."""
+    pic = Image.open("tests/data/scv_on_grass.jpg")
+    spots = norway.scv_spots(pic)
+    assert spots and abs(spots[0][0] - 1235) < 40 and abs(spots[0][1] - 470) < 40
+    cam = live.camera_from_minimap(pic)
+    assert cam and abs(cam[0] / 32 - 181) < 2 and abs(cam[1] / 32 - 27) < 2
+    cam = live.camera_from_minimap(Image.open("tests/data/minimap_top_edge.jpg"))
+    assert cam and abs(cam[0] / 32 - 157) < 2
+
+
+class Sweep:
+    """A screen moved by the arrow keys: the view middle (tiles) moves 20
+    tiles a second; one SCV stands near tile (150, 12)."""
+
+    def __init__(self):
+        self.view = [100.0, 40.0]
+        self.held, self.lines, self.combos, self.clicks = [], [], [], []
+        self.picked = False
+
+    def hold_key(self, name, secs):
+        self.held.append(name)
+        d = 20 * secs
+        self.view[0] += {"right": d, "left": -d}.get(name, 0)
+        self.view[1] += {"down": d, "up": -d}.get(name, 0)
+
+    def shot(self, label, keep=True):
+        return label
+
+    def sleep(self, s):
+        pass
+
+    def log(self, t):
+        self.lines.append(t)
+
+    def key(self, name):
+        pass
+
+    def click(self, x, y, button="left"):
+        self.clicks.append((x, y))
+        self.picked = abs(self.view[0] - 150) < 14 and abs(self.view[1] - 12) < 6
+
+    def click_with(self, held, x, y):
+        pass
+
+    def combo(self, held, name):
+        self.combos.append((held, name))
+
+    def card(self):
+        return "scv" if self.picked else None
+
+
+def test_the_screen_is_swept_with_the_arrow_keys_until_the_scvs_are_found(monkeypatch):
+    io = Sweep()
+    monkeypatch.setattr(live, "camera_from_minimap",
+                        lambda pic: (io.view[0] * 32, io.view[1] * 32))
+    monkeypatch.setattr(norway, "scv_spots", lambda pic: [(900, 400)])
+    monkeypatch.setattr(live, "scv_selected", lambda card: card == "scv")
+    st = norway.State()
+    assert norway.sweep_for_scvs(io, st)
+    assert set(io.held) <= {"up", "down", "left", "right"} and io.held
+    assert ("ctrl", norway.SCV_KEY) in io.combos
+    # the minimap is never clicked to move the view
+    l, t = live.MINIMAP["left"], live.MINIMAP["top"]
+    assert not any(l <= x <= l + live.MINIMAP["width"] and t <= y <= t + live.MINIMAP["height"]
+                   for x, y in io.clicks)

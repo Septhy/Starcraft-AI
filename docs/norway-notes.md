@@ -468,3 +468,20 @@ the attack on Russia's Starport.
   lift waits until they are out, then they are found by it, put on key 9
   and sent to Arkhangelsk. Depots go one order at a time to each SCV in
   turn, every 14 s, ten in all.
+
+## After trial 56: SCVs looked for by moving the game screen
+
+- The owner: look for the SCVs around Kiruna and Murmansk by moving the
+  game screen, not by jumping with the minimap. The bot now holds the
+  arrow keys to move the view over four views: (133,10), (155,10),
+  (155,20) and (133,20). These cover Kiruna, the Norwegian camp and
+  Murmansk. After each move it reads where the view is from the
+  minimap's white box (this works at the map's top edge too, where the
+  box's top is cut off). It also measures how fast the arrows scroll.
+- In each view, spots that may be an SCV are found by colour: its
+  yellow-orange (about (213,129,29)) beside its pale blue-white body. Our
+  marines are a darker red-orange. Each spot is clicked, and it counts
+  only if the yellow Build button shows. Found SCVs are put on key 9 (the
+  second is added with Shift+click).
+- If none are found, the Command Center makes two more and rallies them
+  by Kiruna, so the sweep finds them. Its lift waits 30 s.

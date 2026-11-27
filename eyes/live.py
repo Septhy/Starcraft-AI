@@ -154,6 +154,53 @@ def to_drawn(map_x, map_y):
             int(map_y / MAP_PX[1] * DRAWN["height"]))
 
 
+def camera_from_minimap(screen):
+    """Where the view is, read from the white box on the minimap: the map
+    point (map pixels) in the middle of the box, or None. Good to about a
+    tile; used when the screen is moved by the arrow keys."""
+    a = _drawn(screen)
+    white = a.min(axis=2) >= 190
+    runs = []
+    for y in range(white.shape[0]):
+        row = white[y].copy()           # gaps of up to 2 pixels (a dot on
+        for g in (1, 2):                # the line) are closed
+            row[g:-g] |= white[y][:-2 * g] & white[y][2 * g:]
+        x = 0
+        while x < len(row):
+            if row[x]:
+                x2 = x
+                while x2 < len(row) and row[x2]:
+                    x2 += 1
+                if 24 <= x2 - x <= 38:
+                    runs.append((y, x, x2 - x))
+                x = x2
+            else:
+                x += 1
+    for y, x, n in runs:
+        for y2, x2, n2 in runs:
+            if 12 <= y2 - y <= 22 and abs(x2 - x) <= 2 and abs(n2 - n) <= 3:
+                left, top = from_drawn(x, y)
+                right, bottom = from_drawn(x + n, y2)
+                return (left + right) / 2, (top + bottom) / 2
+    # at the map's edge one side of the box is cut off: one line with
+    # its two sides running up (a bottom line) or down (a top line)
+    box_h = SCREEN[1] / ZOOM / MAP_PX[1] * DRAWN["height"]
+    for y, x, n in runs:
+        ends = (x, min(x + n - 1, white.shape[1] - 1))
+        def side(r0, r1):
+            return r0 >= 0 and r1 <= white.shape[0] and all(
+                white[r0:r1, max(0, c - 1):c + 2].any(axis=1).all()
+                for c in ends)
+        up, down = side(y - 6, y), side(y + 2, y + 8)
+        if up == down:
+            continue
+        top = y - box_h if up else y
+        left, t = from_drawn(x, top)
+        right, b = from_drawn(x + n, top + box_h)
+        return (left + right) / 2, (t + b) / 2
+    return None
+
+
 def from_drawn(col, row):
     """Map pixels of the middle of a drawn minimap pixel."""
     return ((col + 0.5) / DRAWN["width"] * MAP_PX[0],
