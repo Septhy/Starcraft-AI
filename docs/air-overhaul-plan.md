@@ -184,3 +184,126 @@ Purpose: learn how the game answers before anything is built on it.
 - Each look costs a camera jump. Phase 1 must not make the ground's
   clicks land on the wrong view: every ground job sets its own view
   first, as now.
+
+# Beyond the air: the ground, the economy, and the order of work
+
+Added after the same review. This replaces `docs/improvement-plan.md`
+(kept for its history). The best player's figures are measured from the
+four long replays; the bot's are from the log of its last game (18
+minutes); the percentages are estimates.
+
+## Where the bot stands overall
+
+| Area | Bot against the best player | Why |
+|---|---|---|
+| Overall plan (when and where) | about 70 to 80% | Timings and routes come from the replays and the owner's rules; it reacts poorly to surprises. |
+| Hand speed (keys and clicks a minute) | about equal | About 247 a minute against 244 to 254. |
+| Massing and sending attacks | about 50% | Most of the army goes (47 to 68 groups), but one attack takes 40 to 60 s to send, then it waits for 120 men again. |
+| Winning the attacks | about 30% | Four attacks in 18 minutes: one arrived, one stalled, two lost. |
+| Economy (marines, upgrades, tax) | about 40% | Tax mostly fails; barracks training fell from 8 to as few as 1. |
+| Air control | about 10 to 15% | See the table at the top. |
+| Several things at once | about 20% | One job at a time. |
+| Reading the fight | about 25% | Only colours on the minimap; no idea what shoots air. |
+
+Fair ceiling if all of this works: about 60% of the best player overall.
+
+## The ground items
+
+### G1: keep the army fighting, not in waves
+
+- Replays: 75 to 83 ground orders a minute; the ground left alone for
+  more than 20 s once in four games. Three or four keys hold the
+  fighting groups and are steered all the time; new men are boxed and
+  sent forward in a steady stream.
+- Bot: masses 120, sends all, masses again; the men at the front get
+  almost no orders between attacks.
+- Build: the big attack stays. After it, every 20 to 30 s whatever has
+  gathered is sent to join the front, and the groups at the front are
+  re-aimed. The front's groups go on keys of their own.
+- Done when: the longest stretch without a ground order at the front is
+  under 30 s, and men reach the front every minute.
+
+### G2: fight with moves and Hold, not only attack-move
+
+- Replays: 15 to 32% of ground orders are attack-moves; the rest are
+  moves and Hold Position (up to 145 Holds a game).
+- Bot: everything by attack-move, then left.
+- Build: "step and hold" for the leading groups; a step back when the
+  enemy's colour in front of them grows faster than ours.
+- Done when: at most half the ground orders at the front are
+  attack-moves, and more of each attack is alive after a minute of
+  fighting.
+
+### G3: judge the fight and act on it
+
+- Bot: an attack is "being lost" only when one group of survivors is
+  left.
+- Build: our colour and the enemy's at the front compared every few
+  seconds. Losing: back to the reinforcements early. Winning: on to the
+  next city without going home to mass.
+- Needs the owner: the rule for when an attack is pulled back, and to
+  where.
+- Done when: no attack is lost to the last group, and a won city is
+  followed by the next within a minute.
+
+### G4: never stop making marines
+
+- Replays: back at the barracks every 13 to 35 s all game; up to 8
+  more barracks built.
+- Bot: 8 barracks training at the start, 3 by 5 minutes, later 1 to 4.
+  The cause is not yet known (lost, floated for tax, or not found on
+  the screen).
+- Build: first the cause, from the recording. Then training at every
+  barracks every 20 to 30 s, and lost ones rebuilt.
+- Done when: every standing barracks trains in every round of training
+  and their number does not fall unless the enemy destroys them.
+
+### G5: tax that works
+
+- Replays: buildings lifted 9 to 18 times in a long game and landed in
+  taken cities; depots too, less often.
+- Bot: failed again (a city not taken; the SCV for a depot never
+  found).
+- Build: reuse the Norway work (exact views `live.view_after_click`,
+  the proved SCV selection, the green outline before a landing or a
+  depot); every step of a tax followed and retried; a tax report in
+  the log.
+- Needs the owner: one short recording of a city taxed by hand.
+- Done when: every city an ally asks for is taxed within one round
+  unless the enemy holds it.
+
+## The scheduler (under all of it)
+
+The bot does one job at a time, so every item competes with the others.
+Phase 3 of the air plan (short turns) is built as a scheduler for all
+jobs: air turns, feeding the front (G1), training (G4), tax steps (G5),
+judging the fight (G3). Each job is short, sets its own view first, and
+says when it next wants a turn.
+
+## The order of work
+
+1. Air phases 0 to 2 (know where the fleet is; stop the losses).
+2. The scheduler, with G1 and G4 as its first ground jobs, and air
+   phase 3, stage 1.
+3. G5 (tax).
+4. G2 and G3 (step and hold; judging the fight).
+5. Air phases 4 to 7, and phase 3, stage 2 if the owner agrees.
+
+A scorecard run after every test game (from the log): air report as
+now, plus ground orders a minute at the front, longest ground pause,
+barracks training each round, men sent a minute, each attack's outcome,
+cities taxed.
+
+## What is needed from the owner, by step
+
+| Step | Needed |
+|---|---|
+| Air phase 0 | A 2-minute recording made by hand: a sieged Heavy Artillery and some Scouts on one key, the Scouts flown away, the key double-tapped (2 to 3 s still); then the key, one Scout's small picture clicked, Ctrl+C (2 to 3 s still); if time, a key of Scouts alone double-tapped. |
+| Air phases 1, 2 | One test game each with the recording; for phase 2, 15 minutes or more, with real anti-air at the front if possible. |
+| Scheduler, G1, G4 | One test game with the recording, and a word on whether the ground felt slower. |
+| G5 | A short recording of a city taxed by hand; then a test game. |
+| G2, G3 | The pull-back rule; a test game. |
+| Air phase 4 | A recording with marines, Goliaths, Missile Turrets, Bunkers and enemy fighters, and things that cannot shoot up, clearly on screen in each Axis colour. |
+| Air phase 5 | Optional: a recording of an opening air strike by hand. |
+| Air phases 6, 7 | A test game each (20 minutes or more for phase 7). |
+| Any time | More replays of strong Russia play; a recording of good air play from the player's own screen. |

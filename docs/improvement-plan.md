@@ -1,5 +1,7 @@
 # Improvement plan (saved for later)
 
+(Superseded by the second part of `docs/air-overhaul-plan.md`; kept for its history.)
+
 Where the bot stands against the strong Russia players in the replays,
 as judged after trial 38 (an estimate from the logs and recordings, not a
 measured comparison):
