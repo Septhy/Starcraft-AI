@@ -200,6 +200,22 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   attacks the red building nearest our men (found on the minimap: the
   screen check for our colour is Russia's brown).
 
+## Trial 44 (build 66594a2): better, still slow; the Barracks shot up
+
+- Four keys (11, 11, 11, 3); red in Finland down to 75 pixels by 67 s,
+  but the army was gone by 74 s. Keyed at 14-25 s after the lifts;
+  gathered 26 s, the Finland attack at 37 s (owner 30 s), Helsinki 50 s
+  (owner 41-44 s); the Command Center's lift and the key counts sat
+  between the stage orders.
+- The Barracks floated straight over the Heavy Industry and was shot up
+  by the bunkers and turrets (the owner: it should not be badly damaged
+  when it arrives).
+- Now: the army keyed and sent to Kiruna right after the drop, before
+  the lifts; no key counts between stage orders; the Command Center
+  lifted only after the stages; the Barracks waits by the Norwegian
+  military camp (tile 127, 22) until Finland is clear, then flies in to
+  land.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

@@ -67,6 +67,8 @@ DEPOT_EVERY = 12               # seconds between looks (trial 42: every 3 s, the
                                # camera sat on empty ground by Arkhangelsk)
 DEPOT_LOOKS = 5                # looks before the depots are given up
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
+BARRACKS_WAIT = (127 * T, 22 * T)  # where the Barracks floats till Finland is
+                               # clear: the Norwegian military camp
 RED = [0]                      # Germany
 CLEAR_LOOKS = 2                # looks in a row with no red in Finland: cleared
 BARRACKS_BY = 3 * 60 + 25      # the countdown (3:25) by which the Barracks is down
@@ -386,10 +388,6 @@ def army_into_finland(io, watch, mapdata, st, picture):
         # attack back 45 s; the owner attacked 5 s after the gather order
         # and the stragglers caught up)
         st.stage, st.stage_at = st.stage + 1, now
-        if attack:
-            counts = army_counts(io, st)
-            io.log("norway: men on the keys: " + ", ".join(
-                f"{k}: {v}" for k, v in counts.items()))
         n = order_army(io, st, (xy[0] * T, xy[1] * T), attack)
         io.log(f"norway: the army {'attacks at' if attack else 'moves to'} "
                f"{trial.place_name(mapdata, xy[0] * T, xy[1] * T)} "
@@ -507,26 +505,31 @@ def opening(io, watch, mapdata, st, first):
     trial.opening(io, st, line=OPENING_LINE)
     make_scvs(io, mapdata)              # first, as the owner (at 2 s)
     drop_on_shetland(io, mapdata)       # the owner: by 8 s
+    # the army keyed and sent to Kiruna before the lifts, so it walks while
+    # the buildings go up (trial 44: keyed after them, it set off at 26 s
+    # and reached Finland 7 s behind the owner)
+    key_army(io, watch, mapdata, st, io.shot("watch", keep=False) or first)
+    army_into_finland(io, watch, mapdata, st, first)
     lift(io, mapdata, st, "Factory", SHETLAND)
     lift(io, mapdata, st, "Engineering Bay", SHETLAND)
     port = russia_starport(mapdata)
     lift(io, mapdata, st, "Starport", (port["x"], port["y"] + 8 * T),
          key=KEYS["Starport"])
-    hx, hy = heavy_industry(mapdata)
-    # floating over Finland, by the Heavy Industry, long before 3:25
-    lift(io, mapdata, st, "Barracks", (hx - int(1.5 * T), hy - 6 * T),
-         key=KEYS["Barracks"])
-    # the army keyed once the buildings are up (trial 42: keyed first, the
-    # drop and the lifts waited till 23-30 s; the owner had them by 22 s)
-    key_army(io, watch, mapdata, st, io.shot("watch", keep=False) or first)
-    army_into_finland(io, watch, mapdata, st, first)
+    # the Barracks waits out of the Germans' reach, by the Norwegian
+    # military camp, as the owner's did (trial 44: floated over the Heavy
+    # Industry at once, it was shot by the bunkers and turrets); it flies
+    # in to land once Finland is clear
+    lift(io, mapdata, st, "Barracks", BARRACKS_WAIT, key=KEYS["Barracks"])
     while io.now() - t0 < OPENING_TIME:
         picture = io.shot("watch", keep=False)
         if st.clock is not None:
             st.clock.update(picture)
         left = countdown(st)
-        # the Command Center goes once its two SCVs are out (about 30 s)
-        if not st.cc_lifted and io.now() - t0 >= 32:
+        # the Command Center goes once its two SCVs are out, and not in the
+        # middle of the army's stages (trial 44: its lift pushed the attack
+        # on Finland back)
+        if not st.cc_lifted and io.now() - t0 >= 32 and \
+                st.stage >= len(ARMY_STAGES):
             st.cc_lifted = lift(io, mapdata, st, "Command Center",
                                 (KIRUNA_LAND[0][0] * T, KIRUNA_LAND[0][1] * T),
                                 key=KEYS["Command Center"]) or \

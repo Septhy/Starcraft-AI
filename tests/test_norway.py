@@ -318,3 +318,20 @@ def test_every_place_of_the_army_gets_a_box_first(monkeypatch):
     norway.key_army(game, W(), m, st, "first")
     areas = {(int(x // (12 * 32)), int(y // (12 * 32))) for x, y in boxed}
     assert len(areas) == 4                    # four places, not one place twice
+
+
+def test_the_barracks_waits_out_of_reach_and_the_army_goes_first(monkeypatch):
+    """Trial 44: floated straight over the Heavy Industry, the Barracks
+    was shot up; it waits by the Norwegian military camp until Finland is
+    clear. And the army is keyed and on its way before the lifts."""
+    game, m, watch, st = setup(monkeypatch)
+    norway.opening(game, watch, m, st, "first")
+    lines = [l for l in game.lines if l.startswith("norway:")]
+    lifted = next(l for l in lines if l.startswith("norway: Barracks lifted"))
+    wx, wy = norway.BARRACKS_WAIT
+    assert trial.place_name(m, wx, wy) in lifted
+    hx, hy = norway.heavy_industry(m)
+    assert ((wx - hx) ** 2 + (wy - hy) ** 2) ** 0.5 >= 10 * 32
+    i_army = next(i for i, l in enumerate(lines) if "moves to Kiruna" in l)
+    i_lift = next(i for i, l in enumerate(lines) if "Factory lifted" in l)
+    assert i_army < i_lift
