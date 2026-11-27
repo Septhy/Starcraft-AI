@@ -583,10 +583,9 @@ def repair_barracks(io, st):
     if not pick_scvs(io, st):
         io.log("norway: no SCV found to repair the Barracks")
         return False
-    if selected(io) > 1:                # just one of them
-        x0, y0, x1, y1 = live.frame_box(0)
-        io.click((x0 + x1) // 2, (y0 + y1) // 2)
-        io.sleep(0.15)
+    n = selected(io)
+    if n > 1:                           # just one of them
+        frame_click(io, 0, n)
     bx, by = BARRACKS_SPOT
     cam = trial.look_at(io, *trial.centred(bx, by), wait=0.3)
     io.key("r")                         # repair
@@ -776,16 +775,38 @@ def sweep_for_scvs(io, st):
     return total > 0
 
 
+FRAME_HOVER = 0.15             # seconds the mouse rests on a picture in the
+                               # selection before it is clicked (trial 59: a
+                               # click at once only brought up its tooltip)
+
+
+def frame_click(io, i, n, held=None):
+    """Click the i-th of n pictures in the selection card: the mouse is put
+    on it first and left there a moment, then clicked (with Ctrl: every
+    unit of that kind in the selection; with Shift: that one dropped)."""
+    x0, y0, x1, y1 = live.frame_box(i, n)
+    x, y = (x0 + x1) // 2, (y0 + y1) // 2
+    if getattr(io, "hover", None) is not None:
+        io.hover(x, y)
+        io.sleep(FRAME_HOVER)
+    if held:
+        io.click_with(held, x, y)
+    else:
+        io.click(x, y)
+    io.sleep(0.15)
+
+
 def scvs_from_army(io, st):
     """The SCVs boxed into the army keys with the marines (trial 58: both
     were there; the army's boxes by the Command Center took them at
-    18 s): each is picked by its picture in the key's selection and put
-    on SCV_KEY, then taken out of the army key. How many were found."""
+    18 s): Ctrl+click on an SCV's picture in the key's selection picks
+    every SCV in it, they go on SCV_KEY, then each is dropped from the
+    army key with Shift+click. How many were found."""
     found = 0
     for key in st.army_keys:
         clear_modes(io)
         io.key(key)
-        io.sleep(0.15)
+        io.sleep(0.2)
         try:
             pic = io.shot("army-key", keep=False)
             n = live.selected_count(pic)
@@ -794,25 +815,21 @@ def scvs_from_army(io, st):
             continue
         if not idx:
             continue
-        for i in idx:                   # each SCV alone onto SCV_KEY
-            io.key(key)
-            io.sleep(0.12)
-            x0, y0, x1, y1 = live.frame_box(i, n)
-            io.click((x0 + x1) // 2, (y0 + y1) // 2)
-            io.sleep(0.12)
-            if not live.scv_selected(io.card()):
-                continue
-            io.combo("shift" if st.scvs_keyed else "ctrl", SCV_KEY)
-            io.sleep(0.05)
-            st.scvs_keyed = True
-            found += 1
+        frame_click(io, idx[0], n, held="ctrl")     # all the SCVs in it
+        if not live.scv_selected(io.card()):
+            io.shot("army-key-scv")
+            io.log(f"norway: the SCVs on army key {key} could not be picked "
+                   f"(picture 'army-key-scv')")
+            continue
+        io.combo("shift" if st.scvs_keyed else "ctrl", SCV_KEY)
+        io.sleep(0.05)
+        st.scvs_keyed = True
+        found += len(idx)
         io.key(key)                     # and out of the army key
-        io.sleep(0.12)
+        io.sleep(0.2)
         m = n
         for i in sorted(idx, reverse=True):
-            x0, y0, x1, y1 = live.frame_box(i, m)
-            io.click_with("shift", (x0 + x1) // 2, (y0 + y1) // 2)
-            io.sleep(0.1)
+            frame_click(io, i, m, held="shift")
             m -= 1
         io.combo("ctrl", key)
         io.sleep(0.05)
@@ -894,9 +911,7 @@ def build_depots(io, st):
         return False
     n = selected(io)
     if n > 1:                           # one SCV an order, by turns, so a
-        x0f, y0f, x1f, y1f = live.frame_box(st.depot_next % n, n)  # depot
-        io.click((x0f + x1f) // 2, (y0f + y1f) // 2)    # going up is not
-        io.sleep(0.15)                  # left for the next
+        frame_click(io, st.depot_next % n, n)   # depot going up is not left
     cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
     l, t, r, b = live.GAME_AREA
     io.key("b")                         # only SCVs have a build menu on B:

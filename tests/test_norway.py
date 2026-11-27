@@ -862,10 +862,13 @@ def test_the_scvs_are_taken_from_the_army_key(monkeypatch):
     game.shot = lambda label, keep=True: pic
     monkeypatch.setattr(live, "selected_count", lambda p: 10)
     monkeypatch.setattr(live, "scv_selected", lambda card: True)
+    game.hover = lambda x, y: game.lines.append(f"hover {x},{y}")
     found = norway.scvs_from_army(game, st)
     assert found == 4 and st.scvs_keyed              # two on each key here
     assert ("ctrl", norway.SCV_KEY) in game.combos
     assert ("shift", norway.SCV_KEY) in game.combos
+    assert any(c[2] == "ctrl" for c in game.clicks)  # Ctrl+click: all SCVs
+    assert any(l.startswith("hover") for l in game.lines)   # rested on first
     assert ("ctrl", "1") in game.combos and ("ctrl", "2") in game.combos
     assert any(c[2] == "shift" for c in game.clicks)  # taken out with Shift
 

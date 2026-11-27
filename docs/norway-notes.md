@@ -530,3 +530,25 @@ the attack on Russia's Starport.
   (Ctrl+9 for the first, Shift+9 for the next) and taken out of the army
   key (Shift+click on its picture, then Ctrl+key). The screen sweep is
   kept for SCVs that are elsewhere.
+
+## Trial 59
+
+- Finland clear at 66.0 s. The two SCVs were found on army key 2 by their
+  wireframe, but the click on their picture only brought up the game's
+  tooltip ("Click: Select Unit / Shift+Click: Deselect Unit / Ctrl+Click:
+  Select Unit Type"); the selection did not change, so nothing went on
+  key 9, and there were still no depots. Now the mouse rests on the
+  picture for 0.15 s before the click. Ctrl+click picks every SCV in the
+  group at once, then they go on key 9. Each is dropped from the army key
+  with Shift+click (also after a rest). The same rest is used for picking
+  one SCV for the repair and for each depot.
+- Starport: Russia's was seen destroyed by the click check (no Land
+  tries); then one landing click at 149 s, and it was seen down at 180 s.
+- Depots vs the Russia bot (asked by the owner): Russia makes a new SCV
+  at a command centre when it needs a depot, rallies it on the screen
+  right by the centre, then picks it there with one click (checked by B
+  taking the Move button away) and orders the depot at once. Norway's
+  placing step (B, check, S, click, check) is the same. The difference is
+  getting hold of the SCV: Norway's two were made at 4 s and lost in the
+  army's boxes, so the placing step never ran in a real game. Russia's
+  tax also failed in many trials, so its code is no sure cure either.
