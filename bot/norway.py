@@ -41,8 +41,12 @@ KIRUNA_LAND = [(139, 8), (130, 1), (128, 2), (126, 2), (133, 3)]   # Command Cen
                                # top left), the sample games' spots by Kiruna
 DEPOTS_AT = (200, 18)          # tiles: by Arkhangelsk, where the repository
                                # owner built them (for safety; trial 40)
-DEPOT_SPOTS = [(0, 0), (3, 0), (6, 0), (0, 3), (3, 3), (6, 3), (0, 6), (3, 6)]
-DEPOTS = 4                     # depots the two SCVs build in the opening
+# where the owner put their depots by Arkhangelsk (their recording:
+# tiles 184-209, 13-27), a depot's width (3 tiles) and more apart
+DEPOT_TILES = [(199, 20), (195, 20), (203, 20), (199, 16), (195, 16),
+               (203, 16), (207, 20), (207, 24), (199, 24), (203, 24),
+               (195, 24), (207, 16)]
+DEPOTS = 10                    # the owner: ten depots by Arkhangelsk
 FINLAND = (125, 15, 150, 50)   # tiles: where Germany's buildings in Finland stand
 NORTH_ARMY = (95, 0, 160, 33)  # tiles: our starting troops in the north
 # The repository owner's way into Finland (their recording, trial 40):
@@ -74,14 +78,18 @@ DEPOT_FIRST = 60               # seconds before the SCVs are looked for at the d
 BUSY_UNTIL = 100               # seconds: the Command Center and the depots wait
                                # for Finland till then (trial 48: they took the
                                # bot away from the fight at 45 and 63 s)
-DEPOT_EVERY = 12               # seconds between looks (trial 42: every 3 s, the
+DEPOT_EVERY = 6                # seconds between depots (one an order) (trial 42: every 3 s, the
                                # camera sat on empty ground by Arkhangelsk)
-DEPOT_LOOKS = 5                # looks before the depots are given up
+DEPOT_LOOKS = 30               # tries before the depots are given up
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
 BARRACKS_WAIT = (127 * T, 22 * T)  # where the Barracks floats till the army
                                # has taken the Finland spot: the Norwegian camp
-BARRACKS_SPOT = (139 * T + T // 2, 33 * T + T // 2)  # where it floats and lands
-                               # (the owner, trial 49: around tile 139, 33)
+BARRACKS_SPOT = (149 * T, 39 * T)  # where it floats and lands (the owner,
+                               # trial 52: just land it at 149, 39, one click)
+BARRACKS_RETRY = 20            # seconds before a landing is tried again
+BARRACKS_NEAR = (143 * T, 28 * T)  # where it waits over Finland while the
+                               # bunkers stand (trial 52: at 139, 33 the west
+                               # bunker shot it down to 60 of 1000)
 BARRACKS_IN_AT = 2             # the stage (the attack on the Finland spot) at
                                # which it flies in over Finland (trial 47: at
                                # the move to Helsinki it came too late)
@@ -92,6 +100,8 @@ OUT_OF_WAY = 7                 # tiles our men step away from the landing spot
 LAND_BUTTON = trial.LIFT_BUTTON  # a lifted building's bottom-right button: Land
 KEYS = {"Barracks": "6", "Starport": "7", "Command Center": "8"}
 LOOK_EVERY = 3                 # real seconds between looks at Finland
+PORT_ASIDE = (148 * T, 16 * T)  # where the army steps to, off the Starport's spot
+PORT_WALK = 4                  # seconds it is given to get there
 RETRY_PORT = 8                 # real seconds between attacks on Russia's Starport
 
 
@@ -113,14 +123,9 @@ def heavy_industry(mapdata):
 
 
 def barracks_spots(mapdata):
-    """Where the Barracks lands, next to the Heavy Industry: its left,
-    right, below, above (map pixels of the Barracks' middle)."""
-    x, y = heavy_industry(mapdata)
-    # first where the repository owner wants it (trial 49): about tile
-    # (139, 33), then round it
-    return [BARRACKS_SPOT, (x - int(1.5 * T), y - int(4.5 * T)), (x, y - 5 * T),
-            (x - 5 * T, y), (x + 5 * T, y), (x, y + 4 * T),
-            (x - 5 * T, y + 3 * T), (x + 5 * T, y + 3 * T)]
+    """Where the Barracks lands: the owner (trial 52), just (149, 39), one
+    landing click (map pixels of its middle)."""
+    return [BARRACKS_SPOT]
 
 
 def countdown(st):
@@ -154,11 +159,16 @@ class State:
         self.barracks_in = False
         self.land_tried = set()
         self.shetland_lifts = False
+        self.barracks_over = False
+        self.barracks_land_at = -1e9
+        self.port_cleared = False
         self.repaired = 0
         self.last_repair = -1e9
         self.chain, self.chain_at = [], -1e9
         self.depot_look = -1e9
         self.depot_looks = 0
+        self.depot_next = 0
+        self.depots_placed = 0
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
         self.boxes = self.empty = self.empty_skipped = 0
@@ -343,37 +353,46 @@ def make_scvs(io, mapdata):
 
 
 def build_depots(io, st):
-    """The SCVs, standing at their rally point in the far north-east,
-    build the depots there (B, S, then Shift + clicks, queued)."""
+    """One supply depot by Arkhangelsk, the repository owner's way (their
+    recording): the SCVs boxed where they stand, B, S, and a click on the
+    next free spot; one depot an order (trial 52: four queued with Shift
+    in one order, none was built, and the click had picked marines). True
+    if a depot was placed."""
     x0, y0 = DEPOTS_AT[0] * T, DEPOTS_AT[1] * T
+    clear_modes(io)
     cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
-    sx, sy = live.on_screen(x0, y0, cam)
-    for dx, dy in trial.SCV_PICK:
-        io.click(sx + dx, sy + dy)
-        io.sleep(0.1)
-        if live.units_selected(io.card()):
-            break
-    else:
+    l, t, r, b = live.GAME_AREA
+    a = live.on_screen(x0 - 7 * T, y0 - 5 * T, cam)
+    z = live.on_screen(x0 + 7 * T, y0 + 5 * T, cam)
+    io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
+    io.sleep(0.12)
+    if not live.units_selected(io.card()):
         io.log("norway: no SCV at the depots' place yet")
         return False
-    io.key("b")
-    io.sleep(0.1)
+    io.key("b")                         # only SCVs have a build menu on B:
+    io.sleep(0.12)                      # the Move button goes
+    if live.units_selected(io.card()):
+        clear_modes(io)
+        io.log("norway: what stands at the depots' place is not an SCV")
+        return False
     io.key("s")
     io.sleep(0.15)
-    for i, (dx, dy) in enumerate(DEPOT_SPOTS[:DEPOTS]):
-        px, py = live.on_screen(x0 + dx * T, y0 + dy * T, cam)
-        if i == 0:
-            io.click(px, py)
-        else:
-            io.key("b")
-            io.sleep(0.05)
-            io.key("s")
-            io.sleep(0.1)
-            io.click_with("shift", px, py)
-        io.sleep(0.15)
-    io.key("esc")
-    io.log(f"norway: {DEPOTS} supply depots ordered in the far north-east")
-    return True
+    for _ in range(len(DEPOT_TILES)):
+        tx, ty = DEPOT_TILES[st.depot_next % len(DEPOT_TILES)]
+        st.depot_next += 1
+        px, py = live.on_screen(tx * T + T, ty * T + T // 2, cam)
+        if not (l + 30 < px < r - 30 and t + 30 < py < b - 30):
+            continue
+        io.click(px, py)
+        io.sleep(0.25)
+        if live.units_selected(io.card()):      # placed: the SCV's own buttons
+            st.depots_placed += 1
+            io.log(f"norway: supply depot {st.depots_placed} of {DEPOTS} "
+                   f"ordered by Arkhangelsk ({tx}, {ty})")
+            return True
+        # refused (taken, or not ground): still placing, try the next spot
+    clear_modes(io)
+    return False
 
 
 def selected(io):
@@ -530,7 +549,7 @@ def army_into_finland(io, watch, mapdata, st, picture):
             hx, hy = heavy_industry(mapdata)
             io.key(KEYS["Barracks"])
             io.sleep(0.05)
-            io.click(*live.minimap_point(*BARRACKS_SPOT),
+            io.click(*live.minimap_point(*BARRACKS_NEAR),
                      button="right")
             io.sleep(0.05)
             io.log("norway: the Barracks flies in over Finland (by the Heavy "
@@ -619,6 +638,16 @@ def clear_buildings(io, watch, mapdata, st, picture):
         else:
             left.append((kind, x, y))
     st.targets = left
+    if not any(k == "Bunker" for k, x, y in left) and st.barracks_in and \
+            not st.barracks_over:
+        # the bunkers are down: the Barracks moves over (139, 33) at once
+        st.barracks_over = True
+        io.key(KEYS["Barracks"])
+        io.sleep(0.05)
+        io.click(*live.minimap_point(*BARRACKS_SPOT), button="right")
+        io.sleep(0.05)
+        io.log("norway: the bunkers are down: the Barracks moves over "
+               f"{BARRACKS_SPOT[0] // T}, {BARRACKS_SPOT[1] // T}")
     if not left:
         return None
     ours = trial.near(watch.units(picture), heavy_industry(mapdata), 16)
@@ -645,8 +674,10 @@ def clear_buildings(io, watch, mapdata, st, picture):
     for n, key in enumerate(st.army_keys):
         io.key(key)
         io.sleep(0.05)
-        mine = chain[n % len(chain):] + chain[:n % len(chain)] if split \
-            else chain
+        # (two groups, the keys taking turns: trial 52, one turret a key
+        # left the smallest key alone on the farthest turret till 69 s)
+        start = (n % 2) * (len(chain) // 2) if split else 0
+        mine = chain[start:] + chain[:start]
         for i, (kind, x, y) in enumerate(mine):
             point = live.minimap_point(x, y)
             if i == 0:
@@ -713,7 +744,7 @@ def finland_red(watch, picture):
 
 def clear_landing(io, watch, mapdata, st, picture):
     """Our men standing where the Barracks lands step aside first."""
-    x, y = heavy_industry(mapdata)
+    x, y = BARRACKS_SPOT
     there = trial.near(watch.units(picture), (x, y), 6)
     moved = 0
     for group in live.clusters(there, 4, 4)[:4]:
@@ -755,8 +786,9 @@ def opening(io, watch, mapdata, st, first):
     # and reached Finland 7 s behind the owner)
     key_army(io, watch, mapdata, st, io.shot("watch", keep=False) or first)
     army_into_finland(io, watch, mapdata, st, first)
-    # (the Factory and the Engineering Bay go to Shetland once the army's
-    # stages are given: trial 51, their lifts held the attack back 5 s)
+    # (the Factory and the Engineering Bay go to Shetland once Finland is
+    # clear: trial 51, their lifts held the attack back 5 s; trial 52, just
+    # after the stages they held the turret attacks back 5 s)
     port = russia_starport(mapdata)
     lift(io, mapdata, st, "Starport", (port["x"], port["y"] + 8 * T),
          key=KEYS["Starport"])
@@ -770,7 +802,7 @@ def opening(io, watch, mapdata, st, first):
         if st.clock is not None:
             st.clock.update(picture)
         left = countdown(st)
-        if st.stage >= len(ARMY_STAGES) and not st.shetland_lifts:
+        if st.finland_clear and not st.shetland_lifts:
             st.shetland_lifts = True
             lift(io, mapdata, st, "Factory", SHETLAND)
             lift(io, mapdata, st, "Engineering Bay", SHETLAND)
@@ -798,6 +830,13 @@ def opening(io, watch, mapdata, st, first):
             if st.clear_looks >= CLEAR_LOOKS and st.stage >= len(ARMY_STAGES) \
                     and not st.targets:
                 st.finland_clear = True
+                if st.barracks_in and not st.barracks_over:
+                    st.barracks_over = True
+                    io.key(KEYS["Barracks"])
+                    io.sleep(0.05)
+                    io.click(*live.minimap_point(*BARRACKS_SPOT), button="right")
+                    io.log("norway: Finland is clear: the Barracks moves over "
+                           f"{BARRACKS_SPOT[0] // T}, {BARRACKS_SPOT[1] // T}")
                 io.log(f"norway: Finland cleared of Germany's buildings "
                        f"(countdown {trial.round_timer(st.clock.time()) if st.clock else '?'})")
             else:
@@ -807,11 +846,14 @@ def opening(io, watch, mapdata, st, first):
                 io.now() - st.depot_look >= DEPOT_EVERY:
             st.depot_look = io.now()
             st.depot_looks += 1
-            st.depots_ordered = build_depots(io, st) or \
+            build_depots(io, st)
+            st.depots_ordered = st.depots_placed >= DEPOTS or \
                 st.depot_looks >= DEPOT_LOOKS
         # the Barracks: down by the Heavy Industry before 3:25
         if "Barracks" in st.lifted and "Barracks" not in st.landed and \
-                st.finland_clear and st.port_tries >= 1:
+                st.finland_clear and st.port_tries >= 1 and \
+                io.now() - st.barracks_land_at >= BARRACKS_RETRY:
+            st.barracks_land_at = io.now()      # one landing click, then wait
             clear_landing(io, watch, mapdata, st, picture)
             io.sleep(1.0)
             if land(io, "Barracks", barracks_spots(mapdata), st):
@@ -822,11 +864,19 @@ def opening(io, watch, mapdata, st, first):
         if st.finland_clear and "Starport" not in st.landed and \
                 io.now() - st.last_port >= RETRY_PORT:
             st.last_port = io.now()
-            if st.port_tries and \
+            if st.port_tries and not st.port_cleared:
+                # our own men off the spot first (trial 52: "You can't land
+                # there" from 130 s on, the marines stood on it)
+                order_army(io, st, PORT_ASIDE, attack=False)
+                st.port_cleared = True
+                st.last_port = io.now() - RETRY_PORT + PORT_WALK
+                io.log("norway: the army steps off Russia's Starport's spot")
+            elif st.port_tries and \
                     land(io, "Starport", [(port["x"], port["y"])], st):
                 io.log("norway: Starport landed at Murmansk on the Control "
                        "Tower")
             else:
+                st.port_cleared = False
                 st.port_tries += 1
                 n = attack_russian_starport(io, watch, mapdata, st, picture)
                 if n:

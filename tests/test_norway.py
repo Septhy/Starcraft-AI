@@ -204,14 +204,15 @@ def test_the_army_is_keyed_gathered_then_sent_in_stages(monkeypatch):
     assert all("moves to" in names[i] for i in (0, 2, 3))
     assert all("attacks" in n for n in names[4:])
     landed = next(l for l in game.lines if "Barracks landed by" in l)
-    assert landed.endswith("139, 33")      # the owner, trial 49
+    assert landed.endswith("149, 39")      # the owner, trial 52
 
 
-def test_the_barracks_spots_are_next_to_the_heavy_industry():
+def test_the_barracks_lands_at_149_39_only():
+    """The owner (trial 52): just land it at (149, 39), no clicking on
+    one spot after another."""
     m = trial.load_map()
-    hx, hy = norway.heavy_industry(m)
-    for x, y in norway.barracks_spots(m):
-        assert abs(x - hx) <= 6 * 32 and abs(y - hy) <= 5 * 32
+    assert norway.barracks_spots(m) == [norway.BARRACKS_SPOT]
+    assert (norway.BARRACKS_SPOT[0] // 32, norway.BARRACKS_SPOT[1] // 32) == (149, 39)
     port = norway.russia_starport(m)
     assert (port["x"] // 32, port["y"] // 32) == (156, 5)
 
@@ -461,7 +462,7 @@ def test_an_scv_repairs_the_barracks_once_it_is_down(monkeypatch):
 def test_with_the_bunkers_down_the_keys_share_the_turrets_out(monkeypatch):
     """The owner (trial 51): all of Finland by about 63 s or the German
     army comes. Turrets do not shoot men on foot: with the bunkers down,
-    each key starts on a different turret."""
+    the keys split into two groups at the two ends of the turrets."""
     game, m, watch, st = setup(monkeypatch)
     st.army_keys = ["1", "2", "3", "4"]
     turrets = [b for b in norway.german_buildings(m) if b[0] == "Missile Turret"]
@@ -480,4 +481,65 @@ def test_with_the_bunkers_down_the_keys_share_the_turrets_out(monkeypatch):
     firsts = []
     plain = [c for c in game.clicks if c[2] == "left"]
     firsts = plain[-4:]
-    assert len(set(firsts)) == 4          # four keys, four first turrets
+    # (trial 52: two groups, the keys taking turns, not one turret a key)
+    assert len(set(firsts)) == 2 and firsts[0] == firsts[2] \
+        and firsts[1] == firsts[3]
+
+
+def test_the_barracks_waits_out_of_the_bunkers_reach_then_moves_over(monkeypatch):
+    """Trial 52: floated straight to (139, 33) at 25 s, the Barracks was
+    shot down to 60 of 1000 by the west bunker. It waits out of reach and
+    moves over (139, 33) once the bunkers are down."""
+    nx, ny = norway.BARRACKS_NEAR
+    for k, x, y in norway.german_buildings(trial.load_map()):
+        if k == "Bunker":
+            assert ((x - nx) ** 2 + (y - ny) ** 2) ** 0.5 >= 9 * 32
+    game, m, watch, st = setup(monkeypatch)
+    norway.opening(game, watch, m, st, "first")
+    lines = [l for l in game.lines if l.startswith("norway:")]
+    i_in = next(i for i, l in enumerate(lines) if "Barracks flies in" in l)
+    i_over = next(i for i, l in enumerate(lines) if "Barracks moves over" in l)
+    assert i_in < i_over
+    i_lift = next(i for i, l in enumerate(lines) if "Factory lifted" in l)
+    i_clear = next(i for i, l in enumerate(lines) if "Finland cleared" in l)
+    assert i_lift > i_clear               # the Shetland lifts after Finland
+
+
+def test_depots_one_at_a_time_ten_by_arkhangelsk(monkeypatch):
+    """The owner (trial 52): ten depots by Arkhangelsk, as in their
+    recording: the SCVs boxed, B, S, a click on a free spot, one depot an
+    order (four queued in one order were never built)."""
+    game, m, watch, st = setup(monkeypatch)
+    reads = []
+
+    def units(card):
+        # after the box: units; after B: the build menu; after the click:
+        # the SCV's own buttons again
+        return reads.pop(0) if reads else True
+    monkeypatch.setattr(trial.live, "units_selected", units)
+    for _ in range(norway.DEPOTS):
+        reads[:] = [True, False, True]
+        assert norway.build_depots(game, st)
+    assert st.depots_placed == norway.DEPOTS == 10
+    assert not any(c[2] == "shift" for c in game.clicks)     # never queued
+    tiles = norway.DEPOT_TILES[:10]
+    assert len(set(tiles)) == 10
+    for (ax, ay) in tiles:                # a depot's width apart
+        for (bx, by) in tiles:
+            if (ax, ay) != (bx, by):
+                assert abs(ax - bx) >= 3 or abs(ay - by) >= 3
+    # what stands there is not an SCV (B leaves Move): no depot
+    reads[:] = [True, True]
+    assert not norway.build_depots(game, st)
+
+
+def test_the_army_steps_off_the_starport_spot_before_it_lands(monkeypatch):
+    """Trial 52: our marines stood on Russia's Starport's spot: "You can't
+    land there". After the attack the army steps aside, then it lands."""
+    game, m, watch, st = setup(monkeypatch)
+    norway.opening(game, watch, m, st, "first")
+    lines = [l for l in game.lines if l.startswith("norway:")]
+    i_attack = next(i for i, l in enumerate(lines) if "attack Russia's Starport" in l)
+    i_aside = next(i for i, l in enumerate(lines) if "steps off" in l)
+    i_land = next(i for i, l in enumerate(lines) if "Starport landed" in l)
+    assert i_attack < i_aside < i_land

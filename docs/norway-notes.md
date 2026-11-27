@@ -321,6 +321,29 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   with the bunkers down the keys share the four turrets out (each starts
   on a different one; turrets do not shoot men on foot).
 
+## Trial 52 (build 5f80f28, the folder zip)
+
+- Finland clear at 69 s (late: the Factory and Engineering Bay lifts at
+  45-47 s, and the smallest key alone on the last turret); the German army
+  came by 120 s.
+- The Barracks, floating at (139, 33) from 25 s, was shot by the west
+  bunker down to 60 of 1000, could not land there, landed at (144, 37)
+  at 120 s after clicks on spot after spot.
+- Russia's Starport was destroyed by about 150 s, but our marines stood on
+  its spot: "You can't land there" every 8 s to the end.
+- No depot: the click at Arkhangelsk picked marines, and four depots
+  queued with Shift in one order.
+- The owner: move the units off before the Starport lands; just land
+  the Barracks at (149, 39), not many clicks; ten depots by Arkhangelsk,
+  as in their recording.
+- Now: the Shetland lifts after Finland is clear; with the bunkers down the
+  keys split into two groups at the two ends of the turrets; the
+  Barracks waits at (143, 28), out of the bunkers' reach, moves over
+  (149, 39) once they are down, and lands there with one click (again
+  only after 20 s); the army steps aside to (148, 16) 4 s before each
+  Starport landing; depots one an order every 6 s, the SCVs boxed and
+  checked by B, on spots a depot's width apart, ten in all.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,
