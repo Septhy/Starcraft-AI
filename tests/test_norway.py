@@ -380,3 +380,40 @@ def test_the_barracks_flies_in_as_the_army_attacks_the_finland_spot(monkeypatch)
                   if "attacks at Russian army-Finland" in l)
     i_clear = next(i for i, l in enumerate(lines) if "Finland cleared" in l)
     assert i_in <= i_move + 1 and i_in < i_clear
+
+
+def test_each_box_sets_off_for_kiruna_as_it_is_keyed(monkeypatch):
+    """The owner (trial 48): the men move up to Kiruna while the rest are
+    being keyed, not after."""
+    game, m, watch, st = setup(monkeypatch)
+    monkeypatch.setattr(norway, "box_start_group", lambda io, pts: True)
+    monkeypatch.setattr(norway, "selected", lambda io: 3)
+    norway.key_army(game, watch, m, st, "first")
+    kiruna = trial.live.minimap_point(143 * 32, 16 * 32)
+    rights = [c for c in game.clicks if c[2] == "right" and c[:2] == kiruna]
+    assert len(rights) >= len(st.army_keys) and len(rights) >= 4
+
+
+def test_germany_s_buildings_are_attacked_in_one_chain(monkeypatch):
+    """Trial 48: one order at a time, the army stood 6 to 13 s between
+    buildings. Every key gets the whole chain at once (Shift), nearest
+    first, and it is not given again while the army is on its way."""
+    game, m, watch, st = setup(monkeypatch)
+    st.army_keys = ["1", "2"]
+    buildings = norway.german_buildings(m)
+
+    class W:
+        def units(self, picture):
+            return blob(norway.heavy_industry(m), 3)
+
+        def others(self, picture, slots):
+            out = set()
+            for k, x, y in buildings:
+                out |= blob((x, y), 2)
+            return out
+    assert norway.clear_buildings(game, W(), m, st, "pic") == 2
+    queued = [c for c in game.clicks if c[2] == "shift"]
+    assert len(queued) == 2 * (len(buildings) - 1)
+    assert game.combos.count(("shift", "a")) == 2 * (len(buildings) - 1)
+    game.t += 2
+    assert norway.clear_buildings(game, W(), m, st, "pic") == 0   # on its way

@@ -259,6 +259,20 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   39), then the west bunker (134, 36), then Helsinki. The Barracks flies
   in over Finland as the army attacks the Finland spot (about 29 s).
 
+## Trial 48 (build 675dedc): still too slow
+
+- Germany's buildings fell one by one from 52 s, but an order only every
+  6 to 13 s: between them the bot lifted the Command Center (45 s),
+  ordered the depots (63 s) and moved the camera onto each building.
+  Stopped at 78 s with 5 left (the owner: clear by 61 s).
+- Now every army key gets all of Germany's buildings in one chain of
+  attack-moves (the nearest first, Shift for the rest, minimap clicks,
+  no camera), so the army goes on by itself; given again when the first
+  falls or every 10 s. The Command Center and the depots wait until
+  Finland is clear (or 100 s).
+- The owner: each box of men sets off for Kiruna as soon as it is keyed,
+  while the rest are keyed.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

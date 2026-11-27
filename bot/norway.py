@@ -69,6 +69,9 @@ ARMY_BOXES = 16                # boxes at most to key the army (each ~1 s;
 GROUP_W, GROUP_H = 20, 8       # tiles: a box's patch of ground (the screen
                                # shows about 26 by 10 tiles)
 DEPOT_FIRST = 60               # seconds before the SCVs are looked for at the depots
+BUSY_UNTIL = 100               # seconds: the Command Center and the depots wait
+                               # for Finland till then (trial 48: they took the
+                               # bot away from the fight at 45 and 63 s)
 DEPOT_EVERY = 12               # seconds between looks (trial 42: every 3 s, the
                                # camera sat on empty ground by Arkhangelsk)
 DEPOT_LOOKS = 5                # looks before the depots are given up
@@ -144,6 +147,7 @@ class State:
         self.army_px = 0
         self.targets = None            # Germany's buildings in Finland left
         self.barracks_in = False
+        self.chain, self.chain_at = [], -1e9
         self.depot_look = -1e9
         self.depot_looks = 0
         self.army_held = {}
@@ -386,6 +390,11 @@ def key_army(io, watch, mapdata, st, picture):
         else:
             io.combo("shift", key)
         io.sleep(0.04)
+        # and off to Kiruna at once, while the rest are keyed (the owner,
+        # trial 48)
+        kx, ky = ARMY_STAGES[0][0]
+        io.click(*live.minimap_point(kx * T, ky * T), button="right")
+        io.sleep(0.03)
         held[key] += n
     st.army_held = held
     io.log("norway: the army on keys " + (", ".join(
@@ -502,48 +511,65 @@ def red_near(picture, sx, sy, reach=BUILDING_REACH):
     return int(m[y0:int(sy - t + reach), x0:int(sx - l + reach)].sum())
 
 
+CHAIN_REFRESH = 10             # seconds before the same chain of attacks is given again
+
+
 def clear_buildings(io, watch, mapdata, st, picture):
-    """Germany's buildings in Finland, one at a time, the nearest to our
-    army first: the camera on it; no red left there, it is crossed off;
-    else every army key attacks it (A, then a click on it). Returns the
-    orders given, or None once none is left (the minimap then decides)."""
+    """Germany's buildings in Finland, all of them in one go: every army
+    key attack-moves on the nearest, then (Shift) the next nearest from
+    there, and so on, so the army goes on from one to the next by itself
+    (trial 48: one order at a time, the army stood 6 to 13 s between
+    buildings while the bot did other things). A building is crossed off
+    once the minimap shows no red on it. The chain is given again when
+    the first of it is gone, or every CHAIN_REFRESH seconds. Returns the
+    orders given, or None once none is left."""
     if st.targets is None:
         st.targets = german_buildings(mapdata)
-    ours = trial.near(watch.units(picture), heavy_industry(mapdata), 16)
-    ax, ay = live.from_drawn(sum(p[0] for p in ours) / len(ours),
-                             sum(p[1] for p in ours) / len(ours)) \
-        if ours else heavy_industry(mapdata)
-    st.targets.sort(key=lambda b: (b[1] - ax) ** 2 + (b[2] - ay) ** 2)
-    for _ in range(3):                  # a few crossed off a look at most
-        if not st.targets:
-            return None
-        kind, x, y = st.targets[0]
-        # gone when the minimap shows no red on it any more (trial 46: the
-        # screen's bright team red was too little on Germany's buildings,
-        # three were crossed off in one second while still standing)
+    left = []
+    for kind, x, y in st.targets:
         try:
             on_map = len(trial.near(watch.others(picture, RED), (x, y),
                                     GONE_REACH))
         except Exception:
             on_map = 1
-        cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
-        sx, sy = live.on_screen(x, y, cam)
         if on_map == 0:
-            st.targets.pop(0)
-            io.log(f"norway: Germany's {kind} at {x // T}, {y // T} is gone "
-                   f"({len(st.targets)} left)")
-            continue
-        for key in st.army_keys:
-            io.key(key)
-            io.sleep(0.05)
-            io.key("a")
-            io.sleep(0.04)
-            io.click(sx, sy)
-            io.sleep(0.05)
-        io.log(f"norway: the army attacks Germany's {kind} at {x // T}, "
-               f"{y // T} ({len(st.targets)} left)")
-        return len(st.army_keys)
-    return 0
+            io.log(f"norway: Germany's {kind} at {x // T}, {y // T} is gone")
+        else:
+            left.append((kind, x, y))
+    st.targets = left
+    if not left:
+        return None
+    ours = trial.near(watch.units(picture), heavy_industry(mapdata), 16)
+    ax, ay = live.from_drawn(sum(p[0] for p in ours) / len(ours),
+                             sum(p[1] for p in ours) / len(ours)) \
+        if ours else heavy_industry(mapdata)
+    chain, here, todo = [], (ax, ay), list(left)
+    while todo:                         # the nearest from where it stands
+        nxt = min(todo, key=lambda b: (b[1] - here[0]) ** 2 + (b[2] - here[1]) ** 2)
+        todo.remove(nxt)
+        chain.append(nxt)
+        here = nxt[1:]
+    if st.chain and st.chain[0] == chain[0] and \
+            io.now() - st.chain_at < CHAIN_REFRESH:
+        return 0                        # still on its way along the chain
+    st.chain, st.chain_at = chain, io.now()
+    for key in st.army_keys:
+        io.key(key)
+        io.sleep(0.05)
+        for i, (kind, x, y) in enumerate(chain):
+            point = live.minimap_point(x, y)
+            if i == 0:
+                io.key("a")
+                io.sleep(0.03)
+                io.click(*point)
+            else:
+                io.combo("shift", "a")
+                io.sleep(0.03)
+                io.click_with("shift", *point)
+            io.sleep(0.03)
+    io.log("norway: the army attacks Germany's buildings in turn: " + ", ".join(
+        f"{k} {x // T},{y // T}" for k, x, y in chain))
+    return len(st.army_keys)
 
 
 def attack_on_screen(io, st, xy, army_xy=None):
@@ -657,7 +683,8 @@ def opening(io, watch, mapdata, st, first):
         # middle of the army's stages (trial 44: its lift pushed the attack
         # on Finland back)
         if not st.cc_lifted and io.now() - t0 >= 32 and \
-                st.stage >= len(ARMY_STAGES):
+                st.stage >= len(ARMY_STAGES) and \
+                (st.finland_clear or io.now() - t0 >= BUSY_UNTIL):
             st.cc_lifted = lift(io, mapdata, st, "Command Center",
                                 (KIRUNA_LAND[0][0] * T, KIRUNA_LAND[0][1] * T),
                                 key=KEYS["Command Center"]) or \
@@ -681,6 +708,7 @@ def opening(io, watch, mapdata, st, first):
             else:
                 army_into_finland(io, watch, mapdata, st, picture)
         if not st.depots_ordered and io.now() - t0 >= DEPOT_FIRST and \
+                (st.finland_clear or io.now() - t0 >= BUSY_UNTIL) and \
                 io.now() - st.depot_look >= DEPOT_EVERY:
             st.depot_look = io.now()
             st.depot_looks += 1
