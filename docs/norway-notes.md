@@ -506,3 +506,27 @@ the attack on Russia's Starport.
 - Depots (owner's recording): the SCVs are boxed by Arkhangelsk, then B,
   S and one click per depot, spread over about (198-207, 12-25), with
   repairs between. The bot's depot spots are in the same area.
+
+## Trial 58
+
+- Finland clear at 66.3 s (countdown 3:22). The Starport landed on the
+  Control Tower with one click at 164 s, the mouse on the box's top-left
+  tile (the footprint was exactly on the box). But the bot noticed it
+  only at 251 s, and before that it pressed Land every 8 s to see if
+  Russia's Starport was gone. The owner: there should be just one
+  attempt. Now:
+  - Whether Russia's Starport stands is seen by clicking it with ours
+    selected. If Russia's is selected, it still stands; if ours stays
+    selected, it is gone. No Land is pressed for that.
+  - Once it is gone, the army steps aside, then Land is pressed and the
+    Starport is put on the box with one click (no Esc after it).
+  - After the click the bot only checks every 4 s whether it is down.
+    Only after 30 s does it try again.
+- No depots: the two SCVs had been boxed into an army key with the
+  marines at about 18 s (the army's boxes by the Command Center) and went
+  with the army. The selection card shows them (bulky wireframe, no gun;
+  frames 2 and 7 of ten). Now, once Finland is clear, each army key is
+  pressed and its SCVs are found by their wireframe. Each is put on key 9
+  (Ctrl+9 for the first, Shift+9 for the next) and taken out of the army
+  key (Shift+click on its picture, then Ctrl+key). The screen sweep is
+  kept for SCVs that are elsewhere.

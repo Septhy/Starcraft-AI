@@ -550,16 +550,15 @@ def test_depots_one_at_a_time_ten_by_arkhangelsk(monkeypatch):
     assert not norway.build_depots(game, st)
 
 
-def test_the_army_steps_off_the_starport_spot_before_it_lands(monkeypatch):
-    """Trial 52: our marines stood on Russia's Starport's spot: "You can't
-    land there". After the attack the army steps aside, then it lands."""
+def test_the_starport_is_landed_once_after_the_attack(monkeypatch):
+    """Trial 58: the landing is one step after Russia's Starport is gone,
+    one click, then only a wait for it to come down."""
     game, m, watch, st = setup(monkeypatch)
     norway.opening(game, watch, m, st, "first")
     lines = [l for l in game.lines if l.startswith("norway:")]
     i_attack = next(i for i, l in enumerate(lines) if "attack Russia's Starport" in l)
-    i_aside = next(i for i, l in enumerate(lines) if "steps off" in l)
     i_land = next(i for i, l in enumerate(lines) if "Starport landed" in l)
-    assert i_attack < i_aside < i_land
+    assert i_attack < i_land
 
 
 TINT = {"green": (28, 90, 20), "red": (100, 40, 25)}   # trial 54's real tints
@@ -847,3 +846,49 @@ def test_the_darker_scv_at_murmansk_is_spotted():
     was missed by the sweep."""
     spots = norway.scv_spots(Image.open("tests/data/scv_murmansk.jpg"))
     assert any(abs(x - 825) < 40 and abs(y - 110) < 40 for x, y in spots)
+
+
+def test_the_scvs_in_an_army_key_are_told_by_their_wireframe():
+    """Trial 58: the army's key held two SCVs (frames 2 and 7 of ten)
+    among the marines."""
+    pic = Image.open("tests/data/army_key_with_scvs.jpg")
+    assert live.scv_frames(pic, 10) == [1, 6]
+
+
+def test_the_scvs_are_taken_from_the_army_key(monkeypatch):
+    game, m, watch, st = setup(monkeypatch)
+    st.army_keys = ["1", "2"]
+    pic = Image.open("tests/data/army_key_with_scvs.jpg")
+    game.shot = lambda label, keep=True: pic
+    monkeypatch.setattr(live, "selected_count", lambda p: 10)
+    monkeypatch.setattr(live, "scv_selected", lambda card: True)
+    found = norway.scvs_from_army(game, st)
+    assert found == 4 and st.scvs_keyed              # two on each key here
+    assert ("ctrl", norway.SCV_KEY) in game.combos
+    assert ("shift", norway.SCV_KEY) in game.combos
+    assert ("ctrl", "1") in game.combos and ("ctrl", "2") in game.combos
+    assert any(c[2] == "shift" for c in game.clicks)  # taken out with Shift
+
+
+def test_russia_s_starport_is_looked_at_by_a_click_not_by_land(monkeypatch):
+    """The owner (trial 58): one landing attempt only. Whether Russia's
+    Starport still stands is seen by clicking it with ours selected: no
+    Land button is pressed for that."""
+    game, m, watch, st = setup(monkeypatch)
+    game.hover = lambda x, y: None
+    port = norway.russia_starport(m)
+    game.up.add("Starport")
+    game.on_key[norway.KEYS["Starport"]] = "Starport"
+    standing = {"yes": True}
+    real_click = game.click
+
+    def click(x, y, button="left"):
+        real_click(x, y, button)
+        if (x, y) != trial.LIFT_BUTTON and standing["yes"]:
+            game.selected = "russia"            # Russia's Starport picked
+    game.click = click
+    assert not norway.russia_port_gone(game, st, port)
+    standing["yes"] = False
+    game.selected = None
+    assert norway.russia_port_gone(game, st, port)
+    assert trial.LIFT_BUTTON not in [(c[0], c[1]) for c in game.clicks]

@@ -306,6 +306,39 @@ def frame_box(i, n=12):
     return (x, y, x + SLOT_SIZE, y + SLOT_SIZE)
 
 
+SCV_FRAME_MATCH = 0.4                 # overlap with the SCV wireframe: an SCV
+
+
+def _frame_lines(a, box):
+    x0, y0, x1, y1 = box
+    c = a[y0 + 8:y1 - 8, x0 + 8:x1 - 8]
+    return (c.max(axis=2) > 100) & (c[..., 2] < np.maximum(c[..., 0], c[..., 1]) - 20)
+
+
+def scv_frames(screen, n):
+    """Which of the n framed pictures of a selection are SCVs, told by
+    their wireframe (bulky, no gun) against a marine's (Norway trial 58:
+    two SCVs had been boxed into an army key with the marines)."""
+    if "scv_frame" not in _templates:
+        _templates["scv_frame"] = np.asarray(
+            Image.open(data_path("scv_frame.png")).convert("L")) > 127
+    t = _templates["scv_frame"]
+    a = np.asarray(screen.convert("RGB")).astype(int)
+    out = []
+    for i in range(n):
+        m = _frame_lines(a, frame_box(i, n))
+        if m.shape != t.shape:
+            continue
+        best = 0.0
+        for dy in (-2, -1, 0, 1, 2):
+            for dx in (-2, -1, 0, 1, 2):
+                r = np.roll(np.roll(t, dy, 0), dx, 1)
+                best = max(best, (m & r).sum() / max(1, (m | r).sum()))
+        if best >= SCV_FRAME_MATCH:
+            out.append(i)
+    return out
+
+
 def selected_count(screen):
     """How many units the game shows as selected, read from the framed
     pictures in the bottom panel: 0 to 12. One unit alone is shown

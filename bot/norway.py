@@ -193,6 +193,8 @@ class State:
         self.scvs_keyed = False
         self.scvs_remade = 0
         self.sweep_speed = SWEEP_SPEED
+        self.army_checked = False
+        self.port_clicked = 0
         self.cc_home = None
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
@@ -427,7 +429,7 @@ def tower_box(picture, sx, sy):
     return (x0 + cols[1], y0 + rows[1], x0 + cols[2], y0 + rows[2])
 
 
-def port_spot(io, sx, sy):
+def port_spot(io, sx, sy, quiet=False):
     """The Starport on the light green box, the owner's way (their
     recording: Land, then a click with the mouse near the box's top-left
     corner). The game puts a landing building's top-left tile under the
@@ -446,8 +448,9 @@ def port_spot(io, sx, sy):
     except Exception:
         box = None
     if box is None:
-        io.log("norway: land-starport: no light green box seen, the mouse "
-               f"goes on {PORT_MOUSE}")
+        if not quiet:
+            io.log("norway: land-starport: no light green box seen, the "
+                   f"mouse goes on {PORT_MOUSE}")
         return None
     mx, my = box[0] + tile / 2, box[1] + tile / 2
     fp = None
@@ -773,6 +776,51 @@ def sweep_for_scvs(io, st):
     return total > 0
 
 
+def scvs_from_army(io, st):
+    """The SCVs boxed into the army keys with the marines (trial 58: both
+    were there; the army's boxes by the Command Center took them at
+    18 s): each is picked by its picture in the key's selection and put
+    on SCV_KEY, then taken out of the army key. How many were found."""
+    found = 0
+    for key in st.army_keys:
+        clear_modes(io)
+        io.key(key)
+        io.sleep(0.15)
+        try:
+            pic = io.shot("army-key", keep=False)
+            n = live.selected_count(pic)
+            idx = live.scv_frames(pic, n) if n > 1 else []
+        except Exception:
+            continue
+        if not idx:
+            continue
+        for i in idx:                   # each SCV alone onto SCV_KEY
+            io.key(key)
+            io.sleep(0.12)
+            x0, y0, x1, y1 = live.frame_box(i, n)
+            io.click((x0 + x1) // 2, (y0 + y1) // 2)
+            io.sleep(0.12)
+            if not live.scv_selected(io.card()):
+                continue
+            io.combo("shift" if st.scvs_keyed else "ctrl", SCV_KEY)
+            io.sleep(0.05)
+            st.scvs_keyed = True
+            found += 1
+        io.key(key)                     # and out of the army key
+        io.sleep(0.12)
+        m = n
+        for i in sorted(idx, reverse=True):
+            x0, y0, x1, y1 = live.frame_box(i, m)
+            io.click_with("shift", (x0 + x1) // 2, (y0 + y1) // 2)
+            io.sleep(0.1)
+            m -= 1
+        io.combo("ctrl", key)
+        io.sleep(0.05)
+        io.log(f"norway: {len(idx)} SCV(s) found on army key {key}, put on "
+               f"key {SCV_KEY} and taken out of key {key}")
+    return found
+
+
 def pick_scvs(io, st):
     """The SCVs selected: by their key once they have one, else looked for
     by sweeping the screen over Kiruna, the camp and Murmansk. True if
@@ -782,6 +830,13 @@ def pick_scvs(io, st):
         io.sleep(0.15)
         if live.scv_selected(io.card()):
             return True
+    if not st.army_checked:
+        st.army_checked = True
+        if scvs_from_army(io, st):
+            io.key(SCV_KEY)
+            io.sleep(0.15)
+            if live.scv_selected(io.card()):
+                return True
     if sweep_for_scvs(io, st):
         io.key(SCV_KEY)
         io.sleep(0.15)
@@ -1234,6 +1289,60 @@ def clear_landing(io, watch, mapdata, st, picture):
     return moved
 
 
+PORT_DOWN = 5                  # seconds after the landing click before looking
+PORT_GIVE_UP = 30              # seconds: not down by then, it is tried again
+
+
+def try_land_port(io, st):
+    """Ours held over Russia's Starport's spot in Land mode: with the light
+    green box showing (Russia's is gone), it is put on the box and clicked
+    once. "clicked", "red" (box seen, something of ours in the way) or
+    "none" (no box: Russia's still stands, or ours is not in the air)."""
+    key = KEYS["Starport"]
+    clear_modes(io)
+    io.key(key)
+    io.sleep(0.15)
+    if not live.units_selected(io.card()):
+        return "none"
+    x, y = PORT_MOUSE[0] * T + T // 2, PORT_MOUSE[1] * T + T // 2
+    cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
+    sx, sy = live.on_screen(x, y, cam)
+    io.click(*LAND_BUTTON)
+    io.sleep(0.15)
+    if getattr(io, "hover", None) is None:       # tests: no eyes
+        io.click(sx, sy)
+        st.land_tried.add("Starport")
+        return "clicked"
+    spot = port_spot(io, sx, sy, quiet=True)
+    if spot is None or spot == "red":
+        clear_modes(io)
+        return "none" if spot is None else "red"
+    io.click(*spot)                     # once; no Esc after (it is landing)
+    st.land_tried.add("Starport")
+    io.log("norway: Starport landing on the light green box (one click)")
+    return "clicked"
+
+
+def russia_port_gone(io, st, port):
+    """True once Russia's Starport is destroyed, seen without pressing
+    Land: ours (in the air, on its key) is selected, then Russia's spot is
+    clicked. If Russia's stands, the click selects it (a card with no
+    buttons); if it is gone, ours stays selected (Move shows). Without
+    eyes (tests): True."""
+    if getattr(io, "hover", None) is None:
+        return True
+    clear_modes(io)
+    io.key(KEYS["Starport"])
+    io.sleep(0.15)
+    if not live.units_selected(io.card()):
+        return False
+    cam = trial.look_at(io, *trial.centred(port["x"], port["y"]), wait=0.25)
+    io.click(*live.on_screen(port["x"], port["y"], cam))
+    io.sleep(0.2)
+    card = io.card()
+    return live.units_selected(card)            # still ours: nothing there
+
+
 def port_gone(io, st, port):
     """True once Russia's Starport is destroyed: with ours held over its
     spot to land, the game draws the light green box where the Control
@@ -1381,38 +1490,49 @@ def opening(io, watch, mapdata, st, first):
                 io.log(f"norway: Barracks down by the Heavy Industry "
                        f"(countdown {trial.round_timer(st.clock.time()) if st.clock else '?'}; "
                        f"the owner: before 3:25)")
-        # Murmansk: Russia's Starport destroyed, then ours lands there
-        if st.finland_clear and "Starport" not in st.landed and \
+        # Murmansk: Russia's Starport destroyed, then ours lands there.
+        # One step (trial 58): while the marines attack, the bot holds ours
+        # over the spot in Land mode now and then; once the light green box
+        # shows (Russia's is gone) it lands at once, the owner's way. After
+        # the click it only waits for it to come down.
+        if st.port_clicked and "Starport" not in st.landed:
+            if io.now() - st.port_clicked >= PORT_DOWN and \
+                    io.now() - st.last_port >= 4:
+                st.last_port = io.now()
+                clear_modes(io)
+                if is_down(io, KEYS["Starport"]):
+                    st.landed.add("Starport")
+                    io.log("norway: Starport landed at Murmansk on the "
+                           "Control Tower")
+                elif io.now() - st.port_clicked > PORT_GIVE_UP:
+                    st.port_clicked = 0     # it did not come down: again
+        elif st.finland_clear and "Starport" not in st.landed and \
                 io.now() - st.last_port >= RETRY_PORT:
             st.last_port = io.now()
             if not st.port_gone:
-                # trial 55: the army stepped aside every 8 s and Russia's
-                # Starport was never destroyed; now the marines keep on at
-                # it until the light green box shows it is gone
-                if st.port_tries and port_gone(io, st, port):
+                # the owner (trial 58): no Land tries while Russia's stands;
+                # it is looked at by a click instead
+                if st.port_tries and russia_port_gone(io, st, port):
                     st.port_gone = True
-                    st.last_port = io.now() - RETRY_PORT   # on at once
-                    io.log("norway: Russia's Starport is destroyed (the light "
-                           "green box shows)")
+                    io.log("norway: Russia's Starport is destroyed")
+                    order_army(io, st, PORT_ASIDE, attack=False)
+                    st.last_port = io.now() - RETRY_PORT + PORT_WALK
+                    io.log("norway: the army steps off Russia's Starport's spot")
                 else:
                     st.port_tries += 1
                     n = attack_russian_starport(io, watch, mapdata, st, picture)
                     if n:
                         io.log(f"norway: {n} groups of marines attack "
                                f"Russia's Starport at Murmansk")
-            elif not st.port_cleared:
-                # our own men off the spot first (trial 52: "You can't land
-                # there" from 130 s on, the marines stood on it)
-                order_army(io, st, PORT_ASIDE, attack=False)
-                st.port_cleared = True
-                st.last_port = io.now() - RETRY_PORT + PORT_WALK
-                io.log("norway: the army steps off Russia's Starport's spot")
-            elif land(io, "Starport", [(PORT_MOUSE[0] * T + T // 2,
-                                        PORT_MOUSE[1] * T + T // 2)], st):
-                io.log("norway: Starport landed at Murmansk on the Control "
-                       "Tower")
             else:
-                st.port_cleared = False     # red: the men stepped aside again
+                result = try_land_port(io, st)
+                if result == "clicked":
+                    st.port_clicked = io.now()
+                elif result == "red":       # something of ours still there
+                    order_army(io, st, PORT_ASIDE, attack=False)
+                    st.last_port = io.now() - RETRY_PORT + PORT_WALK
+                    io.log("norway: the army steps off Russia's Starport's "
+                           "spot again")
         # an SCV comes and repairs the Barracks (the owner, trial 50)
         if "Barracks" in st.landed and st.repaired < REPAIR_TRIES and \
                 io.now() - st.last_repair >= REPAIR_EVERY:
