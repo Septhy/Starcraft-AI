@@ -427,6 +427,51 @@ def tower_box(picture, sx, sy):
     return (x0 + cols[1], y0 + rows[1], x0 + cols[2], y0 + rows[2])
 
 
+def port_spot(io, sx, sy):
+    """The Starport on the light green box, the owner's way (their
+    recording: Land, then a click with the mouse near the box's top-left
+    corner). The game puts a landing building's top-left tile under the
+    mouse (trials 56, 57: with the mouse on the box's middle, or on
+    (156, 5), the footprint stood 2 tiles right of the box). So the mouse
+    goes on the box's top-left tile, and is moved once more if the
+    footprint is still off. The mouse point, "red" if the footprint there
+    shows red, or None if no box is seen."""
+    if getattr(io, "hover", None) is None:
+        return None
+    tile = 32 * live.ZOOM
+    io.hover(int(sx), int(sy))
+    io.sleep(0.15)
+    try:
+        box = tower_box(io.shot("land-tower", keep=False), sx, sy)
+    except Exception:
+        box = None
+    if box is None:
+        io.log("norway: land-starport: no light green box seen, the mouse "
+               f"goes on {PORT_MOUSE}")
+        return None
+    mx, my = box[0] + tile / 2, box[1] + tile / 2
+    fp = None
+    for _ in range(ALIGN_TRIES):
+        io.hover(int(mx), int(my))
+        io.sleep(0.15)
+        fp = footprint_at(io.shot("land-starport", keep=False),
+                          (box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+        if fp is None:
+            break
+        ox, oy = box[0] - fp[0], box[1] - fp[1]
+        if abs(ox) <= tile / 3 and abs(oy) <= tile / 3:
+            break
+        mx, my = mx + ox, my + oy
+    if fp is not None and fp[4] >= OUTLINE_RED:
+        io.shot("land-starport-red")
+        io.log("norway: land-starport: on the light green box, but red "
+               "shows (picture 'land-starport-red')")
+        return "red"
+    io.log(f"norway: land-starport: the mouse at {int(mx)}, {int(my)} puts "
+           f"the Starport on the light green box")
+    return int(mx), int(my)
+
+
 def tower_spot(io, sx, sy, label):
     """The Starport hovered over Russia's spot: if the tower's light green
     box shows, the screen point that puts the Starport's footprint level
@@ -496,8 +541,12 @@ def land(io, kind, spots, st):
         io.click(*LAND_BUTTON)
         io.sleep(0.15)
         exact = kind in EXACT_KINDS
-        spot = green_spot(io, sx, sy, "land-" + kind.split()[0].lower(),
-                          nudges=[(0, 0)] if exact else None, fixed=exact)
+        spot = port_spot(io, sx, sy) if exact else None
+        if spot is None:
+            spot = green_spot(io, sx, sy, "land-" + kind.split()[0].lower(),
+                              nudges=[(0, 0)] if exact else None, fixed=exact)
+        elif spot == "red":
+            spot = None
         if spot is None:
             clear_modes(io)
             continue
@@ -601,14 +650,20 @@ def make_scvs(io, mapdata, st=None):
 # owner, after trial 56), not by jumping about with the minimap: a sweep
 # over Kiruna, the Norwegian camp and Murmansk. Where the view is, is read
 # from the minimap's white box after each move.
-SWEEP_VIEWS = [(133, 10), (155, 10), (155, 20), (133, 20)]   # tiles: view middles
+SWEEP_VIEWS = [(133, 10), (155, 10), (155, 20), (133, 20), (200, 18)]
+                               # tiles: view middles (Kiruna, Murmansk, the
+                               # camp, then Arkhangelsk, where the owner's
+                               # SCVs were by 68 s)
 SWEEP_NEAR = (3, 2)            # tiles: a view this close is close enough
 SWEEP_SPEED = 15.0             # tiles a second an arrow key scrolls (first guess;
                                # measured as it goes)
 SWEEP_MOVES = 8                # moves at most to reach one view
 SWEEP_HOLD = 1.5               # seconds an arrow is held at most at once
-PROBES = 8                     # spots clicked at most in one view
+PROBES = 10                     # spots clicked at most in one view
 SCV_CELL = 24                  # screen pixels: the grid SCVs are looked for in
+SCV_ORANGE = 30                # orange pixels in a cell (trial 57: the SCV at
+                               # Murmansk was darker, about (164, 100, 26))
+SCV_PALE = (100, 500)          # pale pixels round it (more: a building)
 
 
 def scv_spots(picture):
@@ -620,7 +675,7 @@ def scv_spots(picture):
     l, t, r, b = live.GAME_AREA
     a = np.asarray(picture.convert("RGB").crop((l, t, r, b))).astype(int)
     R, G, B = a[..., 0], a[..., 1], a[..., 2]
-    orange = (R > 180) & (G > 100) & (G < 165) & (B < 70) & (R - G > 50)
+    orange = (R > 140) & (G > 70) & (G < 165) & (B < 70) & (R - G > 45)
     pale = (np.minimum(np.minimum(R, G), B) > 140) & (B >= R - 25)
     c = SCV_CELL
     h, w = orange.shape[0] // c, orange.shape[1] // c
@@ -634,7 +689,8 @@ def scv_spots(picture):
     spots = []
     for j in range(h):
         for i in range(w):
-            if o[j, i] >= 50 and 100 <= p3[j, i] <= 500 and o[j, i] == o3max[j, i]:
+            if o[j, i] >= SCV_ORANGE and SCV_PALE[0] <= p3[j, i] <= SCV_PALE[1] \
+                    and o[j, i] == o3max[j, i]:
                 spots.append((int(o[j, i]), l + i * c + c // 2, t + j * c + c // 2))
     spots.sort(reverse=True)
     return [(x, y) for _, x, y in spots]

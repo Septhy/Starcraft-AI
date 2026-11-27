@@ -485,3 +485,24 @@ the attack on Russia's Starport.
   second is added with Shift+click).
 - If none are found, the Command Center makes two more and rallies them
   by Kiruna, so the sweep finds them. Its lift waits 30 s.
+
+## Trial 57 and the owner's recording (Starport landing, depots)
+
+- Finland clear at 72.3 s. Russia's Starport was destroyed at 119 s.
+- The sweep moved over all four views, and the view was read from the
+  minimap's white box correctly each time. But it missed the SCV standing
+  at Murmansk: it was a darker orange, about (164,100,26), than the one
+  the spotter was made from. The colour range is wider now (tested on that
+  picture), each view checks up to 10 spots, and Arkhangelsk is a fifth
+  view. The owner's SCVs were already near Arkhangelsk by 68 s.
+- Starport: with the mouse on (156,5), the footprint stood 2 tiles right
+  of the light green box and over the tower (red). Three pictures agree
+  that the game puts a landing building's top-left tile under the mouse.
+  In the owner's recording they pressed Land and clicked once, with the
+  mouse near the box's top-left corner. Now the bot finds the box, puts
+  the mouse on the box's top-left tile, checks that the footprint matches
+  the box (and moves the mouse once if not), and clicks only if no red
+  shows. If no box is seen, it falls back to (156,5).
+- Depots (owner's recording): the SCVs are boxed by Arkhangelsk, then B,
+  S and one click per depot, spread over about (198-207, 12-25), with
+  repairs between. The bot's depot spots are in the same area.

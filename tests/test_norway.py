@@ -816,3 +816,34 @@ def test_the_screen_is_swept_with_the_arrow_keys_until_the_scvs_are_found(monkey
     l, t = live.MINIMAP["left"], live.MINIMAP["top"]
     assert not any(l <= x <= l + live.MINIMAP["width"] and t <= y <= t + live.MINIMAP["height"]
                    for x, y in io.clicks)
+
+
+def test_the_starport_lands_on_the_box_the_owner_s_way():
+    """The owner's recording: Land, then the mouse near the light green
+    box's top-left corner. The game puts the footprint's top-left tile
+    under the mouse (trials 56, 57), so the mouse goes on the box's
+    top-left tile and the footprint lands on the box."""
+    from PIL import ImageDraw
+    tile = 32 * live.ZOOM
+    box = (718, 287, int(718 + 4 * tile), int(287 + 3 * tile))
+
+    def screen(at):
+        img = outline(None)
+        d = ImageDraw.Draw(img)
+        d.rectangle(box, outline=(40, 200, 40), width=2)
+        # the footprint's top-left corner on the tile under the mouse
+        gx = 718 + ((at[0] - 718) // tile) * tile
+        gy = 287 + ((at[1] - 287) // tile) * tile
+        return paint(img, (gx + 2 * tile, gy + 1.5 * tile), (4, 3), "green")
+    io = Hover(screen)
+    mouse = norway.port_spot(io, 1008, 397)
+    assert mouse and box[0] <= mouse[0] < box[0] + tile and \
+        box[1] <= mouse[1] < box[1] + tile
+    assert norway.port_spot(Hover(lambda at: outline(None)), 1008, 397) is None
+
+
+def test_the_darker_scv_at_murmansk_is_spotted():
+    """Trial 57: the SCV at Murmansk, darker orange (about (164, 100, 26)),
+    was missed by the sweep."""
+    spots = norway.scv_spots(Image.open("tests/data/scv_murmansk.jpg"))
+    assert any(abs(x - 825) < 40 and abs(y - 110) < 40 for x, y in spots)
