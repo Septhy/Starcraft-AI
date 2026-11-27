@@ -216,6 +216,24 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   military camp (tile 127, 22) until Finland is clear, then flies in to
   land.
 
+## Trial 45 (build 6f48a5f)
+
+- The owner: the men at (105, 66) by Sweden and (142, 9) by Kiruna were
+  never brought; and Germany's missile turrets in Finland must also be
+  gone by 3:25 on the countdown.
+- Both groups stand beside a bunker: the minimap reading leaves out our
+  buildings' pixels, so they were hidden and never boxed. Now the army
+  is boxed from the map's own starting positions (13 patches of
+  ground, the biggest first), then anything else the minimap shows.
+- Clean-up: Germany's 11 buildings in Finland from the map (4 depots,
+  the Barracks, 2 bunkers, 4 missile turrets), the nearest to our army
+  first: the camera on it, crossed off once no red is left there, else
+  every key attacks it. Finland counts as clear only when the list is
+  empty.
+- Keys held 11, 11, 12 and 6 men; the army attacked Finland at 28 s and
+  Helsinki at 37-41 s (the owner: 30 s and 41-44 s), but was gone by
+  about 73 s with 100 red pixels left.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

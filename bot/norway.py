@@ -62,6 +62,8 @@ CLEAN_EVERY = 4                # seconds between attacks on the red that is left
                                # (the owner: boxes and attacks every 1-2 s)
 ARMY_BOXES = 16                # boxes at most to key the army (each ~1 s;
                                # trial 43: 10 left Narvik's men unkeyed)
+GROUP_W, GROUP_H = 20, 8       # tiles: a box's patch of ground (the screen
+                               # shows about 26 by 10 tiles)
 DEPOT_FIRST = 60               # seconds before the SCVs are looked for at the depots
 DEPOT_EVERY = 12               # seconds between looks (trial 42: every 3 s, the
                                # camera sat on empty ground by Arkhangelsk)
@@ -133,6 +135,7 @@ class State:
         self.stage_at = -1e9
         self.last_clean = -1e9
         self.army_px = 0
+        self.targets = None            # Germany's buildings in Finland left
         self.depot_look = -1e9
         self.depot_looks = 0
         self.army_held = {}
@@ -302,6 +305,35 @@ def selected(io):
         return 0
 
 
+def start_groups(mapdata):
+    """Norway's starting troops by the map (trial 45: men beside a bunker
+    are hidden on the minimap by the building, so Sweden's (105, 66) and
+    Kiruna's (141, 8) were never boxed): grouped into screen-sized
+    patches of ground, the biggest first. Map pixels."""
+    from collections import defaultdict
+    cells = defaultdict(list)
+    for x, y in mapdata["slots"][SLOT]["units"]:
+        cells[(x // (GROUP_W * T), y // (GROUP_H * T))].append((x, y))
+    return sorted(cells.values(), key=len, reverse=True)
+
+
+def box_start_group(io, pts):
+    """Box the ground round some starting troops (the camera on them).
+    True if the game shows units selected."""
+    l, t, r, b = live.GAME_AREA
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    cam = trial.look_at(io, *trial.centred(cx, cy), wait=0.2)
+    a = live.on_screen(min(xs) - 2 * T, min(ys) - 2 * T, cam)
+    z = live.on_screen(max(xs) + 2 * T, max(ys) + 2 * T, cam)
+    box = (max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
+    if box[2] - box[0] < 30 or box[3] - box[1] < 30:
+        return False
+    io.drag(*box)
+    io.sleep(0.08)
+    return live.units_selected(io.card())
+
+
 def key_army(io, watch, mapdata, st, picture):
     """Every starting trooper on the army keys, 1 to 5 (the repository
     owner's way): box after box, each added to the key with Shift until
@@ -325,8 +357,14 @@ def key_army(io, watch, mapdata, st, picture):
         seen.add(where)
     groups = (firsts + rest)[:ARMY_BOXES]
     held = {}                           # key -> men on it
-    for group in groups:
-        if not trial.select_group(io, group, st, watch, margin=60):
+    # first every place where troops start, from the map (none missed),
+    # then whatever the minimap shows besides, while boxes are left
+    jobs = [("map", g) for g in start_groups(mapdata)] + \
+        [("minimap", g) for g in groups]
+    for kind, group in jobs[:ARMY_BOXES]:
+        ok = box_start_group(io, group) if kind == "map" else \
+            trial.select_group(io, group, st, watch, margin=60)
+        if not ok:
             continue
         n = selected(io) or 1
         key = next((k for k in st.army_keys if held[k] + n <= 12), None)
@@ -397,6 +435,9 @@ def army_into_finland(io, watch, mapdata, st, picture):
     if now - st.last_clean < CLEAN_EVERY:
         return 0
     st.last_clean = now
+    n = clear_buildings(io, watch, mapdata, st, picture)
+    if n is not None:
+        return n
     red = finland_red(watch, picture)
     if not red:
         return 0
@@ -416,6 +457,67 @@ def army_into_finland(io, watch, mapdata, st, picture):
            f"{trial.place_name(mapdata, *xy)} ({int(xy[0] // T)}, {int(xy[1] // T)})")
     finland_picture(io, mapdata, "clean")
     return n
+
+
+def german_buildings(mapdata):
+    """Germany's buildings in Finland by the map: depots, the Barracks,
+    bunkers and the missile turrets (the owner, trial 45: the turrets
+    too must be gone by 3:25). Map pixels with their kind."""
+    l, t, r, b = FINLAND
+    return [(bd["type"], bd["x"], bd["y"]) for bd in mapdata["slots"]["0"]["buildings"]
+            if l <= bd["x"] / T < r and t <= bd["y"] / T < b]
+
+
+GONE_LEAST = 8                 # red screen pixels round a building: still there
+BUILDING_REACH = 55            # screen pixels round its middle looked at
+
+
+def red_near(picture, sx, sy, reach=BUILDING_REACH):
+    m = trial.enemy_mask(picture)
+    l, t = live.GAME_AREA[:2]
+    y0, x0 = max(0, int(sy - t - reach)), max(0, int(sx - l - reach))
+    return int(m[y0:int(sy - t + reach), x0:int(sx - l + reach)].sum())
+
+
+def clear_buildings(io, watch, mapdata, st, picture):
+    """Germany's buildings in Finland, one at a time, the nearest to our
+    army first: the camera on it; no red left there, it is crossed off;
+    else every army key attacks it (A, then a click on it). Returns the
+    orders given, or None once none is left (the minimap then decides)."""
+    if st.targets is None:
+        st.targets = german_buildings(mapdata)
+    ours = trial.near(watch.units(picture), heavy_industry(mapdata), 16)
+    ax, ay = live.from_drawn(sum(p[0] for p in ours) / len(ours),
+                             sum(p[1] for p in ours) / len(ours)) \
+        if ours else heavy_industry(mapdata)
+    st.targets.sort(key=lambda b: (b[1] - ax) ** 2 + (b[2] - ay) ** 2)
+    for _ in range(3):                  # a few crossed off a look at most
+        if not st.targets:
+            return None
+        kind, x, y = st.targets[0]
+        cam = trial.look_at(io, *trial.centred(x, y), wait=0.25)
+        pic = io.shot("finland-target", keep=False)
+        sx, sy = live.on_screen(x, y, cam)
+        try:
+            there = red_near(pic, sx, sy)
+        except Exception:
+            there = GONE_LEAST
+        if there < GONE_LEAST:
+            st.targets.pop(0)
+            io.log(f"norway: Germany's {kind} at {x // T}, {y // T} is gone "
+                   f"({len(st.targets)} left)")
+            continue
+        for key in st.army_keys:
+            io.key(key)
+            io.sleep(0.05)
+            io.key("a")
+            io.sleep(0.04)
+            io.click(sx, sy)
+            io.sleep(0.05)
+        io.log(f"norway: the army attacks Germany's {kind} at {x // T}, "
+               f"{y // T} ({len(st.targets)} left)")
+        return len(st.army_keys)
+    return 0
 
 
 def attack_on_screen(io, st, xy, army_xy=None):
@@ -545,7 +647,8 @@ def opening(io, watch, mapdata, st, first):
             st.last_look = io.now()
             red = finland_red(watch, picture)
             st.clear_looks = 0 if red else st.clear_looks + 1
-            if st.clear_looks >= CLEAR_LOOKS and st.stage >= len(ARMY_STAGES):
+            if st.clear_looks >= CLEAR_LOOKS and st.stage >= len(ARMY_STAGES) \
+                    and not st.targets:
                 st.finland_clear = True
                 io.log(f"norway: Finland cleared of Germany's buildings "
                        f"(countdown {trial.round_timer(st.clock.time()) if st.clock else '?'})")

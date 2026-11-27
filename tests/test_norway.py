@@ -136,6 +136,8 @@ def setup(monkeypatch, **kw):
 
         def forget(self, pixels):
             pass
+    monkeypatch.setattr(norway, "red_near", lambda pic, sx, sy, reach=0:
+                        20 if game.attacks < game.red_looks else 0)
     st = norway.State()
     st.clock = Clock(game)
     return game, m, Watch(), st
@@ -259,7 +261,7 @@ def test_each_army_key_is_filled_box_after_box_up_to_a_dozen(monkeypatch):
 
         def forget(self, pixels):
             pass
-    sizes = iter([5, 6, 4, 7, 3, 2] + [1] * 50)
+    sizes = iter([5, 6, 4, 7, 3, 2] + [1] * 200)
     monkeypatch.setattr(norway, "selected", lambda io: next(sizes))
     norway.key_army(game, W(), m, st, "first")
     assert len(st.army_keys) >= 2
@@ -288,36 +290,44 @@ def test_the_army_attacks_one_building_together(monkeypatch):
     assert game.keys.count("a") >= 3
 
 
-def test_every_place_of_the_army_gets_a_box_first(monkeypatch):
-    """Trial 43: Narvik's and the partisans' men were never keyed when the
-    boxes ran short; one box goes to each place before seconds."""
+def test_every_starting_group_is_boxed_from_the_map(monkeypatch):
+    """Trial 45: men beside a bunker are hidden on the minimap by the
+    building, so Sweden's (105, 66) and Kiruna's (141, 8) were never
+    boxed. Every place where the map starts Norway's troops is boxed."""
     game, m, watch, st = setup(monkeypatch)
-    # Oslo has two bodies (one big, one less big), then Narvik, the
-    # partisans and Kiruna one each; four boxes must reach four places
-    big = blob((85 * 32, 50 * 32), 6) | blob((94 * 32, 50 * 32), 5)
-    blobs = [blob((x * 32, y * 32), 3) for x, y in
-             [(105, 6), (118, 28), (140, 16)]]
-
-    class W:
-        def units(self, picture):
-            return big.union(*blobs)
-
-        def others(self, picture, slots):
-            return set()
-
-        def forget(self, pixels):
-            pass
+    groups = norway.start_groups(m)
+    tiles = {(x // 32, y // 32) for g in groups for x, y in g}
+    assert (105, 66) in tiles and (141, 7) in tiles
+    assert sum(len(g) for g in groups) == len(m["slots"]["4"]["units"])
     boxed = []
-
-    def select(io, pixels, st_, watch_=None, margin=None, air=False):
-        boxed.append(trial.live.from_drawn(*sorted(pixels)[0]))
-        return True
-    monkeypatch.setattr(trial, "select_group", select)
+    monkeypatch.setattr(norway, "box_start_group",
+                        lambda io, pts: boxed.append(pts) or True)
     monkeypatch.setattr(norway, "selected", lambda io: 2)
-    monkeypatch.setattr(norway, "ARMY_BOXES", 4)
-    norway.key_army(game, W(), m, st, "first")
-    areas = {(int(x // (12 * 32)), int(y // (12 * 32))) for x, y in boxed}
-    assert len(areas) == 4                    # four places, not one place twice
+    norway.key_army(game, watch, m, st, "first")
+    for g in groups:                       # every group, while boxes last
+        if len(boxed) < norway.ARMY_BOXES:
+            assert g in boxed
+
+
+def test_germany_s_buildings_are_cleared_one_by_one_turrets_too(monkeypatch):
+    """The owner (trial 45): the turrets too must go by 3:25. Each of
+    Germany's buildings in Finland is attacked by every key until no red
+    is left there, then the next."""
+    game, m, watch, st = setup(monkeypatch)
+    st.army_keys = ["1", "2"]
+    kinds = [k for k, x, y in norway.german_buildings(m)]
+    assert kinds.count("Missile Turret") == 4 and "Bunker" in kinds
+    standing = {"n": 3}
+
+    def red(pic, sx, sy, reach=0):
+        return 0 if standing["n"] <= 0 else 20
+    monkeypatch.setattr(norway, "red_near", red)
+    assert norway.clear_buildings(game, watch, m, st, "pic") == 2
+    first = st.targets[0]
+    standing["n"] = 0                     # it falls
+    norway.clear_buildings(game, watch, m, st, "pic")
+    assert first not in st.targets
+    assert any("is gone" in l for l in game.lines)
 
 
 def test_the_barracks_waits_out_of_reach_and_the_army_goes_first(monkeypatch):
