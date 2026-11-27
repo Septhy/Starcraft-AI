@@ -54,11 +54,14 @@ ARMY_AREA = (80, 0, 160, 70)   # tiles: where the starting troops stand
 ARMY_KEYS = ["1", "2", "3", "4", "5"]
 ARMY_STAGES = [                # (tiles, attack?, seconds after the last)
     ((143, 16), False, 0),     # gather at Kiruna
-    ((147, 30), True, 12),     # the "Russian army-Finland" spot
-    ((143, 35), True, 10),     # Factory 10
-    ((136, 38), True, 10),     # Helsinki
+    ((147, 30), True, 5),      # the "Russian army-Finland" spot (owner: 30 s)
+    ((136, 38), False, 9),     # moved on to Helsinki by Factory 10 (39-40 s)
+    ((136, 38), True, 2),      # and attack there (41-44 s)
 ]
-CLEAN_EVERY = 8                # seconds between orders at the red that is left
+CLEAN_EVERY = 4                # seconds between attacks on the red that is left
+                               # (the owner: boxes and attacks every 1-2 s)
+GATHER_LONGEST = 45            # seconds the attack waits for the army at Kiruna
+GATHER_SHARE = 0.6             # of the army's minimap pixels there: it goes
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
 RED = [0]                      # Germany
 CLEAR_LOOKS = 2                # looks in a row with no red in Finland: cleared
@@ -123,6 +126,8 @@ class State:
         self.stage = 0
         self.stage_at = -1e9
         self.last_clean = -1e9
+        self.army_px = 0
+        self.army_held = {}
         # what the Russia bot's box helpers keep count of
         self.boxes = self.empty = self.empty_skipped = 0
         self.scout_frame = None
@@ -281,26 +286,63 @@ def build_depots(io, st):
     return True
 
 
+def selected(io):
+    """How many units are selected now (0 if it cannot be read)."""
+    try:
+        return live.selected_count(io.shot("count", keep=False))
+    except Exception:
+        return 0
+
+
 def key_army(io, watch, mapdata, st, picture):
     """Every starting trooper on the army keys, 1 to 5 (the repository
-    owner's way): the biggest bodies first, a box each, Ctrl + key."""
+    owner's way): box after box, each added to the key with Shift until
+    it holds a dozen (trial 41: one box a key left most of the army
+    unkeyed). How many each key holds goes to the log."""
     ours = watch.units(picture)
     l, t, r, b = ARMY_AREA
     mine = {p for p in ours
             if l <= live.from_drawn(*p)[0] / T < r
             and t <= live.from_drawn(*p)[1] / T < b}
-    groups = sorted((g for g in live.clusters(mine, 6, 6) if len(g) >= 2),
+    st.army_px = len(mine)
+    groups = sorted((g for g in live.clusters(mine, 4, 4) if len(g) >= 2),
                     key=len, reverse=True)
+    held = {}                           # key -> men on it
     for group in groups:
-        if len(st.army_keys) >= len(ARMY_KEYS):
-            break
-        if trial.select_group(io, group, st, watch, margin=60):
+        if not trial.select_group(io, group, st, watch, margin=60):
+            continue
+        n = selected(io) or 1
+        key = next((k for k in st.army_keys if held[k] + n <= 12), None)
+        if key is None:
+            if len(st.army_keys) >= len(ARMY_KEYS):
+                break
             key = ARMY_KEYS[len(st.army_keys)]
-            io.combo("ctrl", key)
-            io.sleep(0.04)
             st.army_keys.append(key)
-    io.log(f"norway: the army on keys {' '.join(st.army_keys) or '(none)'}")
+            held[key] = 0
+            io.combo("ctrl", key)
+        else:
+            io.combo("shift", key)
+        io.sleep(0.04)
+        held[key] += n
+    st.army_held = held
+    io.log("norway: the army on keys " + (", ".join(
+        f"{k}: {held[k]}" for k in st.army_keys) or "(none)") + " men")
     return len(st.army_keys)
+
+
+def army_counts(io, st):
+    """Men left on each army key, pressed one by one."""
+    out = {}
+    for key in st.army_keys:
+        io.key(key)
+        io.sleep(0.06)
+        out[key] = selected(io)
+    return out
+
+
+def army_at(watch, picture, xy, reach=10):
+    """Our minimap pixels near a map point."""
+    return len(trial.near(watch.units(picture), xy, reach))
 
 
 def order_army(io, st, xy, attack=True):
@@ -325,11 +367,27 @@ def army_into_finland(io, watch, mapdata, st, picture):
         xy, attack, wait = ARMY_STAGES[st.stage]
         if now - st.stage_at < wait:
             return 0
+        if st.stage == 1 and picture is not None:
+            # the attack waits for the army at Kiruna (most of it), or
+            # GATHER_LONGEST seconds at most
+            kx, ky = ARMY_STAGES[0][0]
+            there = army_at(watch, picture, (kx * T, ky * T))
+            st.gathered_most = max(getattr(st, "gathered_most", 0), there)
+            if now - st.stage_at < GATHER_LONGEST and \
+                    there < GATHER_SHARE * max(st.army_px, 1):
+                return 0
+            io.log(f"norway: {there} of about {st.army_px} army pixels at "
+                   f"Kiruna: the attack goes")
         st.stage, st.stage_at = st.stage + 1, now
+        if attack:
+            counts = army_counts(io, st)
+            io.log("norway: men on the keys: " + ", ".join(
+                f"{k}: {v}" for k, v in counts.items()))
         n = order_army(io, st, (xy[0] * T, xy[1] * T), attack)
-        io.log(f"norway: the army {'attacks' if attack else 'gathers'} at "
+        io.log(f"norway: the army {'attacks at' if attack else 'moves to'} "
                f"{trial.place_name(mapdata, xy[0] * T, xy[1] * T)} "
                f"({xy[0]}, {xy[1]})")
+        finland_picture(io, mapdata, f"stage{st.stage}")
         return n
     if now - st.last_clean < CLEAN_EVERY:
         return 0
@@ -338,8 +396,51 @@ def army_into_finland(io, watch, mapdata, st, picture):
     if not red:
         return 0
     body = max(live.clusters(red, 4, 4), key=len)
-    return order_army(io, st, live.from_drawn(
-        sum(p[0] for p in body) / len(body), sum(p[1] for p in body) / len(body)))
+    xy = live.from_drawn(sum(p[0] for p in body) / len(body),
+                         sum(p[1] for p in body) / len(body))
+    counts = army_counts(io, st)
+    n = attack_on_screen(io, st, xy)
+    if not n:
+        n = order_army(io, st, xy)
+    io.log(f"norway: {len(red)} red pixels left in Finland; the army "
+           f"({sum(counts.values())} men on the keys) attacks the biggest, by "
+           f"{trial.place_name(mapdata, *xy)} ({int(xy[0] // T)}, {int(xy[1] // T)})")
+    finland_picture(io, mapdata, "clean")
+    return n
+
+
+def attack_on_screen(io, st, xy):
+    """The camera on the red that is left: each army key attacks one of
+    the red buildings seen there (A, then a click on it), the keys shared
+    out over them, as the repository owner did (trial 40). Returns the
+    orders given (0 if no red shows on the screen)."""
+    cam = trial.look_at(io, *trial.centred(*xy), wait=0.25)
+    pic = io.shot("finland-red", keep=False)
+    try:
+        spots = [(x, y) for n, x, y in trial.patches(trial.enemy_mask(pic))
+                 if n >= trial.CELL_LEAST]
+    except Exception:
+        return 0
+    if not spots:
+        return 0
+    sx, sy = live.on_screen(*xy, cam)
+    spots.sort(key=lambda p: (p[0] - sx) ** 2 + (p[1] - sy) ** 2)
+    for i, key in enumerate(st.army_keys):
+        x, y = spots[i % len(spots)]
+        io.key(key)
+        io.sleep(0.05)
+        io.key("a")
+        io.sleep(0.04)
+        io.click(x, y)
+        io.sleep(0.05)
+    return len(st.army_keys)
+
+
+def finland_picture(io, mapdata, label):
+    """A picture of Finland kept for the log (what the army is doing)."""
+    x, y = heavy_industry(mapdata)
+    trial.look_at(io, *trial.centred(x - 3 * T, y), wait=0.3)
+    io.shot("finland-" + label)
 
 
 def finland_red(watch, picture):
@@ -387,9 +488,9 @@ def opening(io, watch, mapdata, st, first):
     Starport are down or OPENING_TIME is up."""
     t0 = io.now()
     trial.opening(io, st, line=OPENING_LINE)
+    make_scvs(io, mapdata)              # first, as the owner (at 2 s)
     key_army(io, watch, mapdata, st, first)
     drop_on_shetland(io, mapdata)
-    make_scvs(io, mapdata)
     lift(io, mapdata, st, "Factory", SHETLAND)
     lift(io, mapdata, st, "Engineering Bay", SHETLAND)
     port = russia_starport(mapdata)

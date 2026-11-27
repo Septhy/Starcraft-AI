@@ -190,9 +190,12 @@ def test_the_army_is_keyed_gathered_then_sent_in_stages(monkeypatch):
     norway.opening(game, watch, m, st, "first")
     assert st.army_keys and st.army_keys[0] == "1"
     stages = [l for l in game.lines if l.startswith("norway: the army ")]
-    assert "gathers at Kiruna" in stages[1]
-    assert [s.split(" at ")[1].split(" (")[0] for s in stages[2:5]] == \
-        ["Russian army-Finland", "Factory 10", "Helsinki 400"]
+    names = [s for s in stages if "attacks at " in s or "moves to " in s]
+    assert [s.replace("attacks at ", "@").replace("moves to ", "@").split("@")[1]
+            .split(" (")[0] for s in names] == \
+        ["Kiruna 200", "Russian army-Finland", "Helsinki 400", "Helsinki 400"]
+    assert "moves to" in names[0] and "moves to" in names[2]
+    assert "attacks" in names[3]
     landed = next(l for l in game.lines if "Barracks landed by" in l)
     assert landed.endswith("138, 30") or "138, 29" in landed
 
@@ -238,3 +241,30 @@ def test_every_key_the_bots_press_can_be_pressed():
     used |= set(norway.KEYS.values()) | set(trial.AIR_KEYS)
     missing = sorted(k for k in used if k not in scan)
     assert not missing, missing
+
+
+def test_each_army_key_is_filled_box_after_box_up_to_a_dozen(monkeypatch):
+    """Trial 41: one box a key left most of the army unkeyed. Boxes are
+    added to a key with Shift until it holds a dozen, then the next key."""
+    game, m, watch, st = setup(monkeypatch)
+    blobs = [blob((x * 32, y * 32), 3) for x, y in
+             [(100, 60), (110, 62), (118, 20), (105, 10), (140, 14), (90, 50)]]
+
+    class W:
+        def units(self, picture):
+            return set().union(*blobs)
+
+        def others(self, picture, slots):
+            return set()
+
+        def forget(self, pixels):
+            pass
+    sizes = iter([5, 6, 4, 7, 3, 2] + [1] * 50)
+    monkeypatch.setattr(norway, "selected", lambda io: next(sizes))
+    norway.key_army(game, W(), m, st, "first")
+    assert len(st.army_keys) >= 2
+    assert all(n <= 12 for n in st.army_held.values())
+    assert st.army_held["1"] >= 11            # filled before the next key
+    for k in st.army_keys:                    # made once, then added to
+        assert game.combos.count(("ctrl", k)) == 1
+    assert ("shift", "1") in game.combos

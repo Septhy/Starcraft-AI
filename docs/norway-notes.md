@@ -143,6 +143,24 @@ each picture gives the camera, so every click is a map tile):
   bot's first try re-boxed six groups every 3 s and never cleared
   Finland).
 
+## Trial 41: the bot's second try against the owner's recording
+
+- Keys: one box a key (one empty), so the troops of Sweden, Narvik and the
+  Norwegian partisans were never keyed; the owner filled each key with
+  two or three boxes (Shift). Now boxes are added to a key until it holds
+  a dozen, and the men on each key are logged.
+- SCVs: ordered at 11 s; the owner's first act (2 s). Now first.
+- Stages: Helsinki attacked at 60 s; the owner moved on at 39-40 s and
+  attacked Helsinki at 41-44 s. Now: the Finland spot once most of the
+  army is at Kiruna (45 s at most), then a move to Helsinki 9 s later
+  and the attack there 2 s after.
+- Clean-up: every key attack-moved at the same minimap point every 10 s
+  (by tile 131, 37) for 45 s and the red stayed. The owner boxed men on
+  the screen and attacked the buildings themselves every 1 to 2 s. Now
+  every 4 s the camera goes to the red that is left and each key attacks
+  one red building seen there (A, then a click on it).
+- Pictures of Finland are kept at each stage and clean-up.
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,
