@@ -118,6 +118,31 @@ The repository owner accepted: the bot cannot tell which of Russia's
 units to follow on the minimap, so the Dropships fly to where Russia's
 army is thickest, looked at every few seconds, instead of "Follow".
 
+## The repository owner's recording of the opening (trial 40)
+
+Read from the recorder's pictures and inputs (the minimap's view box on
+each picture gives the camera, so every click is a map tile):
+- 0-25 s: every starting trooper boxed onto keys 1 to 4 (5 later):
+  Oslo and Sweden's (tiles 97-112, 56-66), the Norwegian partisans and
+  reinforcements (112-120, 16-26), Narvik (99-112, 6-17), Kiruna
+  (136-146, 11-19). The starting Dropship is empty: the few men beside it
+  at Oslo (tiles 85-89, 45-49) are boxed and right-clicked onto it, then
+  U and Shetland (64, 33) at 8 s.
+- 10-22 s: the buildings lifted; Factory and Engineering Bay to Shetland.
+- 25 s: every key moved to Kiruna (143, 16): the army gathers.
+- 30 s: every key attack-moved at the "Russian army-Finland" spot
+  (147, 30-37); 39 s: Factory 10 (143, 35); 40-44 s: Helsinki (135-137,
+  37-39); then boxes and attacks round Factory 10 and Helsinki.
+- About 61 s (3:28 on the countdown): Finland clear.
+- 63-65 s (3:23): every key moved to Murmansk (155, 10) and attacked
+  Russia's Starport (156, 4).
+- 68 s on: an SCV builds depots by Arkhangelsk (tiles 194-209, 13-27).
+- 104 s (2:23): the Barracks lands just north of the Heavy Industry
+  (about tile 138, 30), having floated over Finland since early on.
+- One order a key about every ten seconds, not a stream of boxes (the
+  bot's first try re-boxed six groups every 3 s and never cleared
+  Finland).
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,

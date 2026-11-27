@@ -52,7 +52,7 @@ class Game:
 
     def combo(self, held, name):
         self.combos.append((held, name))
-        if held == "ctrl" and name in norway.KEYS.values() and self.selected:
+        if held == "ctrl" and name.isdigit() and self.selected:
             self.on_key[name] = self.selected
 
     def key(self, name):
@@ -170,16 +170,31 @@ def test_with_russia_s_starport_gone_norway_s_simply_lands(monkeypatch):
     assert not any("attack Russia's Starport" in l for l in game.lines)
 
 
-def test_the_barracks_lands_by_3_25_even_if_finland_is_not_cleared(monkeypatch):
+def test_with_finland_not_cleared_the_barracks_keeps_floating_over_it(monkeypatch):
+    """The repository owner's recording (trial 40): the Barracks floats
+    over Finland early and lands only once Finland is clear and the army
+    has gone on to Murmansk."""
     game, m, watch, st = setup(monkeypatch, red_looks=10 ** 6)
     monkeypatch.setattr(norway, "OPENING_TIME", 120)
     norway.opening(game, watch, m, st, "first")
     assert not st.finland_clear
-    assert "Barracks" in st.landed
-    landed = next(l for l in game.lines if "Barracks down" in l)
-    left = int(landed.split("countdown ")[1].split(";")[0].replace(":", ""))
-    assert 325 <= left <= 350           # 3:25 to 3:50 on the countdown
+    assert "Barracks" in st.lifted and "Barracks" not in st.landed
     assert "Starport" not in st.landed  # Russia's is attacked only after Finland
+
+
+def test_the_army_is_keyed_gathered_then_sent_in_stages(monkeypatch):
+    """Trial 40, the repository owner's way: troops on keys, gathered at
+    Kiruna, then the Finland spot, Factory 10, Helsinki, one order a key
+    about every ten seconds, never a stream of boxes."""
+    game, m, watch, st = setup(monkeypatch)
+    norway.opening(game, watch, m, st, "first")
+    assert st.army_keys and st.army_keys[0] == "1"
+    stages = [l for l in game.lines if l.startswith("norway: the army ")]
+    assert "gathers at Kiruna" in stages[1]
+    assert [s.split(" at ")[1].split(" (")[0] for s in stages[2:5]] == \
+        ["Russian army-Finland", "Factory 10", "Helsinki 400"]
+    landed = next(l for l in game.lines if "Barracks landed by" in l)
+    assert landed.endswith("138, 30") or "138, 29" in landed
 
 
 def test_the_barracks_spots_are_next_to_the_heavy_industry():
