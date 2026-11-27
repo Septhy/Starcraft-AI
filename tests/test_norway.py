@@ -2,6 +2,7 @@
 from bot import norway, trial
 from eyes import live
 from tests.test_trial import blob
+from PIL import Image
 
 
 class Clock:
@@ -214,7 +215,7 @@ def test_the_barracks_lands_at_149_39_only():
     assert norway.barracks_spots(m) == [norway.BARRACKS_SPOT]
     assert (norway.BARRACKS_SPOT[0] // 32, norway.BARRACKS_SPOT[1] // 32) == (149, 39)
     port = norway.russia_starport(m)
-    assert (port["x"] // 32, port["y"] // 32) == (156, 5)
+    assert (port["x"] // 32, port["y"] // 32) == (153, 5)   # trial 54: where it stands
 
 
 def test_the_app_can_play_either_country(tmp_path, monkeypatch):
@@ -546,7 +547,6 @@ def test_the_army_steps_off_the_starport_spot_before_it_lands(monkeypatch):
 
 
 def outline(colour):
-    from PIL import Image
     img = Image.new("RGB", (1920, 1080), (40, 40, 40))
     if colour:
         px = {"green": (20, 220, 20), "red": (220, 20, 20)}[colour]
@@ -580,8 +580,10 @@ def test_a_red_outline_is_moved_a_tile_until_green():
     def colour(at):
         img = outline(None)
         c = "red" if at == (sx, sy) else "green"
+        tile = 32 * live.ZOOM            # a depot's 3 x 2 footprint
         img.paste({"green": (20, 220, 20), "red": (220, 20, 20)}[c],
-                  (at[0] - 20, at[1] - 15, at[0] + 20, at[1] + 15))
+                  (int(at[0] - 1.5 * tile), int(at[1] - tile),
+                   int(at[0] + 1.5 * tile), int(at[1] + tile)))
         return img
     io.colour_at = colour
     spot = norway.green_spot(io, sx, sy, "depot")
@@ -595,41 +597,84 @@ def test_all_red_is_never_clicked_and_no_outline_clicks_as_before():
         img.paste((220, 20, 20), (at[0] - 20, at[1] - 15, at[0] + 20, at[1] + 15))
         return img
     assert norway.green_spot(Hover(red), 920, 515, "depot") is None
+    # no footprint seen: never clicked blind (trial 54)
     assert norway.green_spot(Hover(lambda at: outline(None)), 920, 515,
-                             "depot") == (920, 515)
+                             "depot") is None
 
     class NoHover:
         pass
     assert norway.green_spot(NoHover(), 920, 515, "x") == (920, 515)
 
 
-def test_the_starport_lands_only_all_green_on_the_tower_s_spot():
+def test_one_red_square_is_red_and_the_starport_is_never_moved():
     def part_red(at):
         img = outline(None)
         img.paste((20, 220, 20), (at[0] - 40, at[1] - 30, at[0] + 40, at[1] + 30))
-        img.paste((220, 20, 20), (at[0] - 40, at[1] - 30, at[0] - 30, at[1] - 20))
+        img.paste((220, 20, 20), (at[0] - 40, at[1] - 30, at[0] - 10, at[1] - 10))
         return img
     io = Hover(part_red)
     seen = []
     io.hover = lambda x, y: (seen.append((x, y)), setattr(io, "at", (x, y)))
-    assert norway.green_spot(io, 920, 515, "land-starport", nudges=[(0, 0)],
-                             strict=True) is None
+    assert norway.green_spot(io, 920, 515, "land-starport",
+                             nudges=[(0, 0)]) is None
     assert seen == [(920, 515)]            # never moved off the spot
-    # the same picture is green enough for a depot
-    assert norway.green_spot(Hover(part_red), 920, 515, "depot") == (920, 515)
 
 
-def test_the_starport_lines_up_with_the_tower_s_light_green_box():
+def test_the_real_dim_tints_of_trial_54_are_read():
+    """Trial 54: the footprint is a see-through tint, green about
+    (28, 90, 20), red about (100, 40, 25), on grass (29, 34, 16)."""
+    tile = int(32 * live.ZOOM)
+    img = Image.new("RGB", (1920, 1080), (29, 34, 16))
+    img.paste((28, 90, 20), (800, 300, 800 + 4 * tile, 300 + 3 * tile))
+    cx, cy = 800 + 2 * tile, 300 + 1.5 * tile
+    assert norway.outline_colour(img, cx, cy) == "green"
+    img.paste((100, 40, 25), (800, 300, 800 + tile, 300 + tile))
+    assert norway.outline_colour(img, cx, cy) == "red"
+    assert norway.outline_colour(Image.new("RGB", (1920, 1080), (29, 34, 16)),
+                                 cx, cy) is None
+    fire = Image.new("RGB", (1920, 1080), (29, 34, 16))
+    fire.paste((28, 90, 20), (800, 300, 800 + 4 * tile, 300 + 3 * tile))
+    fire.paste((250, 160, 40), (800, 300, 800 + tile, 300 + tile))  # flames
+    assert norway.outline_colour(fire, cx, cy) == "green"
+
+
+def test_the_starport_lands_in_the_middle_of_the_light_green_box():
+    """The owner's recording: a thin bright green box, a Starport's size,
+    shows where it must land to take the Control Tower; the Starport's
+    footprint is centred on it."""
+    from PIL import ImageDraw
     tile = 32 * live.ZOOM
-    left, bottom = 1000, 600
-    want = (int(left - 2 * tile), int(bottom - 1.5 * tile))
+    box = (826, 196, int(826 + 4 * tile), int(196 + 3 * tile))
 
     def screen(at):
         img = outline(None)
-        img.paste((170, 250, 170), (left, int(bottom - 2 * tile), int(left + 2 * tile), bottom + 1))
+        d = ImageDraw.Draw(img)
+        d.rectangle(box, outline=(40, 200, 40), width=2)
+        d.line((300, 630, 1500, 630), fill=(40, 200, 40), width=3)  # chat text
         return img
     io = Hover(screen)
-    got = norway.tower_spot(io, want[0] + 30, want[1] - 20, "land-tower")
-    assert abs(got[0] - want[0]) <= 1 and abs(got[1] - want[1]) <= 1
+    got = norway.tower_spot(io, 1081, 300, "land-tower")
+    assert got == ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2) or \
+        max(abs(got[0] - (box[0] + box[2]) / 2), abs(got[1] - (box[1] + box[3]) / 2)) <= 2
     io = Hover(lambda at: outline(None))
     assert norway.tower_spot(io, 900, 500, "land-tower") == (900, 500)
+
+
+def real(name):
+    """A real picture (cut to the game area at 640, 40) put back on a
+    full screen."""
+    import os
+    img = Image.new("RGB", (1920, 1080), (0, 0, 0))
+    img.paste(Image.open(os.path.join(os.path.dirname(__file__), "data",
+                                      name)), (640, 40))
+    return img
+
+
+def test_real_pictures_box_and_red_footprints():
+    box = norway.tower_box(real("starport_box.jpg"), 1081, 300)
+    assert box and abs(box[0] - 826) <= 3 and abs(box[2] - 1117) <= 3 and \
+        abs(box[1] - 196) <= 3 and abs(box[3] - 415) <= 3
+    # trial 54: both landings were over red; read as red, never clicked
+    assert norway.outline_colour(real("starport_red.jpg"), 1081, 397) == "red"
+    assert norway.outline_colour(real("barracks_red.jpg"), 1080, 470) == "red"
+    assert norway.tower_box(real("starport_red.jpg"), 1081, 397) is None

@@ -115,10 +115,18 @@ def norway_buildings(mapdata):
             if b["type"] not in ("Bunker", "Missile Turret", "Supply Depot")}
 
 
+PORT_SHIFT = (-3, 0)            # tiles: trial 54, Russia's Starport stood 3
+                               # tiles left of the map data's spot (which is
+                               # on its Control Tower: the marines shot the
+                               # tower and the landing was over it)
+
+
 def russia_starport(mapdata):
-    """Russia's Starport at Murmansk (its Control Tower beside it)."""
-    return next(b for b in mapdata["slots"]["5"]["buildings"]
-                if b["type"] == "Starport" and b["y"] < 10 * T)
+    """Russia's Starport at Murmansk (its Control Tower on its right):
+    where it stands, a copy of the map's entry."""
+    b = next(b for b in mapdata["slots"]["5"]["buildings"]
+             if b["type"] == "Starport" and b["y"] < 10 * T)
+    return dict(b, x=b["x"] + PORT_SHIFT[0] * T, y=b["y"] + PORT_SHIFT[1] * T)
 
 
 def heavy_industry(mapdata):
@@ -218,69 +226,139 @@ def lift(io, mapdata, st, kind, dest=None, key=None):
     return True
 
 
-# The landing (or building) outline: green where the ground is free, red
-# where something is in the way (the owner, trial 53). The bot hovers over
-# a spot, looks, and moves the spot a tile at a time until it is green.
-OUTLINE_HALF = (150, 110)      # screen pixels round the cursor looked at
-OUTLINE_GREEN = 250            # bright green pixels there: the outline is green
-OUTLINE_RED = 120              # bright red pixels there: something is in the way
+# The landing (or building) footprint: a see-through green tint where the
+# ground is free, red where something is in the way (the owner, trial 53).
+# Measured in trial 54: green about (28, 90, 20), red about (100, 40, 25),
+# grass (29, 34, 16). The bot hovers over a spot, looks, and moves the
+# spot a tile at a time until no square is red. It never clicks without
+# having seen the footprint (trial 54: unseen, it clicked on red).
+FOOTPRINT = {"Barracks": (4, 3), "Starport": (4, 3), "Factory": (4, 3),
+             "Command": (4, 3), "Engineering": (4, 3), "depot": (3, 2)}
+OUTLINE_GREEN = 0.5            # share of the footprint green: it is shown
+OUTLINE_RED = 300              # red pixels: a square is red, do not land
 NUDGES = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, 1), (1, -1),
           (-1, -1), (2, 0), (-2, 0), (0, 2), (0, -2), (2, 2), (-2, 2), (2, -2),
           (-2, -2)]            # tiles the spot is moved by, nearest first
-# The Starport (the owner, after trial 53): its green footprint must sit
-# exactly on the Control Tower's green outline, or the tower is not taken.
-# So it is never moved off Russia's spot, and only an all-green outline
-# (no red square at all) counts; red there means wait and try again.
+# The Starport (the owner): its footprint must sit exactly on the Control
+# Tower's light green box, or the tower is not taken. So it is never moved
+# off the spot found from the box.
 EXACT_KINDS = ("Starport",)
-OUTLINE_SPECK = 30             # fewer red pixels than this: noise, not a square
 
 
-def outline_colour(picture, sx, sy, strict=False):
-    """"green", "red" or None (no outline seen) round a screen point.
-    Strict: any red square at all makes it red."""
+def footprint_size(label):
+    for name, size in FOOTPRINT.items():
+        if name.lower() in label.lower():
+            return size
+    return (4, 3)
+
+
+def outline_colour(picture, sx, sy, size=(4, 3)):
+    """"green" (no square red), "red" (some square red) or None (no
+    footprint seen) round a screen point."""
     import numpy as np
-    hx, hy = OUTLINE_HALF
+    tile = 32 * live.ZOOM
+    hx, hy = (size[0] / 2 + 1) * tile, (size[1] / 2 + 1) * tile
     box = (max(0, int(sx - hx)), max(0, int(sy - hy)),
            int(sx + hx), int(sy + hy))
     a = np.asarray(picture.convert("RGB").crop(box)).astype(int)
     R, G, B = a[..., 0], a[..., 1], a[..., 2]
-    green = int(((G > 150) & (R < 110) & (B < 110) & (G > R + 60)).sum())
-    red = int(((R > 170) & (G < 80) & (B < 80)).sum())
-    if strict and red >= OUTLINE_SPECK and green >= OUTLINE_GREEN:
+    green = int(((G > 70) & (G > R + 35) & (G > B + 45)).sum())
+    red = int(((R > 70) & (G * 100 < R * 55) & (B * 100 < R * 50)).sum())
+    area = size[0] * size[1] * tile * tile
+    if red >= OUTLINE_RED and red + green >= OUTLINE_GREEN * area * 0.6:
         return "red"
-    if red >= OUTLINE_RED and red > green // 2:
-        return "red"
-    if green >= OUTLINE_GREEN:
-        return "green"
+    if green >= OUTLINE_GREEN * area:
+        return "red" if red >= OUTLINE_RED else "green"
     return None
 
 
-# The Control Tower's outline, shown while the Starport is landed near it:
-# a light green box (the owner). A Starport's add-on sits on its right,
-# bottoms level: the Starport is 4 x 3 tiles, the tower 2 x 2, so the
-# Starport's middle is 2 tiles left of the box's left side and 1.5 tiles
-# above its bottom.
-TOWER_FROM_BOX = (-2.0, -1.5)  # tiles, from the box's left side and bottom
+def green_spot(io, sx, sy, label, nudges=None):
+    """With a building's footprint on the cursor (placing or landing):
+    hover over the spot and the spots round it, a tile at a time, until
+    the footprint shows no red square. The screen point to click, or None
+    (red all round, or no footprint seen: never click blind). Without a
+    way to hover (tests), the spot itself."""
+    hover = getattr(io, "hover", None)
+    if hover is None:
+        return sx, sy
+    l, t, r, b = live.GAME_AREA
+    tile = 32 * live.ZOOM
+    size = footprint_size(label)
+    seen = []
+    for dx, dy in nudges or NUDGES:
+        x, y = sx + dx * tile, sy + dy * tile
+        if not (l + 40 < x < r - 40 and t + 40 < y < b - 40):
+            continue
+        hover(int(x), int(y))
+        io.sleep(0.15)
+        pic = io.shot(label, keep=False)
+        try:
+            colour = outline_colour(pic, x, y, size)
+        except Exception:
+            return None
+        seen.append(colour)
+        if colour == "green":
+            if (dx, dy) != (0, 0):
+                io.log(f"norway: {label}: red where aimed, green {dx}, {dy} "
+                       f"tiles off: landing there")
+            return int(x), int(y)
+        if colour is None and (dx, dy) == (0, 0):
+            break                       # no footprint seen: do not click
+    io.shot(label + "-red")
+    if seen and seen[0] is None:
+        io.log(f"norway: {label}: no footprint seen under the cursor, not "
+               f"clicking (picture '{label}-red')")
+    else:
+        io.log(f"norway: {label}: the footprint stayed red round the spot "
+               f"(picture '{label}-red')")
+    return None
+
+
+# Where the Starport must land to take the Control Tower: the game draws a
+# thin bright green box there, 4 x 3 tiles (the owner's recording; line
+# colour about (30, 150, 30) to (60, 240, 70)). The Starport's tinted
+# footprint is lined up with it: the click is the box's middle.
 TOWER_LOOK = 6                 # tiles round the spot the box is looked for in
-TOWER_MIN = 60                 # light green pixels: a box is there
+TOWER_SIZE = (4, 3)            # tiles: the box is a Starport's size
+TOWER_SLACK = 0.5              # tiles the box's size may be off by
 
 
 def tower_box(picture, sx, sy):
-    """The light green box round the screen point: (left, top, right,
+    """The bright green box near the screen point: (left, top, right,
     bottom) in screen pixels, or None."""
     import numpy as np
-    half = TOWER_LOOK * 32 * live.ZOOM
-    x0, y0 = max(0, int(sx - half)), max(0, int(sy - half))
-    a = np.asarray(picture.convert("RGB").crop(
-        (x0, y0, int(sx + half), int(sy + half)))).astype(int)
+    tile = 32 * live.ZOOM
+    half = TOWER_LOOK * tile
+    l, t, r, b = live.GAME_AREA
+    x0, y0 = max(l, int(sx - half)), max(t, int(sy - half))
+    x1, y1 = min(r, int(sx + half)), min(b, int(sy + half))
+    a = np.asarray(picture.convert("RGB").crop((x0, y0, x1, y1))).astype(int)
     R, G, B = a[..., 0], a[..., 1], a[..., 2]
-    light = (G > 200) & (R > 120) & (R < 215) & (B > 110) & (B < 215) & \
-        (G > R + 30) & (G > B + 30)
-    if int(light.sum()) < TOWER_MIN:
+    line = (G > 140) & (G > R + 80) & (G > B + 80)
+    def lines(counts, length, want, centre):
+        """The pair of long lines `want` tiles apart nearest `centre`."""
+        idx = np.nonzero(counts >= length)[0]
+        runs = []
+        for i in idx:                   # neighbouring pixels: one line
+            if runs and i - runs[-1][-1] <= 3:
+                runs[-1].append(int(i))
+            else:
+                runs.append([int(i)])
+        ends = [(run[0], run[-1]) for run in runs]
+        best = None
+        for i, (a0, _) in enumerate(ends):
+            for _, b1 in ends[i + 1:]:
+                if abs((b1 - a0) / tile - want) <= TOWER_SLACK:
+                    d = abs((a0 + b1) / 2 - centre)
+                    if best is None or d < best[0]:
+                        best = (d, a0, b1)
+        return best
+
+    rows = lines(line.sum(axis=1), 1.5 * tile, TOWER_SIZE[1], sy - y0)
+    cols = lines(line.sum(axis=0), 1.0 * tile, TOWER_SIZE[0], sx - x0)
+    if rows is None or cols is None:
         return None
-    ys, xs = np.nonzero(light)
-    return (x0 + int(xs.min()), y0 + int(ys.min()),
-            x0 + int(xs.max()), y0 + int(ys.max()))
+    return (x0 + cols[1], y0 + rows[1], x0 + cols[2], y0 + rows[2])
 
 
 def tower_spot(io, sx, sy, label):
@@ -297,56 +375,13 @@ def tower_spot(io, sx, sy, label):
     except Exception:
         return sx, sy
     if box is None:
-        io.log(f"norway: {label}: no light green tower box seen, "
-               f"landing on the map spot")
+        io.log(f"norway: {label}: no light green box seen, "
+               f"landing on Russia's Starport's spot")
         return sx, sy
-    tile = 32 * live.ZOOM
-    x = box[0] + TOWER_FROM_BOX[0] * tile
-    y = box[3] + TOWER_FROM_BOX[1] * tile
-    if abs(x - sx) > 2 * tile or abs(y - sy) > 2 * tile:
-        io.log(f"norway: {label}: the light green box is too far off "
-               f"({int(x - sx)}, {int(y - sy)} px), landing on the map spot")
-        return sx, sy
-    if (int(x), int(y)) != (int(sx), int(sy)):
-        io.log(f"norway: {label}: lined up with the tower's box "
-               f"({int(x - sx)}, {int(y - sy)} px off the map spot)")
+    x, y = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    io.log(f"norway: {label}: lined up on the light green box "
+           f"({int(x - sx)}, {int(y - sy)} px off Russia's Starport's spot)")
     return int(x), int(y)
-
-
-def green_spot(io, sx, sy, label, nudges=None, strict=False):
-    """With a building's outline on the cursor (placing or landing): hover
-    over the spot and the spots round it, a tile at a time, until the
-    outline shows green. The screen point to click, or None if every one
-    is red. Without a way to hover (or to see), the spot itself."""
-    hover = getattr(io, "hover", None)
-    if hover is None:
-        return sx, sy
-    l, t, r, b = live.GAME_AREA
-    tile = 32 * live.ZOOM
-    seen = []
-    for dx, dy in nudges or NUDGES:
-        x, y = sx + dx * tile, sy + dy * tile
-        if not (l + 40 < x < r - 40 and t + 40 < y < b - 40):
-            continue
-        hover(int(x), int(y))
-        io.sleep(0.12)
-        pic = io.shot(label, keep=False)
-        try:
-            colour = outline_colour(pic, x, y, strict=strict)
-        except Exception:
-            return sx, sy
-        seen.append(colour)
-        if colour == "green":
-            if (dx, dy) != (0, 0):
-                io.log(f"norway: {label}: red where aimed, green {dx}, {dy} "
-                       f"tiles off: landing there")
-            return int(x), int(y)
-        if colour is None and (dx, dy) == (0, 0):
-            return sx, sy               # no outline seen: click as before
-    io.shot(label + "-red")
-    io.log(f"norway: {label}: the outline stayed red round the spot "
-           f"(picture '{label}-red')")
-    return None
 
 
 def clear_modes(io):
@@ -398,7 +433,7 @@ def land(io, kind, spots, st):
         if exact:
             sx, sy = tower_spot(io, sx, sy, "land-tower")
         spot = green_spot(io, sx, sy, "land-" + kind.split()[0].lower(),
-                          nudges=[(0, 0)] if exact else None, strict=exact)
+                          nudges=[(0, 0)] if exact else None)
         if spot is None:
             clear_modes(io)
             continue

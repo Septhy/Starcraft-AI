@@ -403,3 +403,23 @@ the attack on Russia's Starport.
   only when the outline is all green.
 - The colour thresholds are guesses, not tuned on real pictures yet. They
   should be tuned from the next recording.
+
+## Trial 54
+
+- Finland clear at 69.6 s (countdown 3:16).
+- The landings still went in over red. The footprint is a dim, see-through
+  tint: green is about (28, 90, 20), red about (100, 40, 25), and grass
+  (29, 34, 16). The bright-colour thresholds never matched, so the bot saw
+  "no outline" and clicked anyway. Now the tint is measured over the
+  building's footprint (4 x 3, depot 3 x 2). If any square is red, it does
+  not land there. If no footprint is seen, it never clicks. Checked against
+  the real pictures (tests/data).
+- The marines shot at the Control Tower, and the Starport landing was over
+  it too. Russia's Starport stood 3 tiles left of the map data's spot, so
+  attack and landing now aim there (PORT_SHIFT). Russia's Starport was left
+  burning and was never destroyed.
+- The light green box (the owner's recording, frame 172) is a thin, bright
+  green line, 4 x 3 tiles, drawn exactly where the Starport must land to
+  take the tower. The tower is just right of it. The bot finds the pair of
+  lines 3 tiles apart and 4 tiles apart nearest the spot, and centres the
+  Starport on it.
