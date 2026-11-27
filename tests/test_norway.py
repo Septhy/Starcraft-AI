@@ -268,3 +268,53 @@ def test_each_army_key_is_filled_box_after_box_up_to_a_dozen(monkeypatch):
     for k in st.army_keys:                    # made once, then added to
         assert game.combos.count(("ctrl", k)) == 1
     assert ("shift", "1") in game.combos
+
+
+def test_the_army_attacks_one_building_together(monkeypatch):
+    """Trial 43: shared out over several red buildings the army was cut
+    down piece by piece. Every key attacks the red nearest our men."""
+    game, m, watch, st = setup(monkeypatch)
+    st.army_keys = ["1", "2", "3"]
+    cam = (4000, 1000)
+    monkeypatch.setattr(trial, "look_at", lambda io, x, y, wait=0: cam)
+    monkeypatch.setattr(trial, "enemy_mask", lambda pic: "mask")
+    far, near_ = (1500, 200), (900, 450)
+    monkeypatch.setattr(trial, "patches",
+                        lambda mask: [(40, *far), (40, *near_), (40, 300, 300)])
+    army = trial.screen_to_map(850, 500, cam)
+    assert norway.attack_on_screen(game, st, (4100, 1100), army) == 3
+    lefts = [(x, y) for x, y, b in game.clicks if b == "left"]
+    assert lefts[-3:] == [near_] * 3
+    assert game.keys.count("a") >= 3
+
+
+def test_every_place_of_the_army_gets_a_box_first(monkeypatch):
+    """Trial 43: Narvik's and the partisans' men were never keyed when the
+    boxes ran short; one box goes to each place before seconds."""
+    game, m, watch, st = setup(monkeypatch)
+    # Oslo has two bodies (one big, one less big), then Narvik, the
+    # partisans and Kiruna one each; four boxes must reach four places
+    big = blob((85 * 32, 50 * 32), 6) | blob((94 * 32, 50 * 32), 5)
+    blobs = [blob((x * 32, y * 32), 3) for x, y in
+             [(105, 6), (118, 28), (140, 16)]]
+
+    class W:
+        def units(self, picture):
+            return big.union(*blobs)
+
+        def others(self, picture, slots):
+            return set()
+
+        def forget(self, pixels):
+            pass
+    boxed = []
+
+    def select(io, pixels, st_, watch_=None, margin=None, air=False):
+        boxed.append(trial.live.from_drawn(*sorted(pixels)[0]))
+        return True
+    monkeypatch.setattr(trial, "select_group", select)
+    monkeypatch.setattr(norway, "selected", lambda io: 2)
+    monkeypatch.setattr(norway, "ARMY_BOXES", 4)
+    norway.key_army(game, W(), m, st, "first")
+    areas = {(int(x // (12 * 32)), int(y // (12 * 32))) for x, y in boxed}
+    assert len(areas) == 4                    # four places, not one place twice

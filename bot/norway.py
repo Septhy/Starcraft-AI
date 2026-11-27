@@ -60,7 +60,8 @@ ARMY_STAGES = [                # (tiles, attack?, seconds after the last)
 ]
 CLEAN_EVERY = 4                # seconds between attacks on the red that is left
                                # (the owner: boxes and attacks every 1-2 s)
-ARMY_BOXES = 10                # boxes at most to key the army (each ~1 s)
+ARMY_BOXES = 16                # boxes at most to key the army (each ~1 s;
+                               # trial 43: 10 left Narvik's men unkeyed)
 DEPOT_FIRST = 60               # seconds before the SCVs are looked for at the depots
 DEPOT_EVERY = 12               # seconds between looks (trial 42: every 3 s, the
                                # camera sat on empty ground by Arkhangelsk)
@@ -311,7 +312,16 @@ def key_army(io, watch, mapdata, st, picture):
             and t <= live.from_drawn(*p)[1] / T < b}
     st.army_px = len(mine)
     groups = sorted((g for g in live.clusters(mine, 6, 6) if len(g) >= 3),
-                    key=len, reverse=True)[:ARMY_BOXES]
+                    key=len, reverse=True)
+    # one from each place first (Oslo, Sweden, Narvik, the partisans,
+    # Kiruna), so no place is left out when the boxes run short
+    firsts, rest, seen = [], [], set()
+    for g in groups:
+        x, y = live.from_drawn(*g[0])
+        where = (int(x // (12 * T)), int(y // (12 * T)))
+        (rest if where in seen else firsts).append(g)
+        seen.add(where)
+    groups = (firsts + rest)[:ARMY_BOXES]
     held = {}                           # key -> men on it
     for group in groups:
         if not trial.select_group(io, group, st, watch, margin=60):
@@ -340,7 +350,7 @@ def army_counts(io, st):
     out = {}
     for key in st.army_keys:
         io.key(key)
-        io.sleep(0.06)
+        io.sleep(0.15)                  # (0.06 read 0 while they lived)
         out[key] = selected(io)
     return out
 
@@ -396,7 +406,11 @@ def army_into_finland(io, watch, mapdata, st, picture):
     xy = live.from_drawn(sum(p[0] for p in body) / len(body),
                          sum(p[1] for p in body) / len(body))
     counts = army_counts(io, st)
-    n = attack_on_screen(io, st, xy)
+    ours = trial.near(watch.units(picture), xy, 14)
+    army_xy = live.from_drawn(sum(p[0] for p in ours) / len(ours),
+                              sum(p[1] for p in ours) / len(ours)) \
+        if ours else None
+    n = attack_on_screen(io, st, xy, army_xy)
     if not n:
         n = order_army(io, st, xy)
     io.log(f"norway: {len(red)} red pixels left in Finland; the army "
@@ -406,7 +420,7 @@ def army_into_finland(io, watch, mapdata, st, picture):
     return n
 
 
-def attack_on_screen(io, st, xy):
+def attack_on_screen(io, st, xy, army_xy=None):
     """The camera on the red that is left: each army key attacks one of
     the red buildings seen there (A, then a click on it), the keys shared
     out over them, as the repository owner did (trial 40). Returns the
@@ -421,9 +435,15 @@ def attack_on_screen(io, st, xy):
     if not spots:
         return 0
     sx, sy = live.on_screen(*xy, cam)
-    spots.sort(key=lambda p: (p[0] - sx) ** 2 + (p[1] - sy) ** 2)
-    for i, key in enumerate(st.army_keys):
-        x, y = spots[i % len(spots)]
+    # the army together on one building at a time (trial 43: shared out
+    # over several, it was cut down piece by piece; the owner kept it
+    # together): the red nearest our own men on the screen
+    # (where our men are comes from the minimap: the screen check for our
+    # own colour is Russia's brown, not Norway's orange)
+    ox, oy = live.on_screen(*army_xy, cam) if army_xy else (sx, sy)
+    spots.sort(key=lambda p: (p[0] - ox) ** 2 + (p[1] - oy) ** 2)
+    for key in st.army_keys:
+        x, y = spots[0]
         io.key(key)
         io.sleep(0.05)
         io.key("a")

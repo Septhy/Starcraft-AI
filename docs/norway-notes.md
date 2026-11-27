@@ -180,6 +180,26 @@ the owner); the drop and the lifts before the army is keyed; at most 10
 bigger boxes for the keys; the depots looked for from 60 s, every 12 s,
 5 times at most, after Finland's orders.
 
+## Trial 43 (build 8fa22cb): on time, but too few and split up
+
+The timing now matched the owner's (gathered 21 s, attack 29.5 s,
+Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
+
+| Seconds | Finland | Narvik and partisans |
+|---|---|---|
+| 45 | 101 / 123 | 158 / 192 |
+| 60 | 140 / 13 | 156 / 176 |
+
+- The keys held only 25 men (11, 11, 3): the ten boxes ran out before
+  Narvik and the partisans, and two boxes came up empty; those men never
+  moved. The owner's army grew as they arrived. Now up to 16 boxes, one
+  for each place first (Oslo, Sweden, Narvik, the partisans, Kiruna).
+- The clean-up shared the keys out over several red buildings; the
+  army was cut down piece by piece between 47 and 60 s. The owner kept
+  it together (and drew back toward Factory 10 at 45 s). Now every key
+  attacks the red building nearest our men (found on the minimap: the
+  screen check for our colour is Russia's brown).
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,
