@@ -104,6 +104,7 @@ BARRACKS_BY = 3 * 60 + 25      # the countdown (3:25) by which the Barracks is d
 OUT_OF_WAY = 7                 # tiles our men step away from the landing spot
 LAND_BUTTON = trial.LIFT_BUTTON  # a lifted building's bottom-right button: Land
 KEYS = {"Barracks": "6", "Starport": "7", "Command Center": "8"}
+SCV_KEY = "9"                  # the two SCVs, once found at the camp
 LOOK_EVERY = 3                 # real seconds between looks at Finland
 PORT_ASIDE = (148 * T, 16 * T)  # where the army steps to, off the Starport's spot
 PORT_WALK = 4                  # seconds it is given to get there
@@ -115,10 +116,9 @@ def norway_buildings(mapdata):
             if b["type"] not in ("Bunker", "Missile Turret", "Supply Depot")}
 
 
-PORT_SHIFT = (-3, 0)            # tiles: trial 54, Russia's Starport stood 3
-                               # tiles left of the map data's spot (which is
-                               # on its Control Tower: the marines shot the
-                               # tower and the landing was over it)
+PORT_SHIFT = (0, 0)            # tiles off the map entry. Trial 55: the shift of
+                               # -3 (from trial 54) aimed at empty ground; the
+                               # owner's recording attacks (156, 4), the entry
 
 
 def russia_starport(mapdata):
@@ -175,6 +175,7 @@ class State:
         self.barracks_over = False
         self.barracks_land_at = -1e9
         self.port_cleared = False
+        self.port_gone = False
         self.repaired = 0
         self.last_repair = -1e9
         self.chain, self.chain_at = [], -1e9
@@ -185,6 +186,8 @@ class State:
         self.scvs_sent = 0
         self.scvs_look = -1e9
         self.scvs_tries = 0
+        self.scvs_keyed = False
+        self.cc_home = None
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
         self.boxes = self.empty = self.empty_skipped = 0
@@ -461,26 +464,16 @@ REPAIR_EVERY = 12
 
 
 def repair_barracks(io, st):
-    """An SCV from the depots' place repairs the Barracks by the Heavy
-    Industry: picked there by a click, R, then a click on the Barracks.
-    True if the order was given."""
-    clear_modes(io)
-    for tx, ty in (SCV_WAIT, DEPOTS_AT):
-        x0, y0 = tx * T, ty * T
-        cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
-        sx, sy = live.on_screen(x0, y0, cam)
-        found = False
-        for dx, dy in trial.SCV_PICK:
-            io.click(sx + dx, sy + dy)
-            io.sleep(0.1)
-            if live.units_selected(io.card()):
-                found = True
-                break
-        if found:
-            break
-    else:
+    """One SCV repairs the Barracks by the Heavy Industry: the SCVs on
+    their key, the first of them picked from the selection, R, then a
+    click on the Barracks. True if the order was given."""
+    if not pick_scvs(io, st):
         io.log("norway: no SCV found to repair the Barracks")
         return False
+    if selected(io) > 1:                # just one of them
+        x0, y0, x1, y1 = live.frame_box(0)
+        io.click((x0 + x1) // 2, (y0 + y1) // 2)
+        io.sleep(0.15)
     bx, by = BARRACKS_SPOT
     cam = trial.look_at(io, *trial.centred(bx, by), wait=0.3)
     io.key("r")                         # repair
@@ -522,9 +515,11 @@ def drop_on_shetland(io, mapdata):
     return True
 
 
-def make_scvs(io, mapdata):
-    """Two SCVs at the Command Center, rallied to the far north-east."""
+def make_scvs(io, mapdata, st=None):
+    """Two SCVs at the Command Center, rallied to the Norwegian camp."""
     cc = norway_buildings(mapdata)["Command Center"]
+    if st is not None:
+        st.cc_home = (cc["x"], cc["y"] + 3 * T)   # where they come out
     if not trial.pick_building(io, cc):
         io.log("norway: the Command Center was not found")
         return False
@@ -532,30 +527,62 @@ def make_scvs(io, mapdata):
     io.sleep(0.05)
     io.key("s")
     io.sleep(0.05)
-    io.click(*live.minimap_point(SCV_WAIT[0] * T, SCV_WAIT[1] * T),
-             button="right")
+    io.key("r")                         # rally, the owner's way: R, then
+    io.sleep(0.05)                      # a click on the minimap
+    io.click(*live.minimap_point(SCV_WAIT[0] * T, SCV_WAIT[1] * T))
     io.sleep(0.05)
     io.log("norway: 2 SCVs ordered, rallied to the Norwegian military camp "
            "(they go on to Arkhangelsk once Finland is clear)")
     return True
 
 
-def send_scvs(io, st):
-    """Once Finland is clear: the SCVs waiting by the Norwegian camp are
-    boxed and sent on to Arkhangelsk. True if they were."""
-    x0, y0 = SCV_WAIT[0] * T, SCV_WAIT[1] * T
+def box_scvs(io, x0, y0, w=6, h=4):
+    """Look at a map point and box what stands round it. True if SCVs (and
+    only SCVs: their Build button shows) are then selected."""
     clear_modes(io)
     cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
     l, t, r, b = live.GAME_AREA
-    a = live.on_screen(x0 - 6 * T, y0 - 4 * T, cam)
-    z = live.on_screen(x0 + 6 * T, y0 + 4 * T, cam)
+    a = live.on_screen(x0 - w * T, y0 - h * T, cam)
+    z = live.on_screen(x0 + w * T, y0 + h * T, cam)
     io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
-    io.sleep(0.12)
-    if not live.units_selected(io.card()):
-        io.log("norway: no SCV by the Norwegian camp")
+    io.sleep(0.15)
+    return live.scv_selected(io.card())
+
+
+def pick_scvs(io, st):
+    """The SCVs selected: by their key once they have one, else found at
+    the Norwegian camp or still by the Command Center's first place, and
+    put on SCV_KEY. True if SCVs are selected."""
+    if st.scvs_keyed:
+        io.key(SCV_KEY)
+        io.sleep(0.15)
+        if live.scv_selected(io.card()):
+            return True
+    places = [(SCV_WAIT[0] * T, SCV_WAIT[1] * T), DEPOTS_XY()]
+    if st.cc_home:
+        places.append(st.cc_home)
+    for x, y in places:
+        if box_scvs(io, x, y):
+            io.combo("ctrl", SCV_KEY)
+            io.sleep(0.05)
+            st.scvs_keyed = True
+            io.log(f"norway: SCVs found by {x // T}, {y // T}, put on key "
+                   f"{SCV_KEY}")
+            return True
+    return False
+
+
+def DEPOTS_XY():
+    return DEPOTS_AT[0] * T, DEPOTS_AT[1] * T
+
+
+def send_scvs(io, st):
+    """Once Finland is clear: the SCVs (waiting by the Norwegian camp)
+    are sent on to Arkhangelsk. True if they were."""
+    if not pick_scvs(io, st):
+        io.log("norway: no SCV by the Norwegian camp or the Command Center")
         return False
-    io.click(*live.minimap_point(DEPOTS_AT[0] * T, DEPOTS_AT[1] * T),
-             button="right")
+    io.click(*live.minimap_point(*DEPOTS_XY()), button="right")
     io.sleep(0.05)
     io.log("norway: the SCVs go on to Arkhangelsk")
     return True
@@ -567,17 +594,12 @@ def build_depots(io, st):
     next free spot; one depot an order (trial 52: four queued with Shift
     in one order, none was built, and the click had picked marines). True
     if a depot was placed."""
-    x0, y0 = DEPOTS_AT[0] * T, DEPOTS_AT[1] * T
-    clear_modes(io)
+    x0, y0 = DEPOTS_XY()
+    if not pick_scvs(io, st):
+        io.log("norway: no SCV found for the depots")
+        return False
     cam = trial.look_at(io, *trial.centred(x0, y0), wait=0.3)
     l, t, r, b = live.GAME_AREA
-    a = live.on_screen(x0 - 7 * T, y0 - 5 * T, cam)
-    z = live.on_screen(x0 + 7 * T, y0 + 5 * T, cam)
-    io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
-    io.sleep(0.12)
-    if not live.units_selected(io.card()):
-        io.log("norway: no SCV at the depots' place yet")
-        return False
     io.key("b")                         # only SCVs have a build menu on B:
     io.sleep(0.12)                      # the Move button goes
     if live.units_selected(io.card()):
@@ -968,6 +990,33 @@ def clear_landing(io, watch, mapdata, st, picture):
     return moved
 
 
+def port_gone(io, st, port):
+    """True once Russia's Starport is destroyed: with ours held over its
+    spot to land, the game draws the light green box where the Control
+    Tower would join (the owner's recording); while Russia's stands, it
+    does not. Without a way to hover (tests): True."""
+    if getattr(io, "hover", None) is None:
+        return True
+    key = KEYS["Starport"]
+    clear_modes(io)
+    io.key(key)
+    io.sleep(0.15)
+    if not live.units_selected(io.card()):
+        return False                    # ours is not in the air on its key
+    cam = trial.look_at(io, *trial.centred(port["x"], port["y"]), wait=0.25)
+    sx, sy = live.on_screen(port["x"], port["y"], cam)
+    io.click(*LAND_BUTTON)
+    io.sleep(0.15)
+    io.hover(int(sx), int(sy))
+    io.sleep(0.15)
+    try:
+        box = tower_box(io.shot("port-check", keep=False), sx, sy)
+    except Exception:
+        box = None
+    clear_modes(io)
+    return box is not None
+
+
 def attack_russian_starport(io, watch, mapdata, st, picture):
     """Right after Finland: every army key attacks Russia's Starport at
     Murmansk (A, then a click on it), as the repository owner did."""
@@ -991,7 +1040,7 @@ def opening(io, watch, mapdata, st, first):
     Starport are down or OPENING_TIME is up."""
     t0 = io.now()
     trial.opening(io, st, line=OPENING_LINE)
-    make_scvs(io, mapdata)              # first, as the owner (at 2 s)
+    make_scvs(io, mapdata, st)          # first, as the owner (at 2 s)
     drop_on_shetland(io, mapdata)       # the owner: by 8 s
     # the army keyed and sent to Kiruna before the lifts, so it walks while
     # the buildings go up (trial 44: keyed after them, it set off at 26 s
@@ -1082,24 +1131,33 @@ def opening(io, watch, mapdata, st, first):
         if st.finland_clear and "Starport" not in st.landed and \
                 io.now() - st.last_port >= RETRY_PORT:
             st.last_port = io.now()
-            if st.port_tries and not st.port_cleared:
+            if not st.port_gone:
+                # trial 55: the army stepped aside every 8 s and Russia's
+                # Starport was never destroyed; now the marines keep on at
+                # it until the light green box shows it is gone
+                if st.port_tries and port_gone(io, st, port):
+                    st.port_gone = True
+                    st.last_port = io.now() - RETRY_PORT   # on at once
+                    io.log("norway: Russia's Starport is destroyed (the light "
+                           "green box shows)")
+                else:
+                    st.port_tries += 1
+                    n = attack_russian_starport(io, watch, mapdata, st, picture)
+                    if n:
+                        io.log(f"norway: {n} groups of marines attack "
+                               f"Russia's Starport at Murmansk")
+            elif not st.port_cleared:
                 # our own men off the spot first (trial 52: "You can't land
                 # there" from 130 s on, the marines stood on it)
                 order_army(io, st, PORT_ASIDE, attack=False)
                 st.port_cleared = True
                 st.last_port = io.now() - RETRY_PORT + PORT_WALK
                 io.log("norway: the army steps off Russia's Starport's spot")
-            elif st.port_tries and \
-                    land(io, "Starport", [(port["x"], port["y"])], st):
+            elif land(io, "Starport", [(port["x"], port["y"])], st):
                 io.log("norway: Starport landed at Murmansk on the Control "
                        "Tower")
             else:
-                st.port_cleared = False
-                st.port_tries += 1
-                n = attack_russian_starport(io, watch, mapdata, st, picture)
-                if n:
-                    io.log(f"norway: {n} groups of marines attack Russia's "
-                           f"Starport at Murmansk")
+                st.port_cleared = False     # red: the men stepped aside again
         # an SCV comes and repairs the Barracks (the owner, trial 50)
         if "Barracks" in st.landed and st.repaired < REPAIR_TRIES and \
                 io.now() - st.last_repair >= REPAIR_EVERY:

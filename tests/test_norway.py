@@ -215,7 +215,7 @@ def test_the_barracks_lands_at_149_39_only():
     assert norway.barracks_spots(m) == [norway.BARRACKS_SPOT]
     assert (norway.BARRACKS_SPOT[0] // 32, norway.BARRACKS_SPOT[1] // 32) == (149, 39)
     port = norway.russia_starport(m)
-    assert (port["x"] // 32, port["y"] // 32) == (153, 5)   # trial 54: where it stands
+    assert (port["x"] // 32, port["y"] // 32) == (156, 5)   # the owner attacks (156, 4)
 
 
 def test_the_app_can_play_either_country(tmp_path, monkeypatch):
@@ -454,8 +454,9 @@ def test_an_scv_repairs_the_barracks_once_it_is_down(monkeypatch):
     """The owner (trial 50): after Finland, an SCV comes and repairs the
     Barracks in Helsinki (R, then a click on it)."""
     game, m, watch, st = setup(monkeypatch)
-    game.selected = "units"                 # the click picks an SCV
+    monkeypatch.setattr(live, "scv_selected", lambda card: True)
     assert norway.repair_barracks(game, st)
+    assert ("ctrl", norway.SCV_KEY) in game.combos     # found once, then keyed
     assert "r" in game.keys
     assert any("repair the Barracks" in l for l in game.lines)
 
@@ -518,8 +519,9 @@ def test_depots_one_at_a_time_ten_by_arkhangelsk(monkeypatch):
         # the SCV's own buttons again
         return reads.pop(0) if reads else True
     monkeypatch.setattr(trial.live, "units_selected", units)
+    monkeypatch.setattr(live, "scv_selected", lambda card: True)
     for _ in range(norway.DEPOTS):
-        reads[:] = [True, False, True]
+        reads[:] = [False, True]
         assert norway.build_depots(game, st)
     assert st.depots_placed == norway.DEPOTS == 10
     assert not any(c[2] == "shift" for c in game.clicks)     # never queued
@@ -530,7 +532,12 @@ def test_depots_one_at_a_time_ten_by_arkhangelsk(monkeypatch):
             if (ax, ay) != (bx, by):
                 assert abs(ax - bx) >= 3 or abs(ay - by) >= 3
     # what stands there is not an SCV (B leaves Move): no depot
-    reads[:] = [True, True]
+    reads[:] = [True]
+    assert not norway.build_depots(game, st)
+    # no SCV anywhere (trial 55: two marines left selected were taken
+    # for SCVs): no depot, nothing pressed for one
+    monkeypatch.setattr(live, "scv_selected", lambda card: False)
+    st.scvs_keyed = False
     assert not norway.build_depots(game, st)
 
 
@@ -678,3 +685,16 @@ def test_real_pictures_box_and_red_footprints():
     assert norway.outline_colour(real("starport_red.jpg"), 1081, 397) == "red"
     assert norway.outline_colour(real("barracks_red.jpg"), 1080, 470) == "red"
     assert norway.tower_box(real("starport_red.jpg"), 1081, 397) is None
+
+
+def test_an_scv_is_told_by_its_build_button_not_by_move():
+    assert live.scv_selected(real("scv_card.jpg"))
+    assert not live.scv_selected(real("marines_card.jpg"))
+
+
+def test_the_scvs_are_rallied_the_owner_s_way(monkeypatch):
+    game, m, watch, st = setup(monkeypatch)
+    norway.make_scvs(game, m, st)
+    assert game.keys[:3] == ["s", "s", "r"]
+    assert game.clicks[-1][2] == "left"          # R, then a click on the minimap
+    assert st.cc_home

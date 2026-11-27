@@ -116,6 +116,23 @@ def units_selected(screen):
     return _first_button_is(screen, "units_card.png")
 
 
+BUILD_CELL = (1640, 1010, 1690, 1058)   # inside the bottom-left command button
+BUILD_YELLOW = 200                     # yellow pixels there: an SCV's Build button
+
+
+def scv_selected(screen):
+    """True when the bottom-left command button is the yellow Build
+    button, which only SCVs have (marines and buildings show an empty
+    plate there). Norway trial 55: a click near the depots' place left two
+    marines selected and they were taken for SCVs."""
+    try:
+        a = np.asarray(screen.convert("RGB").crop(BUILD_CELL)).astype(int)
+    except Exception:
+        return False
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    return int(((R > 180) & (G > 160) & (B < 90)).sum()) >= BUILD_YELLOW
+
+
 # ------------------------------------------------- own forces on the minimap
 # Where things are DRAWN on the minimap, fitted to the known positions of
 # Russia's starting units and buildings on a real picture. It is two

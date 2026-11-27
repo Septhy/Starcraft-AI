@@ -423,3 +423,26 @@ the attack on Russia's Starport.
   take the tower. The tower is just right of it. The bot finds the pair of
   lines 3 tiles apart and 4 tiles apart nearest the spot, and centres the
   Starport on it.
+
+## Trial 55
+
+- Finland clear at 72.7 s (countdown 3:12). The Barracks found green 2
+  tiles off (149,39) and landed at 107 s.
+- Russia's Starport was never hit. The 3-tile shift from trial 54 put the
+  attack click on empty ground 3 tiles left of it (the screen recording
+  shows the green attack circle there). The owner's recording attacks
+  (156,4), the map entry, so the shift is back to 0. Trial 54's red
+  picture was taken after the nudges, which is why the Starport looked
+  shifted.
+- The army stepped aside every 8 s, between attacks. Now the marines
+  attack again and again until a check shows Russia's Starport is gone.
+  The check holds ours over the spot in Land mode and looks for the light
+  green box, which is only drawn once Russia's Starport is destroyed. Only
+  then does the army step aside and the Starport land, centred on the box.
+- No SCV reached the camp or Arkhangelsk. The bot then took two marines
+  that were still selected for an SCV, and sent them to "repair". Now an
+  SCV is recognised by the yellow Build button in the bottom-left of the
+  command card, not by Move. The rally is done the owner's way (R, then a
+  click on the minimap). The SCVs are looked for at the camp, at
+  Arkhangelsk and by the Command Center, then put on key 9. One of them
+  (the first picture in the selection) repairs the Barracks.
