@@ -193,11 +193,12 @@ def test_the_army_is_keyed_gathered_then_sent_in_stages(monkeypatch):
     assert st.army_keys and st.army_keys[0] == "1"
     stages = [l for l in game.lines if l.startswith("norway: the army ")]
     names = [s for s in stages if "attacks at " in s or "moves to " in s]
-    assert [s.replace("attacks at ", "@").replace("moves to ", "@").split("@")[1]
-            .split(" (")[0] for s in names] == \
-        ["Kiruna 200", "Russian army-Finland", "Helsinki 400", "Helsinki 400"]
+    spots = [s.rsplit("(", 1)[1].rstrip(")") for s in names]
+    # trial 47: the flank at (147, 31) just before the bunkers
+    assert spots == ["143, 16", "147, 30", "147, 31", "140, 39", "134, 36",
+                     "136, 38"]
     assert "moves to" in names[0] and "moves to" in names[2]
-    assert "attacks" in names[3]
+    assert all("attacks" in n for n in names[3:])
     landed = next(l for l in game.lines if "Barracks landed by" in l)
     assert landed.endswith("138, 30") or "138, 29" in landed
 
@@ -367,14 +368,15 @@ def test_the_barracks_waits_out_of_reach_and_the_army_goes_first(monkeypatch):
     assert i_army < i_lift
 
 
-def test_the_barracks_flies_in_as_the_army_moves_on_to_helsinki(monkeypatch):
-    """The owner (trial 46): the Barracks must reach Helsinki much sooner.
-    It flies in over Finland when the army moves on to Helsinki, long
-    before Finland is clear."""
+def test_the_barracks_flies_in_as_the_army_attacks_the_finland_spot(monkeypatch):
+    """The owner (trials 46, 47): the Barracks must reach Helsinki much
+    sooner. It flies in over Finland as the army attacks the Finland
+    spot, long before Finland is clear."""
     game, m, watch, st = setup(monkeypatch)
     norway.opening(game, watch, m, st, "first")
     lines = [l for l in game.lines if l.startswith("norway:")]
     i_in = next(i for i, l in enumerate(lines) if "Barracks flies in" in l)
-    i_move = next(i for i, l in enumerate(lines) if "moves to Helsinki" in l)
+    i_move = next(i for i, l in enumerate(lines)
+                  if "attacks at Russian army-Finland" in l)
     i_clear = next(i for i, l in enumerate(lines) if "Finland cleared" in l)
     assert i_in <= i_move + 1 and i_in < i_clear

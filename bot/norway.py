@@ -55,8 +55,12 @@ ARMY_KEYS = ["1", "2", "3", "4", "5"]
 ARMY_STAGES = [                # (tiles, attack?, seconds after the last)
     ((143, 16), False, 0),     # gather at Kiruna
     ((147, 30), True, 5),      # the "Russian army-Finland" spot (owner: 30 s)
-    ((136, 38), False, 9),     # moved on to Helsinki by Factory 10 (39-40 s)
-    ((136, 38), True, 2),      # and attack there (41-44 s)
+    # the owner (trial 47): a wider flank, the marines moved to (147, 31)
+    # just 2 s before they attack Germany's bunkers
+    ((147, 31), False, 8),
+    ((140, 39), True, 2),      # the east bunker
+    ((134, 36), True, 4),      # the west bunker
+    ((136, 38), True, 4),      # Helsinki (owner: attacked 41-44 s)
 ]
 CLEAN_EVERY = 4                # seconds between attacks on the red that is left
                                # (the owner: boxes and attacks every 1-2 s)
@@ -71,8 +75,9 @@ DEPOT_LOOKS = 5                # looks before the depots are given up
 LOAD_BOX = (-4, -5, 3, 2)      # tiles round the Dropship whose men board it
 BARRACKS_WAIT = (127 * T, 22 * T)  # where the Barracks floats till the army
                                # has taken the Finland spot: the Norwegian camp
-BARRACKS_IN_AT = 3             # the stage (the move on to Helsinki) at which
-                               # it flies in over Finland
+BARRACKS_IN_AT = 2             # the stage (the attack on the Finland spot) at
+                               # which it flies in over Finland (trial 47: at
+                               # the move to Helsinki it came too late)
 RED = [0]                      # Germany
 CLEAR_LOOKS = 2                # looks in a row with no red in Finland: cleared
 BARRACKS_BY = 3 * 60 + 25      # the countdown (3:25) by which the Barracks is down

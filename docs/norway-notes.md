@@ -249,6 +249,16 @@ Helsinki 39-43 s). Our minimap pixels, owner's recording / the bot:
   Industry) as soon as the army moves on to Helsinki, and lands once
   Finland is clear.
 
+## Trial 47 (played on build eca55e7, not the newest 675dedc)
+
+- The owner: still too slow; the Barracks did not make it in time; for a
+  wider flank the marines move to (147, 31) just 2 s before they attack
+  Germany's bunkers.
+- Now the stages: gather at Kiruna; attack the Finland spot (147, 30);
+  8 s later move to (147, 31); 2 s later attack the east bunker (140,
+  39), then the west bunker (134, 36), then Helsinki. The Barracks flies
+  in over Finland as the army attacks the Finland spot (about 29 s).
+
 ## The repository owner's plan for Norway after the opening
 
 - Norway can do all of these: defend the UK, help on the eastern front,
