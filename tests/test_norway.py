@@ -211,7 +211,7 @@ def test_the_opening_in_the_owner_s_order(monkeypatch):
     assert i_spot < i_scv < i_walk
     assert st.depots_placed == norway.DEPOTS and st.depots_ordered
     assert any("repair the Barracks" in l for l in game.lines)
-    assert {"Factory", "Engineering Bay", "Starport", "Barracks",
+    assert {"Factory", "Starport", "Barracks",
             "Command Center"} <= set(st.lifted)
     assert game.on_key["6"] == "Barracks" and game.on_key["7"] == "Starport"
     # Finland cleared, then the Barracks down, before Russia's Starport is hit
@@ -1033,7 +1033,7 @@ class World:
                     u = self.units[j]
                     if u["kind"] == "marine" and not u["inside"] and \
                             ship.get("cargo", 0) < 8 and \
-                            abs(u["x"] - tx) <= 10 and abs(u["y"] - ty) <= 10:
+                            abs(u["x"] - tx) <= 14 and abs(u["y"] - ty) <= 14:
                         u["inside"] = True
                         ship["cargo"] = ship.get("cargo", 0) + 1
                         self.loaded += 1
@@ -1222,6 +1222,9 @@ def eyes_on(monkeypatch):
                         lambda s: s.world.units[s.world.sel[0]].get("cargo", 0)
                         if len(s.world.sel) == 1 and
                         s.world.units[s.world.sel[0]]["kind"] == "dropship" else 0)
+    monkeypatch.setattr(live, "frames_hurt",
+                        lambda s, n: [i for i in range(len(s.world.sel))
+                                      if s.world.units[s.world.sel[i]].get("hurt")])
     monkeypatch.setattr(norway, "footprint_at",
                         lambda s, sx, sy, size: s.world.footprint(size))
     monkeypatch.setattr(trial, "pick_building", lambda io, b: False)
@@ -1625,12 +1628,14 @@ def test_shetland_s_point_is_on_the_island_and_its_buildings_are_attacked(monkey
     eyes_on(monkeypatch)
     m = trial.load_map()
     targets = norway.shetland_buildings(m)
-    assert [k for k, x, y in targets] == ["Missile Turret", "Supply Depot"]
+    # (the island's own soldiers first: the owner, trial 65)
+    assert [k for k, x, y in targets] == ["the island's soldiers",
+                                          "Missile Turret", "Supply Depot"]
     w = World([("marine", tx, ty), ("marine", tx + 0.7, ty + 0.4),
                ("marine", 120.0, 20.0)])
     assert norway.attack_on_shetland(w, m)
     attacks = [o for o in w.orders if o[0] == "attack"]
-    assert len(attacks) == 2 and all(who == (0, 1) for what, who, where in attacks)
+    assert len(attacks) == 3 and all(who == (0, 1) for what, who, where in attacks)
     for (kind, x, y), (what, who, where) in zip(targets, attacks):
         assert abs(where[0] - x) <= 0.6 and abs(where[1] - y) <= 0.6
     # nobody there: said, and no order
@@ -1782,8 +1787,7 @@ def test_five_vultures_lay_mines_at_oslo_when_the_new_troops_come(monkeypatch):
     assert len({who for what, who, where in mines}) == 5            # each lays three
     assert len({(round(x, 1), round(y, 1)) for what, who, (x, y) in mines}) == 15
     for what, who, (x, y) in mines:                                 # round Oslo's beacon
-        assert 86 <= x <= 92 and 48 <= y <= 55.5                    # (clear of the Factory's ground)
-        assert not (83.5 <= x <= 87.2 and 50.2 <= y <= 53.2)
+        assert 86 <= x <= 91 and 50 <= y <= 54                      # close round the beacon
     assert st.mine_stage == "done"
     # none among the troops: looked for three times, then given up
     w, st = air_world([("marine", cx, cy), ("marine", cx + 1, cy)])
@@ -1871,7 +1875,7 @@ def test_shetland_is_taken_after_finland_not_at_the_start(monkeypatch):
     w.units[0]["cargo"] = 0                                 # all out
     run(norway.SHETLAND_TRIP + 2)
     attacks = [o for o in w.orders if o[0] == "attack"]
-    assert len(attacks) == 2 and set(attacks[0][1]) == set(out)
+    assert len(attacks) == 3 and set(attacks[0][1]) == set(out)
     run(norway.SHETLAND_EVERY + 6)
     assert st.ship_stage == "done"
     # the Dropship is saved: it flies home to the other Dropships
@@ -1926,11 +1930,17 @@ def test_the_shetland_dropship_waits_until_it_is_full(monkeypatch):
 
 
 def test_the_mines_go_on_oslo_s_beacon():
-    """The owner (trial 64): more centred on the beacon."""
+    """The owner: close round the beacon (trial 64: a ring two to three
+    tiles out was too wide; trial 65: on the beacon itself nothing is
+    planted)."""
     bx, by = norway.OSLO_BEACON
     assert len(set(norway.OSLO_MINES)) == 15
-    assert norway.OSLO_MINES[0] == (bx, by)
-    assert all(abs(x - bx) <= 1.3 and abs(y - by) <= 0.7 for x, y in norway.OSLO_MINES)
+    for x, y in norway.OSLO_MINES:
+        d = ((x - bx) ** 2 + (y - by) ** 2) ** 0.5
+        assert 1.3 <= d <= 2.0                          # round it, not on it
+    # taken spread round it, not one side first
+    first = norway.OSLO_MINES[:3]
+    assert max(p[0] for p in first) - min(p[0] for p in first) > 2
 
 
 # ----------------------------------------------------- the massing cycle
@@ -2080,22 +2090,56 @@ def test_marines_are_made_as_money_allows_with_dropships_budgeted_for(monkeypatc
     assert norway.train_marines(w, m, st, "pic", 0.0) == 0
 
 
-def test_the_scvs_repair_the_dropships_at_home(monkeypatch):
+def test_the_damaged_dropship_is_found_flown_aside_and_repaired(monkeypatch):
+    """The owner (trial 65): which Dropship needs repair is read off the
+    Dropships' key (a damaged unit's small picture is yellow or red);
+    that one is flown aside from the group, the SCVs repair it, and it
+    comes back when it is whole. Trial 65: every Dropship in turn was
+    "repaired", whole or not."""
     w, st = cycle_world(monkeypatch)
     w.units[1]["hurt"] = True
     st.scvs_home = True
-    for _ in range(5):
-        norway.repair_dropships(w, st)
-        w.sleep(norway.REPAIR_EVERY + 0.1)
+
+    def run(seconds):
+        end = w.t + seconds
+        while w.t < end:
+            norway.repair_dropships(w, st)
+            w.sleep(0.5)
+    run(4)
+    assert st.repair_ship == 1
+    rx, ry = norway.REPAIR_SPOT
+    assert abs(w.units[1]["x"] - rx) <= 2.5 and abs(w.units[1]["y"] - ry) <= 2.5   # aside
+    assert all(abs(w.units[i]["x"] - rx) > 2 or abs(w.units[i]["y"] - ry) > 2
+               for i in (0, 2))                                                # the others stay
+    run(8)
     repairs = [o for o in w.orders if o[0] == "repair"]
-    assert len(repairs) == 1 and set(repairs[0][1]) == {19, 20}
-    assert abs(repairs[0][2][0] - w.units[1]["x"]) <= 0.6
-    assert w.mode is None and st.repairs == 1
+    assert repairs and set(repairs[0][1]) == {19, 20}
+    assert abs(repairs[0][2][0] - w.units[1]["x"]) <= 0.8
+    assert any("is damaged: flown aside" in l for l in w.lines)
+    # mended: back to the others
+    w.units[1]["hurt"] = False
+    run(norway.REPAIR_TIME + 6)
+    assert st.repair_ship is None and any("whole again" in l for l in w.lines)
+    wx, wy = norway.DROP_RALLY
+    assert abs(w.units[1]["x"] - wx) <= 2.5 and abs(w.units[1]["y"] - wy) <= 2.5
+    # nobody damaged: no SCV is ordered about
+    n = len(w.orders)
+    run(30)
+    assert not [o for o in w.orders[n:] if o[0] == "repair"]
     # not while they are away
     w, st = cycle_world(monkeypatch)
     st.scvs_home, st.cycle = True, "out"
+    w.units[0]["hurt"] = True
     norway.repair_dropships(w, st)
     assert not w.orders
+
+
+def test_a_damaged_units_small_picture_is_told_by_its_colour():
+    """Whole: drawn in green. Hurt: yellow, orange and red."""
+    import os
+    pic = Image.open(os.path.join(os.path.dirname(__file__), "data", "hurt_frames.jpg"))
+    n = live.frames_shown(pic)
+    assert n == 10 and live.frames_hurt(pic, n) == [0, 1]
 
 
 def test_the_drop_zone_is_judged_by_the_owner_s_rules(monkeypatch):

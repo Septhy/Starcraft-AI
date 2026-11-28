@@ -257,6 +257,9 @@ class State:
         self.drop_full = set()          # Dropships (their place on the key) full
         self.field_ship, self.field_ready = None, -1e9
         self.field_tries = self.field_aboard = 0
+        self.field_sent, self.field_nogain, self.field_empty = False, 0, 0
+        self.repair_ship, self.repair_stage, self.repair_tries = None, None, 0
+        self.muster_at = -1e9
         self.army_called_home = False
         self.ears, self.heard_at, self.go = None, -1e9, None
         self.cycle, self.cycle_at, self.cycle_far = "home", -1e9, 0.0
@@ -787,6 +790,17 @@ def shetland_buildings(mapdata):
            if abs(b["x"] / T - bx) <= SHETLAND_REACH and
            abs(b["y"] / T - by) <= SHETLAND_REACH]
     out.sort(key=lambda b: b[0] not in FIRST_KINDS)
+    # before any building, the island's own soldiers (the owner, trial 65:
+    # the men dropped must kill the white marines before the turret): an
+    # attack-move onto where they stand
+    men = [(u[0] / T, u[1] / T)
+           for u in mapdata["slots"].get(SHETLAND_OWNER, {}).get("units", [])
+           if abs(u[0] / T - bx) <= SHETLAND_REACH and
+           abs(u[1] / T - by) <= SHETLAND_REACH]
+    if men:
+        out.insert(0, ("the island's soldiers",
+                       sum(p[0] for p in men) / len(men),
+                       sum(p[1] for p in men) / len(men)))
     return out
 
 
@@ -1553,10 +1567,21 @@ CENTRED_AT = trial.CENTRED_AT  # where Ctrl+C puts the selected unit
 HOME_FIELD = (149.5, 33.5)     # tile point in Finland, north of the Barracks,
                                # where the men gather to board (the owner:
                                # home is by the Barracks, 149, 39)
-DROP_RALLY = (158.5, 31.5)     # tile point the Dropships wait at: nine tiles
-                               # east of the field, clear of the men (a
-                               # selection is twelve units at most, so a box
-                               # there should hold Dropships only)
+DROP_RALLY = (164.5, 30.5)     # tile point the Dropships wait at, east of the
+                               # field and clear of the men (a selection is
+                               # twelve units at most, so a box there should
+                               # hold Dropships only)
+LOAD_SPOT = (HOME_FIELD[0] + 7.0, HOME_FIELD[1])
+                               # where one Dropship at a time is loaded: seven
+                               # tiles east of the men, never over them
+                               # (trial 65: with men standing under it, the
+                               # click meant for the Dropship fell on a
+                               # marine, and nobody ever boarded)
+SHIP_CLICK = (966, 400)        # where a centred Dropship is clicked: its body
+                               # (it is drawn a little above its place)
+REPAIR_SPOT = (164.5, 36.5)    # where a damaged Dropship is flown for repair
+SCV_WAIT = (164.5, 39.5)       # where the SCVs wait, beside that spot
+MUSTER_EVERY = 60              # seconds between looks at every Dropship for room
 FIELD_FLIGHT = 4               # seconds a Dropship needs from there to the field
 FIELD_BOX = (5.0, 3.5)         # tiles round the Dropship boxed for its men
 FIELD_TRIES = 4                # boardings tried for one Dropship
@@ -1581,11 +1606,15 @@ SPAWN_RETRY = 10               # seconds between them
 OSLO_VIEW = (88.5, 51.5)       # tile point looked at for the mines
 OSLO_BEACON = (88.5, 51.9)     # tile point of Oslo's beacon (trial 63, off the
                                # screen)
-OSLO_MINES = [(OSLO_BEACON[0] + 0.6 * (c - 2), OSLO_BEACON[1] + 0.6 * (r - 1))
-              for r in (1, 0, 2) for c in (2, 1, 3, 0, 4)]
-                               # on the beacon itself, the middle first (the
-                               # owner, trial 64: more centred on it): five
-                               # across, three rows, 0.6 tiles apart
+import math as _math
+
+OSLO_MINES = [(round(OSLO_BEACON[0] + 1.9 * _math.cos(2 * _math.pi * k / 15), 2),
+               round(OSLO_BEACON[1] + 1.4 * _math.sin(2 * _math.pi * k / 15), 2))
+              for k in (0, 5, 10, 3, 8, 13, 1, 6, 11, 4, 9, 14, 2, 7, 12)]
+                               # close round the beacon, not on it (the owner,
+                               # trial 65: a click on the beacon itself plants
+                               # nothing): fifteen spots on a ring about two
+                               # tiles across, taken spread round it
 MINE_SPOT_TRIES = 3            # spots tried for one mine when the game refuses
 MINE_ROUNDS = 3                # a Vulture carries three mines
 MINE_TRAVEL = 18               # seconds from the camp to Oslo
@@ -1776,16 +1805,19 @@ def men_into(io, key, ship):
 
 
 def load_step(io, st):
-    """One step of loading the Dropships, at the field in Finland where
-    the men gather (the owner, trial 64: not all of them were loaded:
-    only the starting army, by its keys, was ever sent aboard). One
-    Dropship at a time comes over the field; the men round it are boxed
-    (any Dropship or SCV taken out of the box) and sent into it; when its
-    card shows it full, or nobody more comes, it flies back to its
-    waiting place and the next one comes. True if something was done;
-    False when every Dropship is full or no men are left at the field."""
+    """One step of loading the Dropships (the owner, trial 65: when not
+    dropping, Norway must always try to have every Dropship full). One
+    Dropship at a time comes to the loading spot beside the field where
+    the men gather; it is centred (Ctrl+C), the men at the field boxed
+    (Dropships and SCVs taken out of the box) and sent into it by a click
+    on its body. Its card says how many are aboard: at eight, or when
+    two boardings in a row brought nobody more in (tanks take more than
+    one seat), it flies back to wait and the next one comes. True if
+    something was done; False when every Dropship is full or no men are
+    at the field just now."""
     now = io.now()
-    waiting = [i for i in range(st.drop_count) if i not in st.drop_full]
+    waiting = [i for i in range(st.drop_count)
+               if i not in st.drop_full and i != st.repair_ship]
     if not waiting:
         return False
     i = st.field_ship if st.field_ship in waiting else waiting[0]
@@ -1793,52 +1825,84 @@ def load_step(io, st):
     if st.field_ship != i:
         if not one_dropship(io, st, i):
             return False
-        io.click(*live.mm_point(*HOME_FIELD), button="right")
+        io.click(*live.mm_point(*LOAD_SPOT), button="right")
         io.sleep(0.05)
-        st.field_ship, st.field_tries, st.field_aboard = i, 0, 0
+        st.field_ship, st.field_aboard, st.field_sent = i, -1, False
+        st.field_nogain = st.field_empty = 0
         st.field_ready = now + FIELD_FLIGHT
         return True
     if now < st.field_ready:
-        return True                     # on its way to the field
+        return True                     # flying in, or its men walking in
     if not one_dropship(io, st, i):
         st.field_ship = None
         return False
     aboard = live.cargo_count(io.shot("ship", keep=False))
-    full = aboard >= DROP_SEATS
-    stuck = st.field_tries >= FIELD_TRIES or \
-        (st.field_tries >= 2 and aboard == st.field_aboard)
-    if full or (stuck and aboard):
+    if st.field_sent:
+        st.field_nogain = 0 if aboard > st.field_aboard else st.field_nogain + 1
+    if aboard >= DROP_SEATS or st.field_nogain >= 2:
         st.drop_full.add(i)
         io.click(*live.mm_point(*DROP_RALLY), button="right")
         io.sleep(0.05)
         io.log(f"norway: Dropship {i + 1} of {st.drop_count} has {aboard} "
-               f"aboard and goes back to wait")
+               f"aboard" + ("" if aboard >= DROP_SEATS else " and takes no "
+                            "more") + ": back to wait")
         st.field_ship = None
         return True
-    if stuck:
-        st.field_tries = 2              # (nobody came: looked at again later)
-        return False                    # no men at the field just now
     st.field_aboard = aboard
     at = centre_on_selected(io)
-    l, t, r, b = live.GAME_AREA
+    # the men stand at the field, west of the Dropship: boxed there
+    off = (LOAD_SPOT[0] - HOME_FIELD[0]) * live.TILE_PX
+    cx = at[0] - off
     w, h = FIELD_BOX[0] * live.TILE_PX, FIELD_BOX[1] * live.TILE_PX
-    io.drag(int(max(l + 4, at[0] - w)), int(max(t + 4, at[1] - h)),
-            int(min(r - 4, at[0] + w)), int(min(b - 4, at[1] + h)))
+    l, t, r, b = live.GAME_AREA
+    io.drag(int(max(l + 4, cx - w)), int(max(t + 4, at[1] - h)),
+            int(min(SHIP_CLICK[0] - 90, cx + w)), int(min(b - 4, at[1] + h)))
     io.sleep(0.15)
     pic = io.shot("field", keep=False)
     n = live.frames_shown(pic)
     if n >= 2:
         men, _ = army_only(io, pic, n)
-    else:                               # one unit: the Dropship itself, or a man
+    else:                               # one unit alone
         men = 1 if live.move_shown(io.card()) and live.attack_shown(pic) else 0
-    st.field_tries += 1
-    st.field_ready = io.now() + LOAD_STEP
     if not men:
-        return True                     # (looked at again: they may be walking in)
-    io.click(at[0], at[1], button="right")
+        st.field_sent = False
+        st.field_empty += 1
+        st.field_ready = io.now() + 3
+        if st.field_empty >= 2:
+            st.field_empty = 0
+            return False                # nobody at the field just now
+        return True
+    io.click(SHIP_CLICK[0], SHIP_CLICK[1], button="right")
     io.sleep(0.05)
+    st.field_sent, st.field_empty = True, 0
+    st.field_ready = io.now() + LOAD_STEP
     st.drop_boardings += 1
     return True
+
+
+def muster(io, st):
+    """Every Dropship looked at in turn for room (the owner, trial 65:
+    during downtime each is checked): those with fewer than eight aboard
+    are loaded again. Said in the log."""
+    full = room = 0
+    for i in range(st.drop_count):
+        if i == st.repair_ship:
+            continue
+        clear_modes(io)
+        if not one_dropship(io, st, i):
+            break
+        aboard = live.cargo_count(io.shot("ship", keep=False))
+        if aboard >= DROP_SEATS:
+            st.drop_full.add(i)
+            full += 1
+        else:
+            room += 1
+            if i in st.drop_full and aboard == 0:
+                st.drop_full.discard(i)     # (emptied since: to be loaded)
+    clear_modes(io)
+    io.log(f"norway: Dropships: {full} full, {room} with room"
+           f" ({len(st.drop_full)} not loaded further)")
+    return full, room
 
 
 def loaded_dropships(io, st):
@@ -1914,6 +1978,9 @@ def dropships_step(io, mapdata, st, t0):
             st.drop_boardable, st.drop_quiet = True, 0
             return
         st.drop_quiet += 1
+        if io.now() - st.muster_at >= MUSTER_EVERY:
+            st.muster_at = io.now()
+            muster(io, st)
         if n < DROP_ENOUGH - 1:
             st.drop_stage = "making"    # some were lost: more are ordered
             st.drop_full = set()        # (their places on the key moved)
@@ -2130,7 +2197,7 @@ TRAIN_EVERY = 20               # seconds between rounds of marines
 TRAIN_BATCH = 5                # a Barracks' queue
 MARINE_COST = 50
 DROPSHIP_COST = 300            # (trial 62: about 300 minerals each)
-REPAIR_EVERY = 3               # seconds between two Dropships' repairs
+REPAIR_EVERY = 3               # seconds between two steps of the repairs
 
 
 def hear(io, mapdata, st, picture):
@@ -2292,7 +2359,7 @@ def cycle_step(io, watch, mapdata, st, picture):
         if now - when > GO_STALE:
             st.go = None
             return
-        loaded = len(st.drop_full) + (1 if st.field_aboard else 0)
+        loaded = len(st.drop_full) + (1 if st.field_aboard > 0 else 0)
         if not loaded or now - when < (0 if why == "order" else GO_DELAY):
             return
         if not launch(io, watch, mapdata, st, picture):
@@ -2361,45 +2428,84 @@ def train_marines(io, mapdata, st, picture, t0):
     return n
 
 
+REPAIR_TIME = 10               # seconds between looks at a Dropship in repair
+REPAIR_TRIES = 6               # looks before it goes back as it is
+
+
 def repair_dropships(io, st):
-    """The SCVs repair the Dropships while they wait at home: one
-    Dropship a step, centred with Ctrl+C, then the SCVs' key, R and a
-    click on it (a Dropship that is whole is refused by the game)."""
+    """The SCVs repair the Dropships at home (the owner, trial 65): first
+    which one needs it is read off the Dropships' key, a damaged unit's
+    small picture being yellow or red instead of green; that one is
+    flown aside from the group to the repair spot, the SCVs are told to
+    repair it (R and a click on its body), and when its picture is green
+    again it flies back."""
     now = io.now()
     if st.cycle != "home" or not st.drop_count or not st.scv_count or \
-            not st.depots_ordered or now - st.repair_at < REPAIR_EVERY:
+            not st.depots_ordered or now < st.repair_at:
         return
-    st.repair_at = now
+    st.repair_at = now + REPAIR_EVERY
     if not st.scvs_home:
-        # the depots are done: the SCVs walk to where the Dropships wait
+        # the depots are done: the SCVs walk to beside the repair spot
         if call_scvs(io, st):
-            io.click(*live.mm_point(*DROP_RALLY), button="right")
+            io.click(*live.mm_point(*SCV_WAIT), button="right")
             io.sleep(0.05)
             st.scvs_home = True
             st.repair_at = now + 35     # (the walk from Arkhangelsk)
-            io.log("norway: the SCVs walk to the Dropships to repair them")
+            io.log("norway: the SCVs walk to the repair spot by the Dropships")
         return
-    if st.repair_i >= st.drop_count:
-        return                          # all looked at since they came home
-    i = st.repair_i
-    st.repair_i += 1
     clear_modes(io)
-    if not one_dropship(io, st, i):
+    io.key(st.drop_key)
+    io.sleep(0.2)
+    if not live.move_shown(io.card()):
         return
+    pic = io.shot("dropships", keep=False)
+    n = live.frames_shown(pic)
+    hurt = live.frames_hurt(pic, n) if n >= 2 else []
+    if st.repair_ship is None:
+        hurt = [i for i in hurt if i != st.field_ship]
+        if not hurt:
+            st.repair_at = now + REPAIR_TIME
+            return
+        i = hurt[0]
+        frame_click(io, i, n)               # that one alone, aside
+        io.click(*live.mm_point(*REPAIR_SPOT), button="right")
+        io.sleep(0.05)
+        st.repair_ship, st.repair_stage, st.repair_tries = i, "flying", 0
+        st.repair_at = now + FIELD_FLIGHT
+        io.log(f"norway: Dropship {i + 1} of {n} is damaged: flown aside to "
+               f"be repaired")
+        return
+    i = st.repair_ship
+    if st.repair_stage == "repairing" and \
+            (i not in hurt or st.repair_tries >= REPAIR_TRIES or i >= n):
+        if i < n:
+            frame_click(io, i, n)
+            io.click(*live.mm_point(*DROP_RALLY), button="right")
+            io.sleep(0.05)
+        io.log(f"norway: Dropship {i + 1} "
+               + ("is whole again" if i not in hurt else "was not mended in time")
+               + ": back to the others")
+        st.repair_ship, st.repair_stage = None, None
+        return
+    if i >= n:
+        st.repair_ship, st.repair_stage = None, None
+        return
+    frame_click(io, i, n)
     at = centre_on_selected(io)
     io.key(SCV_KEY)
     io.sleep(0.12)
-    if not live.move_shown(io.card()):
-        return
-    io.key("r")
-    io.sleep(0.1)
-    io.click(at[0], at[1])
-    io.sleep(0.1)
-    if live.placing_shown(io.card()):
-        clear_modes(io)                 # not damaged: nothing to repair
-    else:
-        st.repairs += 1
-        io.log(f"norway: the SCVs repair Dropship {i + 1}")
+    if live.move_shown(io.card()):
+        io.key("r")
+        io.sleep(0.1)
+        io.click(SHIP_CLICK[0], SHIP_CLICK[1])
+        io.sleep(0.1)
+        clear_modes(io)
+        if st.repair_stage != "repairing":
+            st.repairs += 1
+            io.log(f"norway: the SCVs repair Dropship {i + 1}")
+    st.repair_stage = "repairing"
+    st.repair_tries += 1
+    st.repair_at = now + REPAIR_TIME
 
 
 def selected(io):
@@ -2921,7 +3027,7 @@ def opening(io, watch, mapdata, st, first):
         if st.finland_clear and not st.shetland_lifts:
             st.shetland_lifts = True
             lift(io, mapdata, st, "Factory", SHETLAND)
-            lift(io, mapdata, st, "Engineering Bay", SHETLAND)
+            # (the Engineering Bay stays at home: the owner, trial 65)
         # the Command Center goes once its two SCVs are out, and not in the
         # middle of the army's stages (trial 44: its lift pushed the attack
         # on Finland back)

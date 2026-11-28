@@ -477,6 +477,28 @@ def cargo_count(screen):
     return sum(lit) if lit[0] else 0
 
 
+HURT_GREEN = 100               # green pixels in a small picture: fewer, and the
+                               # unit is damaged (whole ones measured 200 to 350)
+
+
+def frames_hurt(screen, n):
+    """Which of the n small pictures of a selection show a damaged unit:
+    a whole unit is drawn in green, a damaged one in yellow, orange and
+    red (the owner, trial 65). Measured on the bot's own games: whole,
+    200 to 350 green pixels and nothing else; badly hurt, hardly any
+    green."""
+    a = np.asarray(screen.convert("RGB")).astype(int)
+    out = []
+    for i in range(n):
+        x0, y0, x1, y1 = frame_box(i, n)
+        c = a[y0 + 6:y1 - 6, x0 + 6:x1 - 6]
+        r, g, b = c[..., 0], c[..., 1], c[..., 2]
+        green = int(((g > 120) & (r < 110) & (b < 110)).sum())
+        if green < HURT_GREEN:
+            out.append(i)
+    return out
+
+
 def frames_shown(screen):
     """How many framed pictures the bottom panel shows: 2 to 12 with
     several units selected, 0 with one unit or none. Unlike
