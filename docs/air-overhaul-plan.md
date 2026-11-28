@@ -407,3 +407,20 @@ Where a box's time goes now (trial 40, hit 2): the drag 0.16 s, a look
 at what it took (a screenshot: for Scouts and empty boxes) about 0.15 s,
 A and the click 0.2 s, a pause 0.25 s: about 0.55 s a box, six men a
 box; 0.6 s a screen before its first box; 12 screens.
+
+## The owner's answers for the first hit and for phase 2 of the air
+
+- The first-minute variant of the first hit: about 2 games in 15.
+- The air's block after a hit: 60 s is generally fine; shorter when the
+  hit is gone early.
+- Targets: Battlecruisers, then SCVs standing by bunkers, then bunkers.
+  The enemy's air (Wraiths, Scouts) is attacked when our Scouts are
+  clearly more than theirs, or when their air has come too far forward
+  attacking our marines.
+- Retreat: with half the Scouts dead they go home.
+- Nothing to shoot, the hit still alive: the fleet loiters slightly
+  behind the front.
+- An early air attack is allowed when there is no large body of marines
+  near the target (three marines to one of our Scouts is large) and no
+  large air (two Wraiths or Scouts to one of ours), as long as the bot
+  first finishes sending most of the hit.
