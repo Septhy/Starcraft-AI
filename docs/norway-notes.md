@@ -849,3 +849,20 @@ Asked for by the owner and not built yet (the massing cycle): the
 loaded Dropships help Russia's attack at the front, come back to
 Finland, marines are made and the Dropships filled again; SCVs repair
 the Dropships.
+
+## The massing cycle: the owner's answers (not built yet)
+
+1. Norway goes on "@N drop <city>", or when Russia says "gone east" or
+   "gone balks".
+2. Where: right at the front where Russia attacks, next to the enemy;
+   best under Germany's Battlecruisers if they are there. Not where too
+   many enemy ground units stand under the drop zone, above all
+   Firebats. (The owner: this takes a player's feel.)
+3. What boards: marines, Kerrigans and Siege Tanks.
+4. Home in Finland: by the Barracks, 149, 39.
+5. Marines: as many as the money allows; lost Dropships are budgeted
+   for and replaced, damaged ones repaired by the SCVs.
+
+The cycle: nine to twelve Dropships made and loaded; on the word they
+fly to the front and unload; back to Finland; marines made; the
+Dropships filled again; the SCVs repair them.
