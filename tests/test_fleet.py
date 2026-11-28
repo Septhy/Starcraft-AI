@@ -1223,19 +1223,48 @@ def test_a_single_fleet_key_is_not_pressed_twice_running(monkeypatch):
     assert io.keys.count("9") == 2 and io.keys.count("0") == 2
 
 
-def test_the_remembered_scout_picture_is_read_again_when_it_fails(monkeypatch):
+def test_the_keys_pictures_are_read_at_every_find(monkeypatch):
+    """Trial 42: the remembered picture was the gun's once the number on
+    the key had changed, and a look 0.05 s after the key still showed the
+    unit of before: a dogfight ended "out of sight" with seven Scouts
+    alive. Now the pictures are read every time, a moment after the key."""
     io, st = find_setup(monkeypatch, {"9": ["artillery"] + ["scout"] * 3})
     assert trial.where_is_fleet(io, st) is not None
     shots = []
     io.shot = lambda label, keep=True: shots.append(label) or io
-    assert trial.where_is_fleet(io, st) is not None
-    assert "fleet-find" not in shots        # the picture was remembered
-    # a Scout dies and the artillery's picture is where the Scout's was
-    io.groups["9"] = ["scout", "artillery", "scout"]
-    st.air.scout_at["9"] = (1, 3)
-    shots.clear()
+    io.groups["9"] = ["scout", "artillery", "scout", "scout", "scout"]   # the key has changed
     assert trial.where_is_fleet(io, st) is not None and io.one == "scout"
-    assert "fleet-find" in shots            # read afresh
+    assert shots[0] == "fleet-find"
+
+
+def test_only_what_has_come_to_our_army_is_attacked(monkeypatch):
+    """Trial 42: fifteen Scouts sent at two fighters over Germany's army
+    lost nine in 13 s. Targets and enemies beyond our army's front are
+    left alone."""
+    import inspect
+    src = inspect.getsource(trial.dogfight)
+    assert "STRIKE_REACH" in src and "beyond our army's front left alone" in src
+    assert trial.LOITER_BACK >= 4 and trial.STRIKE_REACH <= 8
+    m = trial.load_map()
+    fleet = trial.CENTRED_AT
+    far = (fleet[0] + 14 * 72, fleet[1])            # fourteen tiles off: past the front
+    st, io = fight_setup(monkeypatch, [(fleet, [far])] * 400)
+    front = trial.fleet_spot()
+    monkeypatch.setattr(trial, "army_anchor", lambda w, pic, goal: front)
+    monkeypatch.setattr(trial, "DOGFIGHT_TIME", 10)
+    trial.dogfight(io, None, m, st, "Warsaw 200")
+    rights = [c for c in io.clicks if c[2] == "right"]
+    assert all(c[0] < fleet[0] + 5 * 72 for c in rights)   # never out to it
+
+
+def test_infantry_upgrades_start_by_themselves_in_the_first_seconds():
+    """The best players' replays: infantry weapons and armor at 0:01 to
+    0:06 in every game, and the next level at 1:37 to 2:18."""
+    import inspect
+    src = inspect.getsource(trial.run)
+    assert src.index("upgrade_step(io, mapdata, st)") < src.index("key_moscow_ha")
+    assert trial.AUTO_UPGRADES == 2 and 100 <= trial.UPGRADE_TIME <= 130
+    assert "st.upgrade_asked" in inspect.getsource(trial.upgrade_step)
 
 
 def test_hops_keep_out_of_the_axis_turrets_reach():

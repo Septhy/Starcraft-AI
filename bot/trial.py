@@ -212,6 +212,7 @@ class State:
         self.upgrade_level = {"weapons": 0, "armor": 0}
         self.upgrade_next = {}     # upgrade -> when its next level may start
         self.upgrades_done = False # 3/3 both: the bays are left alone
+        self.upgrade_asked = False # an ally asked ("@R upgrade": up to 3/3)
         self.last_upgrade_look = -1e9
         self.krakow_landed = False # Krakow's building is on the ground
         self.land_tries = 0
@@ -5634,9 +5635,14 @@ def where_is_fleet(io, st, quiet=False):
         mid = pic = None
         for attempt in (0, 1):
             io.key(key)
-            io.sleep(0.05)
-            known = a.scout_at.get(key) if attempt == 0 else None
-            remembered = known is not None
+            # (the key's pictures are read every time, a moment after the
+            # key: trial 42, the remembered picture was the gun's once the
+            # number on the key had changed, and the look 0.05 s after the
+            # key still showed the single unit of before, "no Scouts",
+            # which ended a dogfight with seven Scouts alive)
+            io.sleep(0.1)
+            known = None
+            remembered = False
             if known is None:
                 look = io.shot("fleet-find", keep=False)
                 if look is None:
@@ -5700,7 +5706,9 @@ def view_centred_on(xy):
 
 AA_KEEP = 8                    # tiles the fleet's hops keep from an Axis Missile
                                # Turret the map starts with (its reach is 7)
-LOITER_BACK = 3                # tiles behind our army's front the fleet waits
+STRIKE_REACH = 7               # tiles from our army's front within which the
+                               # fleet fights; what is farther is left alone
+LOITER_BACK = 5                # tiles behind our army's front the fleet waits
 LOITER_NEAR = 2                # tiles from that spot: near enough, no order
 _turrets = None
 
@@ -6256,6 +6264,13 @@ def dogfight(io, watch, mapdata, st, target):
                         if (e[0] - fleet[0]) ** 2 + (e[1] - fleet[1]) ** 2
                         <= reach ** 2),
                        key=lambda e: (e[0] - fleet[0]) ** 2 + (e[1] - fleet[1]) ** 2)
+        if close and anchor != fleet_xy:
+            # the enemy is fought where our army is, not beyond it
+            reach = (STRIKE_REACH * 32) ** 2
+            close = [e for e in close
+                     if (screen_to_map(e[0], e[1], cam)[0] - anchor[0]) ** 2
+                     + (screen_to_map(e[0], e[1], cam)[1] - anchor[1]) ** 2
+                     <= reach]
         if not close:
             quiet += 1
             if fought and quiet >= QUIET_END:
@@ -6311,7 +6326,18 @@ def dogfight(io, watch, mapdata, st, target):
                 over_army = anchor != fleet_xy and \
                     (fleet_xy[0] - anchor[0]) ** 2 + (fleet_xy[1] - anchor[1]) ** 2 \
                     <= (ANCHOR_REACH * 32) ** 2
-                got = air_first(io, got, last_n or first, over_army)
+                # only what has come to our own army is attacked (trial 42:
+                # fifteen Scouts sent at two fighters over Germany's army
+                # lost nine in 13 s)
+                reach = (STRIKE_REACH * 32) ** 2
+                centre = anchor if anchor != fleet_xy else fleet_xy
+                near_us = [t for t in got
+                           if (t["xy"][0] - centre[0]) ** 2
+                           + (t["xy"][1] - centre[1]) ** 2 <= reach]
+                if len(near_us) < len(got):
+                    io.log(f"dogfight: {len(got) - len(near_us)} target(s) "
+                           f"beyond our army's front left alone")
+                got = air_first(io, near_us, last_n or first, over_army)
                 if got is None:
                     # a large enemy air: back behind our front, no target
                     back = off_turrets(toward(fleet_xy, anchor if anchor != fleet_xy
@@ -6472,7 +6498,15 @@ def engineering_bays(mapdata):
             if b["type"] == "Engineering Bay"]
 
 
-UPGRADE_TIME = 240              # seconds an upgrade takes before the next level
+UPGRADE_TIME = 118              # seconds an upgrade takes before the next level
+
+
+AUTO_UPGRADES = 2              # levels of infantry weapons and armor Russia
+                               # takes by itself: the first in the game's
+                               # first seconds, the second as soon as the
+                               # first is done, about two minutes in (the
+                               # best players' replays: at 0:01 to 0:06 and
+                               # again at 1:37 to 2:18, in every game)
 
 
 def upgrade_order(io, mapdata, st):
@@ -6481,6 +6515,7 @@ def upgrade_order(io, mapdata, st):
     if st.upgrades_done:
         say(io, st, "all upgrades completed", force=True)
         return
+    st.upgrade_asked = True
     st.upgrade_wanted = {name for name, _ in UPGRADES
                          if st.upgrade_level[name] < 3}
     st.last_upgrade_look = -1e9
@@ -6537,14 +6572,17 @@ def upgrade_step(io, mapdata, st):
                 gas -= cost
             st.upgrade_level[name] += 1
             st.upgrade_next[name] = io.now() + UPGRADE_TIME
-            if st.upgrade_level[name] >= 3:
+            if st.upgrade_level[name] >= (3 if st.upgrade_asked
+                                          else AUTO_UPGRADES):
                 st.upgrade_wanted.discard(name)
             started.append(f"{name} {st.upgrade_level[name]}")
             break
         else:
             io.log(f"upgrade: infantry {name} did not start")
     if started:
-        say(io, st, "upgrading infantry " + " and ".join(started), force=True)
+        if st.upgrade_asked:            # (said only when an ally asked)
+            say(io, st, "upgrading infantry " + " and ".join(started),
+                force=True)
         io.log(f"upgrade: infantry {' and '.join(started)} started")
     return bool(started)
 
@@ -6845,6 +6883,10 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     result = {"trained": 0, "gathered": 0, "hits": []}
     try:
         opening(raw, st)                    # name, and allied chat, first
+        # infantry weapons and armor in the first seconds, as the best
+        # players do in every replay (the next level follows by itself)
+        st.upgrade_wanted = {name for name, _ in UPGRADES}
+        upgrade_step(io, mapdata, st)
         key_moscow_ha(io, st)               # then at once the gun on 9, 0, 8
         consult(io, watch, mapdata, st)     # the general's say on the opening
         build_fleet(io, mapdata, st)        # before anything moves

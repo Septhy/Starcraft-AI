@@ -479,3 +479,26 @@ Built (the owner's points and answers):
   of our Scouts the fleet keeps back.
 - Not built: the early air attack on a lightly held target (it needs
   the marines there counted, which the bot cannot do yet).
+
+## Trial 42 (build ee36f3f, 15.5 minutes)
+
+Hits: sent in 38 s (47 groups), 58 s (85) and 60 s (71): 0.7 to 0.85 s
+a group. Three hits in all: after the second (5.4 min) the next came at
+13.7 min; the supply stood at 104 to 129 for minutes and the minerals
+at 0 (the tax at Krakow never got its SCV and depot).
+
+Air: the fleet found 47 times, 0.64 s each. Fight 1: four Scouts, the
+fleet "kept back" but all four were lost. Fight 2: ended at once, "no
+Scout found on its keys", with seven alive: the remembered picture was
+the gun's (the number on the key had changed), and the fresh look came
+0.05 s after the key, when the panel still showed the unit of before.
+Fight 3: fifteen Scouts sent at two fighters over Germany's army; nine
+lost in 13 s.
+
+Changed: the key's pictures are read at every find, 0.1 s after the
+key; targets and enemies farther than 7 tiles from our army's front are
+left alone, and the fleet waits 5 tiles behind that front; infantry
+weapons and armor are started by the bot itself in the game's first
+seconds, the second level when the first is done (about 118 s), as in
+every replay of the best players (0:01 to 0:06, then 1:37 to 2:18); a
+third level only on "@R upgrade".

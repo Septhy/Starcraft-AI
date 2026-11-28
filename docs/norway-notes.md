@@ -1002,3 +1002,51 @@ counts a crowded view is not known yet.
 
 Still to come from the same pictures: telling these units apart on
 the screen without the model (fast enough for every look).
+
+## Trial 65 (build ee36f3f, 7 min 43 s)
+
+Worked: the bot started by itself; Finland clear at 65 s (countdown
+3:24); buildings down with one click each; twelve depots by 151 s;
+twelve Dropships by 436 s, none cancelled; the Shetland Dropship left
+with five aboard and flew home after; 20 marines trained.
+
+The owner's points, and what the recording showed:
+
+1. Shetland: the men were sent at the turret first and the island's
+   two soldiers shot them. Wanted: the soldiers first; and the
+   Engineering Bay is not to float there.
+2. Repairs: every Dropship in turn was "repaired", whole or not.
+   Wanted: the damaged one found first by its small picture (yellow or
+   red instead of green), flown aside from the group, then repaired.
+3. Mines: the clicks were on the beacon itself and nothing was planted.
+   Wanted: close round it.
+4. The Dropships stayed empty (the most important point). The Dropship
+   hovered over the field with the men standing under it; the click
+   meant for it fell on a marine (two boardings, nobody in); after two
+   such tries the bot took the field for empty and never tried again.
+
+Changed:
+
+- Loading: one Dropship at a time comes to a spot seven tiles east of
+  the men, never over them; the men are boxed at the field, the click
+  goes on the Dropship's body (966, 400 once centred). Its card says how
+  many are aboard: at eight, or when two boardings in a row brought
+  nobody more (tanks take more than one seat), it goes back to wait.
+  With nobody at the field the loading pauses until the next look, and
+  goes on after. Every minute each Dropship is looked at for room and
+  the log says how many are full.
+- Repairs: the damaged one is read off the Dropships' key (fewer than
+  100 green pixels in its small picture; whole ones measured 200 to
+  350), flown to a repair spot beside the SCVs, repaired (R and a click
+  on its body), looked at every 10 s, and flown back when its picture
+  is green again.
+- Shetland: an attack-move onto the island's soldiers first, then the
+  turret, then the depot. The Engineering Bay stays at home.
+- Mines: fifteen spots on a ring about two tiles across round the
+  beacon (1.9 by 1.4 tiles from its middle), taken spread round it.
+
+Norway's own units as this map names them (the owner's screenshots,
+each selected alone): Heavy Tank (General, 450 HP: the Siege Tank),
+Elite Soldier (Lieutenant, 100 HP, with energy: the Kerrigan), Rifle
+Soldier (Specialist, 50 HP, with energy: a Ghost). Their small pictures
+in a group selection are still wanted, to tell them apart there.
