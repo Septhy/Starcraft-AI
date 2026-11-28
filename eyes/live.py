@@ -454,6 +454,29 @@ def scv_frames(screen, n):
     return frames_like(screen, n, "scv")
 
 
+CARGO_ORIGIN = (786, 906)      # the first passenger's picture on a transport's card
+CARGO_STEP = (80, 84)
+CARGO_LIT = 600                # lit pixels in a 70 by 70 place: a passenger
+
+
+def cargo_count(screen):
+    """How many units a selected transport carries, by their pictures on
+    its card (four across, two rows). An empty one shows its armour in the
+    lower row and nothing in the first place: 0. Measured on the bot's
+    own games: 1, 3 and 4 aboard, and empty."""
+    if screen is None or tuple(getattr(screen, "size", ())) != tuple(SCREEN):
+        return 0
+    a = np.asarray(screen.convert("RGB")).astype(int)
+    lit = []
+    for row in range(2):
+        for col in range(4):
+            x0 = CARGO_ORIGIN[0] + CARGO_STEP[0] * col
+            y0 = CARGO_ORIGIN[1] + CARGO_STEP[1] * row
+            lit.append(int((a[y0:y0 + 70, x0:x0 + 70].max(axis=2) > 90).sum())
+                       >= CARGO_LIT)
+    return sum(lit) if lit[0] else 0
+
+
 def frames_shown(screen):
     """How many framed pictures the bottom panel shows: 2 to 12 with
     several units selected, 0 with one unit or none. Unlike

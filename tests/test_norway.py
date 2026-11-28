@@ -152,6 +152,7 @@ def setup(monkeypatch, **kw):
     monkeypatch.setattr(norway, "repair_barracks", repair)
     # (so have Shetland's attack, the Dropships and the mines)
     monkeypatch.setattr(norway, "attack_on_shetland", lambda io, m: True)
+    monkeypatch.setattr(live, "cargo_count", lambda pic: 8)
 
     def done(io, m, st, t0):
         st.drop_stage = st.mine_stage = "done"
@@ -194,7 +195,7 @@ def test_the_opening_in_the_owner_s_order(monkeypatch):
     said = [l for l in game.lines if l.startswith("chat to everyone")]
     assert said == ["chat to everyone: AF Norway AI v0.01"]
     # Shetland drop, SCVs, and every building lifted, keyed where it is landed
-    assert any("Dropship goes to unload on Shetland" in l for l in game.lines)
+    assert any("Dropship goes to unload" in l and "Shetland" in l for l in game.lines)
     assert any("4 SCVs ordered" in l for l in game.lines)
     # the SCVs on their key once the army has left, sent to Arkhangelsk,
     # ten depots there and the Barracks repaired
@@ -1176,6 +1177,10 @@ def eyes_on(monkeypatch):
                         lambda s: s.kinds == ["scv"] and s.card == "move")
     monkeypatch.setattr(live, "attack_shown",
                         lambda s: bool(s.kinds) and "dropship" not in s.kinds)
+    monkeypatch.setattr(live, "cargo_count",
+                        lambda s: s.world.units[s.world.sel[0]].get("cargo", 0)
+                        if len(s.world.sel) == 1 and
+                        s.world.units[s.world.sel[0]]["kind"] == "dropship" else 0)
     monkeypatch.setattr(norway, "footprint_at",
                         lambda s, sx, sy, size: s.world.footprint(size))
     monkeypatch.setattr(trial, "pick_building", lambda io, b: False)
@@ -1650,30 +1655,35 @@ def step(w, st, fn, seconds, m=None):
 def test_dropships_are_made_until_there_are_enough_and_loaded_as_they_come(monkeypatch):
     """The owner: from the first tax (countdown 2:00) nine to twelve
     Dropships, and the men start boarding as they come out. Trial 62: one
-    takes about 31 s, so of the ten "ordered" in two goes two were out
-    when the bot looked for ten; and the click meant to send men into
-    one fell beside it."""
+    takes about 31 s. Trial 64: only the starting army, by its keys, was
+    ever sent aboard, so two of seven stayed empty: now each Dropship
+    comes over the field in Finland and takes the men round it, whoever
+    they are, until its card shows it full."""
     eyes_on(monkeypatch)
-    men = [("marine", 146.0 + 0.5 * (i % 6), 15.0 + 0.5 * (i // 6)) for i in range(24)]
-    w, st = air_world(men)
+    fx, fy = norway.HOME_FIELD
+    men = [("marine", fx - 3 + 0.6 * (i % 10), fy - 1.5 + 0.6 * (i // 10))
+           for i in range(52)]                  # the army and the new troops
+    w, st = air_world(men + [("scv", fx + 1.0, fy + 2.5)])
     st.landed |= {"Barracks", "Command Center"}
     st.army_keys, st.army_held = ["1", "2"], {"1": 12, "2": 12}
     w.groups["1"], w.groups["2"] = list(range(12)), list(range(12, 24))
     step(w, st, norway.dropships_step, 100)                 # before the tax: nothing
     assert "d" not in w.keys and st.drop_stage == "wait"
     w.t = norway.TAX_AT / trial.COUNTDOWN_RATE + 1
-    step(w, st, norway.dropships_step, 80)
+    step(w, st, norway.dropships_step, 90)
     ships = [u for u in w.units if u["kind"] == "dropship"]
     assert len(ships) == 2 and w.kinds(st.drop_key) == ["dropship"] * 2
     assert st.drop_key not in st.army_keys + [norway.SCV_KEY, norway.SHIP_KEY]
-    assert sum(u.get("cargo", 0) for u in ships) == 16      # boarding already
-    step(w, st, norway.dropships_step, 420)
+    assert any("the army walks to the loading field" in l for l in w.lines)
+    assert sum(u.get("cargo", 0) for u in ships) >= 8       # boarding already
+    step(w, st, norway.dropships_step, 600)
     ships = [u for u in w.units if u["kind"] == "dropship"]
     assert 9 <= len(ships) + len(w.queue) <= 12             # nine to twelve
     assert w.kinds(st.drop_key) == ["dropship"] * len(ships)
+    # every man is aboard, new troops as well as the keyed army; no SCV
     assert all(u["inside"] for u in w.units if u["kind"] == "marine")
-    assert sorted(u.get("cargo", 0) for u in ships)[-3:] == [8, 8, 8]
-    assert any("Dropships have men aboard" in l for l in w.lines)
+    assert not any(u["inside"] for u in w.units if u["kind"] == "scv")
+    assert sorted(u.get("cargo", 0) for u in ships)[-6:] == [8] * 6
     # trial 63: Esc with the Starport selected cancels what it is making
     for k, name in enumerate(w.keys):
         if name == "d":
@@ -1817,11 +1827,16 @@ def test_shetland_is_taken_after_finland_not_at_the_start(monkeypatch):
     out = [i for i in range(6, 18) if w.units[i]["inside"]]
     for k, i in enumerate(out):
         w.units[i].update(inside=False, x=63.0 + 0.3 * k, y=31.8)
+    w.units[0]["cargo"] = 0                                 # all out
     run(norway.SHETLAND_TRIP + 2)
     attacks = [o for o in w.orders if o[0] == "attack"]
     assert len(attacks) == 2 and set(attacks[0][1]) == set(out)
-    run(norway.SHETLAND_EVERY + 2)
+    run(norway.SHETLAND_EVERY + 6)
     assert st.ship_stage == "done"
+    # the Dropship is saved: it flies home to the other Dropships
+    assert any("flies home" in l for l in w.lines)
+    rx, ry = norway.DROP_RALLY
+    assert abs(w.units[0]["x"] - rx) <= 3 and abs(w.units[0]["y"] - ry) <= 3
     # nobody gets aboard: tried three times, then given up
     w = World([("dropship", d["x"] / 32, d["y"] / 32)])
     st = norway.State()
@@ -1833,3 +1848,45 @@ def test_shetland_is_taken_after_finland_not_at_the_start(monkeypatch):
         w.sleep(0.5)
     assert st.ship_stage == "done" and st.ship_tries == norway.SHIP_TRIES
     assert any("nobody got aboard" in l for l in w.lines)
+
+
+def test_a_transports_passengers_are_counted_on_its_card():
+    """Trial 64: twelve men were told to board the Shetland Dropship, one
+    was in after 6 s, and it left with him alone. The pictures on its
+    card say how many are aboard (an empty one shows only its armour)."""
+    import os
+    for n in (0, 1, 3, 4):
+        pic = Image.open(os.path.join(os.path.dirname(__file__), "data",
+                                      f"cargo_{n}.jpg"))
+        assert live.cargo_count(pic) == n
+    assert live.cargo_count(None) == 0
+
+
+def test_the_shetland_dropship_waits_until_it_is_full(monkeypatch):
+    eyes_on(monkeypatch)
+    m = trial.load_map()
+    st = norway.State()
+    st.finland_clear = st.port_gone = True
+    st.army_keys, st.army_held = ["1"], {"1": 12}
+    st.ship_stage, st.ship_next, st.ship_tries = "boarding", 0.0, 1
+    w = World([("dropship", 151.0, 18.5)])
+    w.groups["0"] = [0]
+    aboard = iter([1, 3, 6, 8, 8, 8])
+    monkeypatch.setattr(live, "cargo_count", lambda s: next(aboard))
+    w.units[0]["cargo"] = 8
+    looks = 0
+    while st.ship_stage == "boarding" and w.t < 60:
+        norway.shetland_step(w, m, st)
+        w.sleep(0.5)
+        looks += 1
+    assert st.ship_stage == "over"                          # gone once full,
+    assert w.t >= 3 * norway.SHIP_POLL                      # not with one man
+    assert any("unload 8 men" in l for l in w.lines)
+
+
+def test_the_mines_go_on_oslo_s_beacon():
+    """The owner (trial 64): more centred on the beacon."""
+    bx, by = norway.OSLO_BEACON
+    assert len(set(norway.OSLO_MINES)) == 15
+    assert norway.OSLO_MINES[0] == (bx, by)
+    assert all(abs(x - bx) <= 1.3 and abs(y - by) <= 0.7 for x, y in norway.OSLO_MINES)

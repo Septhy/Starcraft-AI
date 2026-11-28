@@ -247,12 +247,16 @@ class State:
         self.shetland_attacks = 0
         self.ship_stage, self.ship_next = "wait", -1e9
         self.ship_tries, self.ship_clear_at = 0, -1e9
+        self.ship_polls = self.ship_aboard = self.ship_unloads = 0
         self.drop_stage, self.drop_next = "wait", -1e9
         self.drop_key = self.vulture_key = None
         self.drop_ordered = self.drop_count = self.drop_looks = 0
         self.drop_boardings = 0
         self.drop_quiet = 0
-        self.drop_room, self.men_left = [], None
+        self.drop_full = set()          # Dropships (their place on the key) full
+        self.field_ship, self.field_ready = None, -1e9
+        self.field_tries = self.field_aboard = 0
+        self.army_called_home = False
         self.drop_board_at, self.drop_boardable = -1e9, True
         self.mine_stage, self.mine_next = "wait", -1e9
         self.mine_round = self.spawn_tries = self.vulture_count = 0
@@ -829,7 +833,9 @@ def attack_on_shetland(io, mapdata):
 SHIP_KEY = "0"
 SHIP_PICKUP = (151.0, 18.5)    # tile point it waits at, beside the army
 SHIP_FLIGHT = 20               # seconds from Oslo to there
-SHIP_BOARD = 6                 # seconds the men are given to walk in
+SHIP_BOARD = 4                 # seconds before the first look at who is aboard
+SHIP_POLL = 3                  # seconds between those looks
+SHIP_POLLS = 8                 # looks at most (about 25 s)
 SHIP_TRIES = 3                 # boardings tried
 SHIP_LATEST = 45               # seconds after Finland it goes even if
                                # Russia's Starport still stands
@@ -897,7 +903,19 @@ def shetland_step(io, mapdata, st):
         clear_modes(io)
         io.key(SHIP_KEY)
         io.sleep(0.15)
-        if live.move_shown(io.card()) and someone_aboard(io):
+        # how many are aboard, by their pictures on its card (trial 64:
+        # twelve men were told to board, one was in after 6 s, and it left
+        # with him alone): it waits until it is full, or nobody more has
+        # come in for a while
+        aboard = live.cargo_count(io.shot("ship", keep=False))
+        st.ship_polls += 1
+        if aboard < DROP_SEATS and st.ship_polls < SHIP_POLLS and \
+                (aboard > st.ship_aboard or st.ship_polls < 3):
+            st.ship_aboard = aboard
+            st.ship_next = now + SHIP_POLL
+            return
+        st.ship_aboard = aboard
+        if aboard and live.move_shown(io.card()) and someone_aboard(io):
             # the unload is given on the game screen, on the island's
             # beacon (the owner, after trial 62: the minimap is too coarse
             # for an island this small). The view first: with U asked, a
@@ -908,8 +926,9 @@ def shetland_step(io, mapdata, st):
             if live.placing_shown(io.card()):
                 io.click(*on_view(SHETLAND[0] / T, SHETLAND[1] / T, view))
                 io.sleep(0.05)
-                io.log("norway: the Dropship goes to unload on Shetland's "
-                       "beacon (a click on the island on the screen)")
+                io.log(f"norway: the Dropship goes to unload {aboard} men on "
+                       f"Shetland's beacon (a click on the island on the "
+                       f"screen)")
                 st.ship_stage, st.ship_next = "over", io.now() + SHETLAND_TRIP
                 return
         clear_modes(io)
@@ -920,12 +939,44 @@ def shetland_step(io, mapdata, st):
             st.ship_stage = "done"
         else:
             st.ship_stage = "flying"        # once more
+            st.ship_polls = st.ship_aboard = 0
     elif st.ship_stage == "over" and now >= st.ship_next:
         st.shetland_attacks += 1
         attack_on_shetland(io, mapdata)
         st.ship_next = io.now() + SHETLAND_EVERY
         if st.shetland_attacks >= SHETLAND_ATTACKS:
-            st.ship_stage = "done"
+            st.ship_stage = "back"
+            st.ship_next = io.now() + 2
+    elif st.ship_stage == "back" and now >= st.ship_next:
+        # the Dropship is saved (the owner, trial 64): anyone still aboard
+        # is put down on the beacon first; then it flies home to the other
+        # Dropships, to be repaired and loaded again
+        clear_modes(io)
+        io.key(SHIP_KEY)
+        io.sleep(0.15)
+        if not live.move_shown(io.card()):
+            st.ship_stage = "done"          # it is lost
+            io.log("norway: the Shetland Dropship is gone")
+            return
+        left = live.cargo_count(io.shot("ship", keep=False))
+        if left and st.ship_unloads < 2:
+            st.ship_unloads += 1
+            view = look(io, SHETLAND[0] / T, SHETLAND[1] / T)
+            io.key("u")
+            io.sleep(0.15)
+            if live.placing_shown(io.card()):
+                io.click(*on_view(SHETLAND[0] / T, SHETLAND[1] / T, view))
+                io.sleep(0.05)
+                io.log(f"norway: {left} still aboard the Dropship at "
+                       f"Shetland: unloaded on the beacon again")
+            clear_modes(io)
+            st.ship_next = io.now() + 8
+            return
+        io.click(*live.mm_point(*DROP_RALLY), button="right")
+        io.sleep(0.05)
+        io.log("norway: the Shetland Dropship flies home to the other "
+               "Dropships")
+        st.ship_stage = "done"
 
 
 # ----------------------------------------------------------------- the SCVs
@@ -1493,10 +1544,16 @@ DROP_ENOUGH = 9                # with this many out no more are ordered (the
                                # queue still holds some: nine to twelve)
 DROP_LOOKS = 40                # looks at most (twenty minutes)
 CENTRED_AT = trial.CENTRED_AT  # where Ctrl+C puts the selected unit
-DROP_RALLY = (155.5, 10.5)     # tile point they gather at: below the
-                               # Starport, clear of the army's waiting place
-                               # (a selection is twelve units at most, so the
-                               # box there should hold Dropships only)
+HOME_FIELD = (149.5, 33.5)     # tile point in Finland, north of the Barracks,
+                               # where the men gather to board (the owner:
+                               # home is by the Barracks, 149, 39)
+DROP_RALLY = (158.5, 31.5)     # tile point the Dropships wait at: nine tiles
+                               # east of the field, clear of the men (a
+                               # selection is twelve units at most, so a box
+                               # there should hold Dropships only)
+FIELD_FLIGHT = 4               # seconds a Dropship needs from there to the field
+FIELD_BOX = (5.0, 3.5)         # tiles round the Dropship boxed for its men
+FIELD_TRIES = 4                # boardings tried for one Dropship
 DROP_BOX = 3.0                 # tiles round it boxed to take them
 DROP_SEATS = 8                 # marines a Dropship holds
 LOAD_STEP = 6                  # seconds between two boardings (the men of the
@@ -1518,13 +1575,11 @@ SPAWN_RETRY = 10               # seconds between them
 OSLO_VIEW = (88.5, 51.5)       # tile point looked at for the mines
 OSLO_BEACON = (88.5, 51.9)     # tile point of Oslo's beacon (trial 63, off the
                                # screen)
-OSLO_MINES = [                 # tile points round it, on open ground (trial 63:
-    # "Must target passable terrain": spots lay under our Factory, which had
-    # not lifted, 83.5 to 87.5 west of the beacon, and on rocks)
-    (88.5, 49.6), (90.6, 50.6), (89.7, 53.9), (87.3, 53.9), (90.8, 52.0),
-    (87.3, 49.8), (89.7, 49.8), (88.5, 54.1), (90.5, 53.2), (88.5, 48.6),
-    (90.3, 49.2), (89.6, 54.9), (87.6, 48.6), (91.2, 54.0), (88.4, 55.0),
-]
+OSLO_MINES = [(OSLO_BEACON[0] + 0.6 * (c - 2), OSLO_BEACON[1] + 0.6 * (r - 1))
+              for r in (1, 0, 2) for c in (2, 1, 3, 0, 4)]
+                               # on the beacon itself, the middle first (the
+                               # owner, trial 64: more centred on it): five
+                               # across, three rows, 0.6 tiles apart
 MINE_SPOT_TRIES = 3            # spots tried for one mine when the game refuses
 MINE_ROUNDS = 3                # a Vulture carries three mines
 MINE_TRAVEL = 18               # seconds from the camp to Oslo
@@ -1616,9 +1671,10 @@ def order_dropships(io, st, n, quiet=False):
 
 
 def gather_dropships(io, st):
-    """The Dropships at their rally point boxed and added to their key
-    (those keyed before stay on it wherever they are). How many the key
-    holds."""
+    """The Dropships at their waiting place added to their key (those
+    keyed before stay on it wherever they are): a box there; one of its
+    Dropships picked alone and centred (Ctrl+C); Ctrl+click on it takes
+    every Dropship on the screen. How many the key holds."""
     clear_modes(io)
     view = look(io, *DROP_RALLY)
     a = on_view(DROP_RALLY[0] - DROP_BOX, DROP_RALLY[1] - DROP_BOX, view)
@@ -1628,8 +1684,20 @@ def gather_dropships(io, st):
     io.sleep(0.15)
     pic = io.shot("dropships", keep=False)
     n = live.frames_shown(pic)
+    got = 0
     if n >= 2:
-        got = kind_selected(io, "dropship", "dropships")
+        idx = live.frames_like(pic, n, "dropship")
+        if idx and len(idx) < n:
+            frame_click(io, idx[0], n)          # one alone, to the middle,
+            at = centre_on_selected(io)         # then all of its kind
+            io.click_with("ctrl", at[0], at[1])
+            io.sleep(0.15)
+            pic = io.shot("dropships", keep=False)
+            m = live.frames_shown(pic)
+            got = m if m >= 2 and len(live.frames_like(pic, m, "dropship")) == m \
+                else (1 if m < 2 else 0)
+        elif idx:
+            got = n
     else:                               # one unit alone: a Dropship has no
         got = 1 if live.move_shown(io.card()) and \
             not live.attack_shown(pic) else 0      # Attack button
@@ -1701,35 +1769,70 @@ def men_into(io, key, ship):
     return True
 
 
-def next_boarding(io, st):
-    """The next Dropship with room gets the men of the next army key that
-    still has some on the ground (kept count of: eight seats a Dropship,
-    each key's men as they were keyed; fewer after losses only means a
-    Dropship is counted full a little early). True if men were sent;
-    False when no Dropship has room or no men are left."""
-    n = st.drop_count
-    while len(st.drop_room) < n:
-        st.drop_room.append(DROP_SEATS)
-    if st.men_left is None:
-        st.men_left = {k: st.army_held.get(k) or 12 for k in st.army_keys}
-    for i in range(n):
-        if st.drop_room[i] <= 0:
-            continue
-        for key in st.army_keys:
-            if st.men_left.get(key, 0) <= 0:
-                continue
-            if not men_into(io, key, lambda i=i: one_dropship(io, st, i)):
-                st.men_left[key] = 0    # nobody of that key on the ground
-                continue
-            took = min(st.men_left[key], st.drop_room[i])
-            st.men_left[key] -= took
-            st.drop_room[i] -= took
-            st.drop_boardings += 1
-            io.log(f"norway: the men on key {key} board Dropship "
-                   f"{i + 1} of {n}")
-            return True
-        return False                    # nobody left on the ground
-    return False
+def load_step(io, st):
+    """One step of loading the Dropships, at the field in Finland where
+    the men gather (the owner, trial 64: not all of them were loaded:
+    only the starting army, by its keys, was ever sent aboard). One
+    Dropship at a time comes over the field; the men round it are boxed
+    (any Dropship or SCV taken out of the box) and sent into it; when its
+    card shows it full, or nobody more comes, it flies back to its
+    waiting place and the next one comes. True if something was done;
+    False when every Dropship is full or no men are left at the field."""
+    now = io.now()
+    waiting = [i for i in range(st.drop_count) if i not in st.drop_full]
+    if not waiting:
+        return False
+    i = st.field_ship if st.field_ship in waiting else waiting[0]
+    clear_modes(io)
+    if st.field_ship != i:
+        if not one_dropship(io, st, i):
+            return False
+        io.click(*live.mm_point(*HOME_FIELD), button="right")
+        io.sleep(0.05)
+        st.field_ship, st.field_tries, st.field_aboard = i, 0, 0
+        st.field_ready = now + FIELD_FLIGHT
+        return True
+    if now < st.field_ready:
+        return True                     # on its way to the field
+    if not one_dropship(io, st, i):
+        st.field_ship = None
+        return False
+    aboard = live.cargo_count(io.shot("ship", keep=False))
+    full = aboard >= DROP_SEATS
+    stuck = st.field_tries >= FIELD_TRIES or \
+        (st.field_tries >= 2 and aboard == st.field_aboard)
+    if full or (stuck and aboard):
+        st.drop_full.add(i)
+        io.click(*live.mm_point(*DROP_RALLY), button="right")
+        io.sleep(0.05)
+        io.log(f"norway: Dropship {i + 1} of {st.drop_count} has {aboard} "
+               f"aboard and goes back to wait")
+        st.field_ship = None
+        return True
+    if stuck:
+        st.field_tries = 2              # (nobody came: looked at again later)
+        return False                    # no men at the field just now
+    st.field_aboard = aboard
+    at = centre_on_selected(io)
+    l, t, r, b = live.GAME_AREA
+    w, h = FIELD_BOX[0] * live.TILE_PX, FIELD_BOX[1] * live.TILE_PX
+    io.drag(int(max(l + 4, at[0] - w)), int(max(t + 4, at[1] - h)),
+            int(min(r - 4, at[0] + w)), int(min(b - 4, at[1] + h)))
+    io.sleep(0.15)
+    pic = io.shot("field", keep=False)
+    n = live.frames_shown(pic)
+    if n >= 2:
+        men, _ = army_only(io, pic, n)
+    else:                               # one unit: the Dropship itself, or a man
+        men = 1 if live.move_shown(io.card()) and live.attack_shown(pic) else 0
+    st.field_tries += 1
+    st.field_ready = io.now() + LOAD_STEP
+    if not men:
+        return True                     # (looked at again: they may be walking in)
+    io.click(at[0], at[1], button="right")
+    io.sleep(0.05)
+    st.drop_boardings += 1
+    return True
 
 
 def loaded_dropships(io, st):
@@ -1769,6 +1872,13 @@ def dropships_step(io, mapdata, st, t0):
         n = gather_dropships(io, st)
         if n != before:
             io.log(f"norway: {n} Dropships out, on key {st.drop_key}")
+        if n and not st.army_called_home:
+            # the army walks to the field in Finland where they are loaded
+            st.army_called_home = True
+            order_army(io, st, (HOME_FIELD[0] * T, HOME_FIELD[1] * T),
+                       attack=False)
+            io.log("norway: the army walks to the loading field in Finland "
+                   f"({HOME_FIELD[0]:.0f}, {HOME_FIELD[1]:.0f})")
         st.drop_boardable = True            # (new ones may be out)
         if n < DROP_ENOUGH - 1 and st.drop_looks < DROP_LOOKS:
             # (the queue holds five: with seven out and three more asked
@@ -1784,8 +1894,8 @@ def dropships_step(io, mapdata, st, t0):
         st.drop_board_at = io.now() + 1
         return
     if st.drop_count and now >= st.drop_board_at and st.drop_boardable:
-        st.drop_board_at = now + LOAD_STEP
-        if not next_boarding(io, st):
+        st.drop_board_at = now + 1.5
+        if not load_step(io, st):
             st.drop_boardable = False       # all full, or no men left: until
         return                              # the next look
     if now >= st.drop_next and st.drop_stage == "loading":
@@ -1852,8 +1962,8 @@ def take_vultures(io, st):
     return n
 
 
-CAMP_HOME = (149.0, 36.0)      # tile point the camp's troops walk to: Finland,
-                               # by the Barracks (the owner: home is 149, 39)
+CAMP_HOME = HOME_FIELD         # where the camp's troops walk to: the field in
+                               # Finland where the Dropships are loaded
 CAMP_BOXES = [(dx, dy) for dy in (-3.5, 0, 3.5) for dx in (-7, 0, 7)]
 CAMP_BOX = (7, 3.5)            # tiles
 CAMP_PASSES = 2                # a box takes twelve at most: twice over

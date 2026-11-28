@@ -898,3 +898,45 @@ at the camp is boxed (nine boxes, twice over) and sent to Finland, by
 the Barracks, 4 s are waited, then the mines; mine spots round Oslo's
 beacon (88.5, 51.9) on open ground, and a spot the game refuses is
 followed by the next.
+
+## Trial 64 (build 3bfe3d8, 5 min 43 s)
+
+Worked: 38 men, Finland clear at 72 s (the owner: a bit too close);
+buildings down with one click each; twelve depots by 159 s; no
+Dropship cancelled any more (3 out at 163 s, 7 at 231 s); 5 Vultures
+keyed, the camp cleared round them, three rounds of mines ordered.
+
+What the recording showed on the owner's points:
+
+- Shetland: one marine was aboard. Twelve were told to board; the bot
+  looked after 6 s, found someone in, and left. He died on the beacon.
+  The Dropship then stood off the east shore for the rest of the game.
+- Not every Dropship loaded: 5 of 7. Only the starting army, by its
+  keys, was sent aboard; the new troops sent to Finland are on no key.
+- No Dropships after the seventh: 250 minerals, no money.
+- The mines lay in a ring 2 to 3 tiles from Oslo's beacon.
+
+Changed:
+
+- The bot starts by itself when a game begins (the minimap up and the
+  game clock at most 8 s; looked for five times a second, only with the
+  game in front). F9 only stops it. A "Start now" button is there in
+  case a game is not noticed. After a game it does not start again
+  until that game's first seconds are past.
+- The Shetland Dropship: who is aboard is counted on its card (a new
+  reader, checked on pictures with 0, 1, 3 and 4 aboard); it leaves
+  when it is full or nobody more has come for two looks (3 s apart,
+  about 25 s at most). After the fight anyone still aboard is put down
+  on the beacon again, and it flies home to the other Dropships.
+- Home: the men gather at a field in Finland north of the Barracks
+  (149.5, 33.5); the camp's troops and, once the first Dropship is
+  out, the army walk there. The Dropships wait nine tiles east of it
+  (158.5, 31.5: the Starport's rally point) and are put on their key
+  there by Ctrl+click on one (every Dropship on the screen).
+- Loading: one Dropship at a time flies over the field; it is centred
+  with Ctrl+C, the men round it boxed (Dropships and SCVs taken out of
+  the box by their pictures) and sent into it; when its card shows
+  eight, or nobody more comes, it goes back to wait and the next comes.
+  No number keys are needed, so the new troops are loaded as well.
+- The mines: fifteen spots on the beacon itself, the middle first, 0.6
+  tiles apart.
