@@ -384,3 +384,26 @@ own pixels left out); fewer than 10 two counts in a row, from 8 s into
 the dogfight, and the fleet goes home, also when it has met no enemy
 (before, the ground under it was only judged once it had). The same is
 looked at when a dogfight ends.
+
+## The owner's answers after trial 40
+
+Russia:
+1. The first hit may vary: the present one stays, and a first-minute
+   variant (as in the replays) is added that happens now and then.
+2. The massing place as the line to form up on is fine as it is (a
+   player can ask Russia to mass elsewhere).
+3. Russia is meant to grind the enemy down with mass marine hits; the
+   third hit of trial 40 is what is expected. What matters is how fast
+   the units are boxed and sent: wanted is more speed there.
+4. No ground orders while the air is fighting (the rule stands).
+
+Norway:
+- No recording of a full Dropship cycle; one with Firebats and
+  Battlecruisers will be tried.
+- Kerrigans are among the reinforcements at the camp; Siege Tanks too,
+  and tanks also come out at Factory 4.
+
+Where a box's time goes now (trial 40, hit 2): the drag 0.16 s, a look
+at what it took (a screenshot: for Scouts and empty boxes) about 0.15 s,
+A and the click 0.2 s, a pause 0.25 s: about 0.55 s a box, six men a
+box; 0.6 s a screen before its first box; 12 screens.
