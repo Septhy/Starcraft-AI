@@ -751,3 +751,29 @@ Open, and to be seen in the next recording:
 - Whether four SCVs and the money before the first tax (900, less 200
   for the SCVs: seven depots) get twelve depots up before the
   reinforcements need the supply.
+
+## Trial 61 (build b4cd9ab): Finland not taken
+
+Stopped by the owner at 84 s. The orders to the army were the same as in
+trial 60, each 0.3 to 0.6 s later (the two extra SCVs ordered, and four
+taken instead of two). The fight went differently:
+
+| | Trial 60 | Trial 61 |
+|---|---|---|
+| First bunker down | 48.4 s (the west one) | 49.0 s (the east one) |
+| Second bunker down | 52.6 s | 55.6 s |
+| Largest group still alive at 48 to 55 s | 8 | 4 |
+| Last turret | 63.6 s | still standing at 84 s |
+| Finland clear | 66.9 s | not |
+
+In trial 61 the second bunker took 6.6 s instead of 4.2, with more men
+lost under it; about eight men were left at 60 s, the German army came
+(after about 63 s) and none was left at 72 s, the last turret standing.
+Both games were close: in trial 60 five men were left at 60 s. Nothing
+in the attack was changed between the builds; the margin is too thin
+(Finland clear at 66 to 72 s in the trials so far, the owner's mark 63).
+
+Changed after it: in an attack on buildings in turn, every key now gets
+its first target before any key gets the rest of its chain (a key's
+whole chain takes 1.2 s to give, so the second and third keys used to
+set off 1.2 and 2.4 s after the first).

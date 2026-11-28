@@ -2023,24 +2023,32 @@ def clear_buildings(io, watch, mapdata, st, picture):
     # fall together (the owner, trial 51: all of Finland by about 63 s, or
     # the German army comes); while a bunker stands, all on the same one
     split = not any(k == "Bunker" for k, x, y in left)
-    for n, key in enumerate(st.army_keys):
-        io.key(key)
-        io.sleep(0.05)
-        # (two groups, the keys taking turns: trial 52, one turret a key
-        # left the smallest key alone on the farthest turret till 69 s)
-        start = (n % 2) * (len(chain) // 2) if split else 0
-        mine = chain[start:] + chain[:start]
-        for i, (kind, x, y) in enumerate(mine):
-            point = live.minimap_point(x, y)
-            if i == 0:
-                io.key("a")
+    # Every key gets its first target before any key gets the rest
+    # (trial 61: a key's whole chain took 1.2 s to give, so the second
+    # and third keys set off for the bunker 1.2 and 2.4 s after the
+    # first, and the army went in piece by piece)
+    for queued in (False, True):
+        for n, key in enumerate(st.army_keys):
+            # (two groups, the keys taking turns: trial 52, one turret a
+            # key left the smallest key alone on the farthest turret till
+            # 69 s)
+            start = (n % 2) * (len(chain) // 2) if split else 0
+            mine = chain[start:] + chain[:start]
+            if queued and len(mine) < 2:
+                continue
+            io.key(key)
+            io.sleep(0.05)
+            for i, (kind, x, y) in enumerate(mine):
+                point = live.minimap_point(x, y)
+                if i == 0 and not queued:
+                    io.key("a")
+                    io.sleep(0.03)
+                    io.click(*point)
+                elif i and queued:
+                    io.combo("shift", "a")
+                    io.sleep(0.03)
+                    io.click_with("shift", *point)
                 io.sleep(0.03)
-                io.click(*point)
-            else:
-                io.combo("shift", "a")
-                io.sleep(0.03)
-                io.click_with("shift", *point)
-            io.sleep(0.03)
     io.log("norway: the army attacks Germany's buildings in turn: " + ", ".join(
         f"{k} {x // T},{y // T}" for k, x, y in chain))
     return len(st.army_keys)

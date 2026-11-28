@@ -479,6 +479,10 @@ def test_germany_s_buildings_are_attacked_in_one_chain(monkeypatch):
     n = norway.CHAIN_LONGEST
     assert len(queued) == 2 * (n - 1)
     assert game.combos.count(("shift", "a")) == 2 * (n - 1)
+    # trial 61: every key gets its first target before any key gets the
+    # rest of the chain, so the whole army sets off together
+    kinds = [c[2] for c in game.clicks]
+    assert kinds[:2] == ["left", "left"] and set(kinds[2:]) == {"shift"}
     # trial 49: the bunkers and the turrets before anything else
     assert all(k in norway.FIRST_KINDS for k, x, y in st.chain)
     game.t += 2
