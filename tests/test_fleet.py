@@ -1199,40 +1199,67 @@ def test_the_fleet_is_found_by_a_scout_s_picture_and_ctrl_c(monkeypatch):
     assert trial.where_is_fleet(io, st) is None and not io.combos
 
 
-def test_a_single_fleet_key_has_its_view_put_back_before_the_click(monkeypatch):
+def test_a_single_fleet_key_is_not_pressed_twice_running(monkeypatch):
+    """The key of what is selected already makes the game jump the view
+    to it. One fleet key alone: pressed for the first order after the
+    fleet was looked for, not again for the next."""
     st = trial.State()
     st.air_keys = ["9"]
-    st.dogfight_cam, st.dogfight_look = (4000, 2000), (4000, 2000)
+    st.dogfight_cam = (4000, 2000)
     io = StubIO()
     trial.order_fleet(io, st, (900, 400))
-    kinds = [(c[2], c[1] > 800) for c in io.clicks]
-    assert kinds == [("left", True), ("right", False)]   # the minimap, then the hop
-    st.air_keys = ["9", "0"]                             # two keys take turns: no need
+    trial.order_fleet(io, st, (950, 420))
+    assert io.keys.count("9") == 1 and len(io.clicks) == 2
+    st.air_selected = False                 # (the fleet was looked for again)
+    trial.order_fleet(io, st, (900, 400))
+    assert io.keys.count("9") == 2
+    st.air_keys = ["9", "0"]                # two keys take turns: always pressed
     io = StubIO()
     trial.order_fleet(io, st, (900, 400))
-    assert [c[2] for c in io.clicks] == ["right", "right"]
+    trial.order_fleet(io, st, (900, 400))
+    assert io.keys.count("9") == 2 and io.keys.count("0") == 2
 
 
-def test_the_fleet_goes_home_when_the_hit_is_gone(monkeypatch):
-    """Trial 40 (the owner): the third hit was wiped out and the fleet
-    stayed out a minute over empty ground. With hardly any ground troops
-    of ours forward any more, two counts in a row, it goes home; also
-    when it has not met an enemy."""
+def test_the_remembered_scout_picture_is_read_again_when_it_fails(monkeypatch):
+    io, st = find_setup(monkeypatch, {"9": ["artillery"] + ["scout"] * 3})
+    assert trial.where_is_fleet(io, st) is not None
+    shots = []
+    io.shot = lambda label, keep=True: shots.append(label) or io
+    assert trial.where_is_fleet(io, st) is not None
+    assert "fleet-find" not in shots        # the picture was remembered
+    # a Scout dies and the artillery's picture is where the Scout's was
+    io.groups["9"] = ["scout", "artillery", "scout"]
+    st.air.scout_at["9"] = (1, 3)
+    shots.clear()
+    assert trial.where_is_fleet(io, st) is not None and io.one == "scout"
+    assert "fleet-find" in shots            # read afresh
+
+
+def test_hops_keep_out_of_the_axis_turrets_reach():
     m = trial.load_map()
-    real = trial.hit_gone
-    fleet = trial.live.CENTRE
+    turrets = trial.axis_turrets(m)
+    assert len(turrets) >= 20
+    tx, ty = turrets[0]
+    spot = trial.off_turrets((tx + 2 * 32, ty + 1 * 32), m)
+    assert all((spot[0] - x) ** 2 + (spot[1] - y) ** 2 >= (trial.AA_KEEP * 32 - 1) ** 2
+               for x, y in turrets) or \
+        (spot[0] - tx) ** 2 + (spot[1] - ty) ** 2 >= (trial.AA_KEEP * 32 - 1) ** 2
+    far = (trial.MASS[0], trial.MASS[1])
+    assert trial.off_turrets(far, m) == far
+
+
+def test_with_nothing_near_the_fleet_waits_behind_the_front_by_a_move(monkeypatch):
+    """The owner: nothing to shoot and the hit alive: the fleet loiters
+    slightly behind the front. A plain move, no attack-move ahead."""
+    m = trial.load_map()
+    fleet = trial.CENTRED_AT
     st, io = fight_setup(monkeypatch, [(fleet, [])] * 400)
-    monkeypatch.setattr(trial, "QUIET_END", 10 ** 6)
-    monkeypatch.setattr(trial, "hit_gone", lambda w, pic, m_, xy: True)
-    trial.dogfight(io, None, m, st, "Warsaw 200")
-    assert st.air.state == "parked"
-    assert io.t - 100 <= trial.HIT_GONE_AFTER + 3 * trial.COUNT_EVERY + 3
-    assert any("the fleet goes home" in l for l in io.lines)
-    # the real measure: forward of the mass, the Scouts' own pixels left out
-    from tests.test_trial import StubWatch, blob
-    front = (trial.MASS[0] - 40 * 32, trial.MASS[1])
-    assert real(StubWatch(blob(trial.MASS, 6), set()), "pic", m, front)     # all at the mass
-    assert real(StubWatch(blob(front, 2), set()), "pic", m, front)    # only the fleet
-    army = blob((front[0] - 6 * 32, front[1] + 5 * 32), 8)
-    assert not real(StubWatch(army, set()), "pic", m, front)
-    assert real(None, "pic", m, front) is None
+    front = (trial.MASS[0] - 30 * 32, trial.MASS[1])
+    monkeypatch.setattr(trial, "army_anchor", lambda w, pic, goal: front)
+    amoves = []
+    monkeypatch.setattr(trial, "attack_move", lambda *a: amoves.append(a))
+    monkeypatch.setattr(trial, "DOGFIGHT_TIME", 12)
+    n = trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert n >= 1 and not amoves and "a" not in io.keys
+    rights = [c for c in io.clicks if c[2] == "right"]
+    assert rights and len(rights) <= 2 * 9          # one order a look, both keys

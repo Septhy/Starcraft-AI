@@ -5490,6 +5490,8 @@ class AirStats:
         self.upkeeps = 0
         self.last_upkeep = now
         self.finds, self.find_time, self.find_misses = 0, 0.0, 0
+        self.find_pic = None           # the picture of the last find
+        self.scout_at = {}             # fleet key -> (a Scout's picture, of n)
 
     def order(self, kind, now):
         self.orders[kind] = self.orders.get(kind, 0) + 1
@@ -5591,39 +5593,61 @@ def where_is_fleet(io, st, quiet=False):
     """The fleet's place (a map point), from the game: a fleet key, one
     Scout's small picture clicked, Ctrl+C, and the white box on the
     minimap read. None if no key shows a Scout, or none is seen where the
-    view lands. Leaves one Scout selected: orders press the keys again."""
+    view lands. Leaves one Scout selected: orders press the keys again.
+    The picture taken once the view has jumped is kept (air_stats
+    .find_pic): the Scout is in its middle, so the fight is read off it.
+    Which small picture was a Scout is remembered for each key, so the
+    key's pictures are only read again when that one fails."""
     a = air_stats(io, st)
+    a.find_pic = None
+    st.air_selected = False             # (one Scout is selected after this)
     t0 = io.now()
     for key in st.air_keys:
-        io.key(key)
-        io.sleep(0.08)
-        pic = io.shot("fleet-find", keep=False)
-        if pic is None:
-            return None
-        n, scouts = scout_pictures(pic)
-        if not scouts:
-            continue                    # its artillery alone, or nothing
-        x0, y0, x1, y1 = live.frame_box(scouts[0], n)
-        x, y = (x0 + x1) // 2, (y0 + y1) // 2
-        if getattr(io, "hover", None) is not None:
-            io.hover(x, y)
-            io.sleep(FIND_HOVER)
-        io.click(x, y)
-        io.sleep(0.08)
-        io.combo("ctrl", "c")
-        io.sleep(0.12)
-        pic = io.shot("fleet-found", keep=False)
-        mid = live.camera_from_minimap(pic) if pic is not None else None
-        if mid is None:
-            continue
-        if not gold_on_screen(pic, CENTRED_AT[0], CENTRED_AT[1], FIND_GOLD):
+        mid = pic = None
+        for attempt in (0, 1):
+            io.key(key)
+            io.sleep(0.05)
+            known = a.scout_at.get(key) if attempt == 0 else None
+            remembered = known is not None
+            if known is None:
+                look = io.shot("fleet-find", keep=False)
+                if look is None:
+                    return None
+                n, scouts = scout_pictures(look)
+                if not scouts:
+                    a.scout_at.pop(key, None)
+                    break               # its artillery alone, or nothing
+                known = a.scout_at[key] = (scouts[0], n)
+            x0, y0, x1, y1 = live.frame_box(*known)
+            x, y = (x0 + x1) // 2, (y0 + y1) // 2
+            if getattr(io, "hover", None) is not None:
+                io.hover(x, y)
+                io.sleep(FIND_HOVER)
+            io.click(x, y)
+            io.sleep(0.05)
+            io.combo("ctrl", "c")
+            io.sleep(0.1)
+            pic = io.shot("fleet-found", keep=False)
+            at = live.camera_from_minimap(pic) if pic is not None else None
+            if at is not None and \
+                    gold_on_screen(pic, CENTRED_AT[0], CENTRED_AT[1], FIND_GOLD):
+                mid = at
+                break
+            if remembered:
+                # not a Scout in the middle: the remembered picture was
+                # wrong (Scouts lost, the pictures moved up): read afresh
+                a.scout_at.pop(key, None)
+                continue
             if not a.find_misses:
                 io.shot("fleet-not-centred")    # (kept once, to see why)
             a.find_misses += 1
+            break
+        if mid is None:
             continue
         took = io.now() - t0
         a.finds += 1
         a.find_time += took
+        a.find_pic = pic
         moved = a.seen is None or \
             abs(mid[0] - a.seen[0][0]) + abs(mid[1] - a.seen[0][1]) > 8 * 32
         a.seen = (mid, io.now())
@@ -5633,6 +5657,47 @@ def where_is_fleet(io, st, quiet=False):
                    f"{took:.2f} s)")
         return mid
     return None
+
+
+def view_centred_on(xy):
+    """The camera (as live.on_screen takes it) of the view Ctrl+C gives
+    with the unit at map point `xy` selected: that unit at CENTRED_AT."""
+    return (xy[0] - (CENTRED_AT[0] - live.CENTRE[0]) / live.ZOOM,
+            xy[1] - (CENTRED_AT[1] - live.CENTRE[1]) / live.ZOOM)
+
+
+AA_KEEP = 8                    # tiles the fleet's hops keep from an Axis Missile
+                               # Turret the map starts with (its reach is 7)
+LOITER_BACK = 3                # tiles behind our army's front the fleet waits
+LOITER_NEAR = 2                # tiles from that spot: near enough, no order
+_turrets = None
+
+
+def axis_turrets(mapdata):
+    """The Missile Turrets the Axis starts with (map points). Some may be
+    destroyed by now: then the fleet is only more careful than it need be."""
+    global _turrets
+    if _turrets is None:
+        _turrets = [(b["x"], b["y"]) for slot in HOSTILE
+                    for b in mapdata["slots"].get(str(slot), {}).get("buildings", [])
+                    if b["type"] == "Missile Turret"]
+    return _turrets
+
+
+def off_turrets(spot, mapdata, keep=AA_KEEP):
+    """A map point moved out of every Axis turret's reach (pushed straight
+    out from the turret it is nearest to, a few times over)."""
+    x, y = spot
+    r = keep * 32
+    for _ in range(3):
+        near_ = [(tx, ty) for tx, ty in axis_turrets(mapdata)
+                 if (x - tx) ** 2 + (y - ty) ** 2 < r * r]
+        if not near_:
+            break
+        tx, ty = min(near_, key=lambda t: (x - t[0]) ** 2 + (y - t[1]) ** 2)
+        d = ((x - tx) ** 2 + (y - ty) ** 2) ** 0.5 or 1.0
+        x, y = tx + (x - tx) / d * (r + 16), ty + (y - ty) / d * (r + 16)
+    return (x, y)
 
 
 def locate_fleet(io, st):
@@ -5721,7 +5786,8 @@ def air_upkeep(io, watch, mapdata, st):
 # it goes home.
 DOGFIGHT = True                # the dogfight after each hit
 DOGFIGHT_TIME = 60             # seconds the bot works the air at most
-TICK = 0.35                    # seconds between orders within a burst
+LOITER_LOOK = 1.5              # seconds between looks while there is nothing near
+TICK = 0.12                    # seconds between orders within a burst
 BURST = 6                      # orders in a burst, then a short pause
 BURST_PAUSE = 1.0              # seconds of looking between bursts
 HOP = 2                        # tiles a hop goes toward the enemy
@@ -5821,21 +5887,19 @@ def order_fleet(io, st, screen_point, hold=False):
         else:
             x = min(max(x, l + 30), r - 30)
             y = min(max(y, t + 30), b - 30)
-    again = getattr(st, "dogfight_look", None) if len(st.air_keys) == 1 \
-        else None
+    # (one key alone would be pressed twice running, and the key of what
+    # is selected already makes the game jump the view to it: once it is
+    # selected it is not pressed again until something else was)
+    single = len(st.air_keys) == 1
     for key in st.air_keys:
-        io.key(key)
-        io.sleep(0.02)
-        if again is not None:
-            # (one key alone is pressed twice running, and the key of what
-            # is selected already makes the game jump the view to it: the
-            # view is put back before the click)
-            io.click(*live.minimap_point(*again))
-            io.sleep(0.06)
+        if not (single and getattr(st, "air_selected", False)):
+            io.key(key)
+            io.sleep(0.02)
         io.click(x, y, button="right")
         if hold:
             io.sleep(0.12)
             io.key("h")
+    st.air_selected = single
     io.sleep(0.02)
 
 
@@ -6045,40 +6109,30 @@ def dogfight(io, watch, mapdata, st, target):
     gone = 0                              # counts in a row with the hit gone
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
-        st.dogfight_look = centred(*fleet_xy)
-        cam = look_at(io, *st.dogfight_look, wait=0.1)
-        st.dogfight_cam = cam
-        pic = io.shot("dogfight", keep=False)
+        # Every look asks the game where the fleet is (phase 2; trial 40:
+        # looked for by its gold colour, it was "seen" where it was not,
+        # and ordered to one spot for a minute). Ctrl+C puts a Scout in
+        # the middle of the view, and the fight is read off that picture.
+        found = where_is_fleet(io, st, quiet=True)
+        if found is None:
+            unseen += 1
+            if unseen >= FIND_TRIES:
+                why = "the fleet is out of sight (no Scout found on its keys)"
+                break
+            io.sleep(TICK)
+            continue
+        fleet_xy = found
+        cam = view_centred_on(fleet_xy)
+        st.dogfight_cam, st.dogfight_look = cam, None
+        pic = a.find_pic or io.shot("dogfight", keep=False)
         if pic is None:
             break
-        guess = live.on_screen(fleet_xy[0], fleet_xy[1], cam)
-        fleet, enemies = sense_fight(pic, guess, own_buildings_on_screen(cam))
+        fleet, enemies = sense_fight(pic, CENTRED_AT,
+                                     own_buildings_on_screen(cam))
         if fleet is None:
-            # not where it was thought to be: the game is asked (trial 39:
-            # three dogfights in four ended here, the fleet "out of
-            # sight", after guesses at where it should be by now)
-            found = where_is_fleet(io, st)
-            if found is None:
-                unseen += 1
-                if unseen >= FIND_TRIES:
-                    why = "the fleet is out of sight (no Scout found on its keys)"
-                    break
-                io.sleep(TICK)
-                continue
-            fleet_xy = found
-            st.dogfight_look = centred(*fleet_xy)
-            cam = look_at(io, *st.dogfight_look, wait=0.1)
-            st.dogfight_cam = cam
-            pic = io.shot("dogfight", keep=False)
-            if pic is None:
-                break
-            guess = live.on_screen(fleet_xy[0], fleet_xy[1], cam)
-            fleet, enemies = sense_fight(pic, guess,
-                                         own_buildings_on_screen(cam))
-            if fleet is None:
-                fleet = guess           # (one or two Scouts: too few to be
-                                        # told from lamps, but Ctrl+C put
-                                        # one of them there)
+            fleet = CENTRED_AT          # (one or two Scouts: too few to be
+                                        # told from lamps by their colour,
+                                        # but one of them is there)
         unseen, seen_at = 0, io.now()
         fleet_xy = screen_to_map(fleet[0], fleet[1], cam)
         origin = fleet_xy                   # a later search starts here
@@ -6142,16 +6196,16 @@ def dogfight(io, watch, mapdata, st, target):
             if fought and quiet >= QUIET_END:
                 why = "no enemy left near the fleet"
                 break
-            # nothing near: on with the army, a few tiles over its front
-            ahead = clamp_to(toward(anchor, goal, 3), anchor, ANCHOR_REACH)
-            if hops % 3 == 0:
-                for key in st.air_keys:
-                    io.key(key)
-                    io.sleep(0.02)
-                    attack_move(io, *ahead)
+            # nothing near: the fleet waits slightly behind our army's
+            # front (the owner), by a plain move, clear of the turrets
+            wait_at = off_turrets(toward(anchor, MASS, LOITER_BACK)
+                                  if anchor != fleet_xy else fleet_xy, mapdata)
+            if (wait_at[0] - fleet_xy[0]) ** 2 + (wait_at[1] - fleet_xy[1]) ** 2 \
+                    > (LOITER_NEAR * 32) ** 2:
+                order_fleet(io, st, live.on_screen(wait_at[0], wait_at[1], cam))
                 orders += 1
             hops += 1
-            io.sleep(BURST_PAUSE)
+            io.sleep(LOITER_LOOK)
             continue
         fought, quiet = True, 0
         e = close[0]
@@ -6197,16 +6251,11 @@ def dogfight(io, watch, mapdata, st, target):
                               HOP)
             else:                           # to the edge of the enemy
                 spot = toward(fleet_xy, e_xy, min(HOP, dist - STANDOFF))
-            spot = clamp_to(spot, anchor, ANCHOR_REACH)
+            spot = off_turrets(clamp_to(spot, anchor, ANCHOR_REACH), mapdata)
             hops += 1
             order_fleet(io, st, live.on_screen(spot[0], spot[1], cam),
                         hold=hops % HOLD_EVERY == 0)
-        burst += 1
-        if burst >= BURST:
-            burst = 0
-            io.sleep(BURST_PAUSE)           # a look between bursts
-        else:
-            io.sleep(TICK)
+        io.sleep(TICK)                      # (the next look is the pause)
     scanner.close()
     io.log(f"dogfight: {orders} orders in {io.now() - start:.0f} s "
            f"({why})")
