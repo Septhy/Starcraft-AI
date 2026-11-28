@@ -335,3 +335,44 @@ cities taxed.
 | Air phase 5 | Optional: a recording of an opening air strike by hand. |
 | Air phases 6, 7 | A test game each (20 minutes or more for phase 7). |
 | Any time | More replays of strong Russia play; a recording of good air play from the player's own screen. |
+
+# Trial 40 (build f514f2c, 13.6 minutes): phase 1 in a game, and the hits
+
+Phase 1: the fleet was found by Ctrl+C on a Scout 11 times, 0.81 s
+each, never missed; no dogfight ended "out of sight". The small
+pictures told 11 Scouts and the artillery on key 9 rightly. But the
+fights were still lost (4 Scouts to 2 in 20 s; 7 to 2), and in the
+third (61 s, 42 orders) the fleet stood over our own ground with no
+enemy near, ordered to one spot on the minimap again and again: inside
+a fight the fleet is still looked for by its gold colour, and the game
+is only asked when none is seen. Phase 2 asks at every look.
+
+The three hits (measured in the log):
+
+| | Hit 1 | Hit 2 | Hit 3 |
+|---|---|---|---|
+| Mass ready | 62 s | 272 s | 655 s |
+| Main boxes sent | 27 s, 25 boxes | 43 s, 56 boxes | 42 s, 49 boxes |
+| Leftovers after the fleet is sent | 18 s, 11 boxes | 24 s, 14 boxes | 21 s, 9 boxes |
+| Scouts taken out of boxes (clicks) | 5 | 21 | 24 (about 6 s) |
+| Dogfight (no ground orders) | 22 s | 17 s | 61 s |
+| From ready to done | 67 s | 83 s | 123 s |
+| Units a box | 6.6 | 6.0 | 6.5 |
+| Outcome | lost | lost | lost (supply 194 to 25 in a minute) |
+
+Germany's kills rose by about 230 during the third hit; three of its
+Battlecruisers were seen at the front in the second.
+
+The best player's replays, measured the same way: there are no separate
+hits. Every minute 50 to 200 units get an order forward (the bot: none
+between hits); a unit gets 4 to 5 forward orders in its life (the bot:
+one); 130 to 190 units go forward in the first minute (the bot's first
+hit leaves at 62 to 129 s); orders go to a dozen units at a time (the
+bot's boxes hold six); plain moves go to a line 34 to 47 tiles from the
+mass, attack-moves 49 to 63 tiles: up to a line first, then in.
+
+To do (with the owner's answers): Scouts caught in a ground box are
+sent with it, not taken out; no long tail of leftover boxes; boxes of a
+dozen; the army moved to a line near the front and sent in from there
+together; orders forward every minute and to the units at the front
+again; ground orders during the dogfight.
