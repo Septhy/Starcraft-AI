@@ -916,6 +916,8 @@ class World:
         self.building_keys = {}         # number key -> a building on it
         self.rally = None               # where the Starport's Dropships gather
         self.jumps = True               # a key pressed twice moves the view
+        self.queue = []                 # when each Dropship in the making is out
+        self.build_time = 31.0
 
     # -- time and the log
     def now(self):
@@ -923,6 +925,13 @@ class World:
 
     def sleep(self, s):
         self.t += s
+        while self.queue and self.queue[0] <= self.t:
+            self.queue.pop(0)
+            at = self.rally or (156, 9)
+            n = sum(u["kind"] == "dropship" for u in self.units)
+            self.units.append(dict(kind="dropship", x=at[0] + 1 + 0.4 * (n % 5),
+                                   y=at[1] + 1 + 0.4 * (n // 5), busy=0.0,
+                                   inside=False))
 
     def log(self, text):
         self.lines.append(text)
@@ -1051,7 +1060,7 @@ class World:
             self.units[self.sel[0]]["busy"] = self.t + 14.0   # walks, then builds
             self.mode = None
             return
-        if self.mode in ("repair", "attack", "mine"):
+        if self.mode in ("repair", "attack", "mine", "unload"):
             self.orders.append((self.mode, tuple(self.sel), self._tile(x, y)))
             self.mode = None
             return
@@ -1070,6 +1079,14 @@ class World:
             if held == "shift" and self.mode == "attack":
                 self.orders.append(("attack", tuple(self.sel), self._tile(x, y)))
                 self.mode = None
+            elif held == "ctrl" and y < 760:
+                j = self._unit_at(x, y)     # every unit of its kind on the screen
+                if j is not None:
+                    kind = self.units[j]["kind"]
+                    self.sel = [k for k, u in enumerate(self.units)
+                                if u["kind"] == kind and not u["inside"]
+                                and 0 <= u["x"] - self.view[0] <= 26.6
+                                and 0 <= u["y"] - self.view[1] <= 10.5][:12]
             return
         if held == "shift":
             del self.sel[i]
@@ -1093,12 +1110,8 @@ class World:
             if self.sel:
                 self.mode = "attack"
         elif name == "d":
-            if self.building == "Starport":
-                at = self.rally or (156, 9)
-                n = sum(u["kind"] == "dropship" for u in self.units)
-                self.units.append(dict(kind="dropship", x=at[0] + 0.4 * (n % 5),
-                                       y=at[1] + 0.4 * (n // 5), busy=0.0,
-                                       inside=False))
+            if self.building == "Starport" and len(self.queue) < 5:
+                self.queue.append(max([self.t] + self.queue) + self.build_time)
         elif name == "i":
             if self.mode is None and len(self.sel) == 1 and \
                     self.units[self.sel[0]]["kind"] == "vulture" and \
@@ -1134,7 +1147,12 @@ class World:
     def combo(self, held, name):
         self.combos.append((held, name))
         self.t += 0.1
-        if held == "shift" and name == "a":
+        if held == "ctrl" and name == "c":
+            if len(self.sel) == 1:          # the selected unit to the middle
+                u = self.units[self.sel[0]]
+                cx, cy = trial.CENTRED_AT
+                self.view = (u["x"] - cx / self.TILE, u["y"] - cy / self.TILE)
+        elif held == "shift" and name == "a":
             if self.sel:
                 self.mode = "attack"
         elif held == "ctrl" and name.isdigit():
@@ -1629,50 +1647,51 @@ def step(w, st, fn, seconds, m=None):
         w.sleep(0.5)
 
 
-def test_ten_dropships_from_the_first_tax_each_loaded_with_men(monkeypatch):
-    """The owner, after trial 60: from the first tax (countdown 2:00) ten
-    Dropships at the Starport; they are loaded with our men."""
+def test_dropships_are_made_until_there_are_enough_and_loaded_as_they_come(monkeypatch):
+    """The owner: from the first tax (countdown 2:00) nine to twelve
+    Dropships, and the men start boarding as they come out. Trial 62: one
+    takes about 31 s, so of the ten "ordered" in two goes two were out
+    when the bot looked for ten; and the click meant to send men into
+    one fell beside it."""
     eyes_on(monkeypatch)
     men = [("marine", 146.0 + 0.5 * (i % 6), 15.0 + 0.5 * (i // 6)) for i in range(24)]
     w, st = air_world(men)
+    st.landed |= {"Barracks", "Command Center"}
     st.army_keys, st.army_held = ["1", "2"], {"1": 12, "2": 12}
     w.groups["1"], w.groups["2"] = list(range(12)), list(range(12, 24))
-    # before the tax: nothing
-    step(w, st, norway.dropships_step, 100)
+    step(w, st, norway.dropships_step, 100)                 # before the tax: nothing
     assert "d" not in w.keys and st.drop_stage == "wait"
     w.t = norway.TAX_AT / trial.COUNTDOWN_RATE + 1
-    step(w, st, norway.dropships_step, 200)
-    assert w.keys.count("d") == 10 and st.drop_stage == "done"
+    step(w, st, norway.dropships_step, 80)
     ships = [u for u in w.units if u["kind"] == "dropship"]
-    assert len(ships) == 10 and w.kinds(st.drop_key) == ["dropship"] * 10
-    assert st.drop_key not in st.army_keys and st.drop_key != norway.SCV_KEY
-    # each waits on a spot of its own, and the men are in three of them
-    spots = {(round(u["x"]), round(u["y"])) for u in ships}
-    assert len(spots) == 10
-    assert sorted(u.get("cargo", 0) for u in ships)[-3:] == [8, 8, 8]
+    assert len(ships) == 2 and w.kinds(st.drop_key) == ["dropship"] * 2
+    assert st.drop_key not in st.army_keys + [norway.SCV_KEY, norway.SHIP_KEY]
+    assert sum(u.get("cargo", 0) for u in ships) == 16      # boarding already
+    step(w, st, norway.dropships_step, 420)
+    ships = [u for u in w.units if u["kind"] == "dropship"]
+    assert 9 <= len(ships) + len(w.queue) <= 12             # nine to twelve
+    assert w.kinds(st.drop_key) == ["dropship"] * len(ships)
     assert all(u["inside"] for u in w.units if u["kind"] == "marine")
-    assert any("3 of 10 Dropships have men aboard" in l for l in w.lines)
+    assert sorted(u.get("cargo", 0) for u in ships)[-3:] == [8, 8, 8]
+    assert any("Dropships have men aboard" in l for l in w.lines)
 
 
-def test_missing_dropships_are_ordered_again(monkeypatch):
+def test_men_board_the_dropship_wherever_it_really_is(monkeypatch):
+    """Trial 62: the Dropship stopped a tile from where it had been sent
+    and the right-click, aimed at that spot, missed it three times. Now
+    it is centred with Ctrl+C and clicked in the middle of the view."""
     eyes_on(monkeypatch)
-    w, st = air_world()
-    st.army_keys = ["1"]
-    w.t = norway.TAX_AT / trial.COUNTDOWN_RATE + 1
-    real_key, block = w.key, [True]
+    w = World([("dropship", 152.3, 17.1)] +
+              [("marine", 148.0 + 0.4 * i, 16.0) for i in range(10)])
+    w.groups["0"], w.groups["1"] = [0], list(range(1, 11))
 
-    def key(name):                      # no supply for the second five at first
-        if name == "d" and block[0] and \
-                sum(u["kind"] == "dropship" for u in w.units) >= 5:
-            w.keys.append(name)
-            return
-        real_key(name)
-    w.key = key
-    step(w, st, norway.dropships_step, 75)
-    block[0] = False
-    step(w, st, norway.dropships_step, 200)
-    assert sum(u["kind"] == "dropship" for u in w.units) == 10
-    assert st.drop_topups >= 1
+    def ship():
+        w.key("0")
+        return True
+    assert norway.men_into(w, "1", ship)
+    assert w.units[0]["cargo"] == 8 and ("ctrl", "c") in w.combos
+    w.key("0")
+    assert norway.someone_aboard(w) and w.mode is None
 
 
 def test_five_vultures_lay_mines_at_oslo_when_the_new_troops_come(monkeypatch):
@@ -1682,9 +1701,13 @@ def test_five_vultures_lay_mines_at_oslo_when_the_new_troops_come(monkeypatch):
     mine."""
     eyes_on(monkeypatch)
     cx, cy = norway.SPAWN_VIEW
-    troops = [("vulture", cx - 2 + 0.6 * i, cy + 0.3 * (i % 3)) for i in range(9)] + \
-        [("marine", cx - 2.5 + 0.5 * i, cy + 1.5) for i in range(10)]
+    # (as in trial 62: the Vultures in the middle, a ring of marines round)
+    troops = [("vulture", cx - 1.2 + 0.8 * (i % 3), cy - 0.8 + 0.8 * (i // 3))
+              for i in range(9)] + \
+        [("marine", cx - 3.5 + 0.5 * i, cy - 2.6) for i in range(14)] + \
+        [("marine", cx - 3.5 + 0.5 * i, cy + 2.6) for i in range(14)]
     w, st = air_world(troops)
+    st.landed |= {"Barracks", "Command Center"}
     st.army_keys = ["1", "2", "3"]
     step(w, st, norway.vultures_step, 100)
     assert "i" not in w.keys and st.mine_stage == "wait"    # not before they come
@@ -1700,6 +1723,7 @@ def test_five_vultures_lay_mines_at_oslo_when_the_new_troops_come(monkeypatch):
     assert st.mine_stage == "done"
     # none among the troops: looked for three times, then given up
     w, st = air_world([("marine", cx, cy), ("marine", cx + 1, cy)])
+    st.landed |= {"Barracks", "Command Center"}
     w.t = norway.SPAWN_AT / trial.COUNTDOWN_RATE + 1
     step(w, st, norway.vultures_step, 60)
     assert st.mine_stage == "done" and "i" not in w.keys
@@ -1767,18 +1791,22 @@ def test_shetland_is_taken_after_finland_not_at_the_start(monkeypatch):
     assert w.loaded == 0 and st.ship_stage == "flying"      # waits for the Starport
     st.port_gone = True
     run(12)
-    assert w.loaded == 5 and all(w.units[i]["inside"] for i in range(1, 6))
-    assert not any(w.units[i]["inside"] for i in range(6, 18))   # the small key only
+    assert w.loaded == 8                                    # the big key: eight get in
+    assert sum(w.units[i]["inside"] for i in range(6, 18)) == 8
     what, who, where = [o for o in w.orders if o[0] == "unload"][-1]
     assert who == (0,)
-    assert abs(where[0] - norway.SHETLAND[0] / 32) <= 2 and \
-        abs(where[1] - norway.SHETLAND[1] / 32) <= 2
+    # on the island, by a click on the game screen (to half a tile)
+    assert abs(where[0] - norway.SHETLAND[0] / 32) <= 0.6 and \
+        abs(where[1] - norway.SHETLAND[1] / 32) <= 0.6
+    assert not any(c[2] == "left" and w._on_minimap(c[0], c[1]) and k
+                   for k, c in enumerate(w.clicks[-1:]))    # not on the minimap
     # there: out, and at the island's turret and depot
-    for i in range(1, 6):
-        w.units[i].update(inside=False, x=64.0 + 0.3 * i, y=31.8)
+    out = [i for i in range(6, 18) if w.units[i]["inside"]]
+    for k, i in enumerate(out):
+        w.units[i].update(inside=False, x=63.0 + 0.3 * k, y=31.8)
     run(norway.SHETLAND_TRIP + 2)
     attacks = [o for o in w.orders if o[0] == "attack"]
-    assert len(attacks) == 2 and set(attacks[0][1]) == {1, 2, 3, 4, 5}
+    assert len(attacks) == 2 and set(attacks[0][1]) == set(out)
     run(norway.SHETLAND_EVERY + 2)
     assert st.ship_stage == "done"
     # nobody gets aboard: tried three times, then given up

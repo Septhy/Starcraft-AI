@@ -34,7 +34,7 @@ from bot import trial
 
 SLOT = "4"
 OPENING_LINE = "AF Norway AI v0.01"
-OPENING_TIME = 420             # real seconds the opening is played at most
+OPENING_TIME = 900             # real seconds the opening is played at most
 
 T = 32                         # map pixels a tile
 SHETLAND = (int(64.3 * T), int(31.5 * T))   # the beacon on Shetland's island
@@ -244,8 +244,11 @@ class State:
         self.ship_tries, self.ship_clear_at = 0, -1e9
         self.drop_stage, self.drop_next = "wait", -1e9
         self.drop_key = self.vulture_key = None
-        self.drop_ordered = self.drop_count = self.drop_topups = 0
-        self.drop_plan = []
+        self.drop_ordered = self.drop_count = self.drop_looks = 0
+        self.drop_boardings = 0
+        self.drop_quiet = 0
+        self.drop_room, self.men_left = [], None
+        self.drop_board_at, self.drop_boardable = -1e9, True
         self.mine_stage, self.mine_next = "wait", -1e9
         self.mine_round = self.spawn_tries = self.vulture_count = 0
         self.at = {}                    # building -> tile where it landed
@@ -854,14 +857,6 @@ def call_ship(io, mapdata, st):
     return True
 
 
-def ship_loaded(io):
-    """With the Dropship selected: U asks for a target only if someone is
-    aboard. Leaves that question open (a click answers it)."""
-    io.key("u")
-    io.sleep(0.12)
-    return live.placing_shown(io.card())
-
-
 def shetland_step(io, mapdata, st):
     """One step of taking Shetland after Finland. Each call does one
     short thing or nothing."""
@@ -877,27 +872,41 @@ def shetland_step(io, mapdata, st):
         if not st.army_keys:
             st.ship_stage = "done"
             return
-        key = min(st.army_keys, key=lambda k: st.army_held.get(k, 12))
-        clear_modes(io)
-        io.key(key)
-        io.sleep(0.12)
-        view = look(io, *SHIP_PICKUP)       # (the key first, the view after)
-        io.click(*on_view(*SHIP_PICKUP, view), button="right")
-        io.sleep(0.05)
+        # the key with the most men (eight get in). Trial 62: the smallest
+        # key held two men; and the click, aimed at where the Dropship had
+        # been sent, fell a tile beside it, so nobody got in, three times
+        keys = sorted(st.army_keys, key=lambda k: -st.army_held.get(k, 12))
+        key = keys[st.ship_tries % len(keys)]
         st.ship_tries += 1
+
+        def ship():
+            io.key(SHIP_KEY)
+            io.sleep(0.15)
+            return live.move_shown(io.card())
+        sent = men_into(io, key, ship)
         st.ship_stage, st.ship_next = "boarding", io.now() + SHIP_BOARD
-        io.log(f"norway: the men on key {key} board the Dropship for "
-               f"Shetland")
+        if sent:
+            io.log(f"norway: the men on key {key} board the Dropship for "
+                   f"Shetland")
     elif st.ship_stage == "boarding" and now >= st.ship_next:
         clear_modes(io)
         io.key(SHIP_KEY)
         io.sleep(0.15)
-        if live.move_shown(io.card()) and ship_loaded(io):
-            io.click(*live.mm_point(SHETLAND[0] / T, SHETLAND[1] / T))
-            io.sleep(0.05)
-            io.log("norway: the Dropship goes to unload on Shetland")
-            st.ship_stage, st.ship_next = "over", io.now() + SHETLAND_TRIP
-            return
+        if live.move_shown(io.card()) and someone_aboard(io):
+            # the unload is given on the game screen, on the island's
+            # beacon (the owner, after trial 62: the minimap is too coarse
+            # for an island this small). The view first: with U asked, a
+            # click on the minimap would be the target
+            view = look(io, SHETLAND[0] / T, SHETLAND[1] / T)
+            io.key("u")
+            io.sleep(0.15)
+            if live.placing_shown(io.card()):
+                io.click(*on_view(SHETLAND[0] / T, SHETLAND[1] / T, view))
+                io.sleep(0.05)
+                io.log("norway: the Dropship goes to unload on Shetland's "
+                       "beacon (a click on the island on the screen)")
+                st.ship_stage, st.ship_next = "over", io.now() + SHETLAND_TRIP
+                return
         clear_modes(io)
         if st.ship_tries >= SHIP_TRIES:
             io.shot("nobody-aboard")
@@ -1463,29 +1472,35 @@ SPARE_KEYS = ["5", "4", "6", "8"]  # number keys that may be free: the
 TAX_AT = 180                   # game seconds: the first tax (countdown 2:00)
 SPAWN_AT = 250                 # game seconds: the reinforcements are out
                                # (trial 60: the supply jumped at about 240)
-DROPSHIPS = 10
+DROPSHIPS = 10                 # the owner: nine to twelve
 DROP_BATCH = 5                 # a Starport's queue
-DROP_TIME = 6.5                # seconds one Dropship takes (the owner's ten
-                               # in about 40 s)
+DROP_EVERY = 30                # seconds between looks at the Dropships: one
+                               # takes about 31 s and 300 minerals (trial 62:
+                               # two were out 72 s after five were ordered)
+DROP_ENOUGH = 9                # with this many out no more are ordered (the
+                               # queue still holds some: nine to twelve)
+DROP_LOOKS = 40                # looks at most (twenty minutes)
+CENTRED_AT = trial.CENTRED_AT  # where Ctrl+C puts the selected unit
 DROP_RALLY = (155.5, 10.5)     # tile point they gather at: below the
                                # Starport, clear of the army's waiting place
                                # (a selection is twelve units at most, so the
                                # box there should hold Dropships only)
 DROP_BOX = 3.0                 # tiles round it boxed to take them
-DROP_TOPUPS = 2                # times more are ordered when some are missing
-DROP_SPOTS = [(145.0 + 2.8 * c, 9.5 + 3 * r) for r in range(2) for c in range(5)]
-                               # where each one waits for its men (tile points)
 DROP_SEATS = 8                 # marines a Dropship holds
-PARK_TIME = 5                  # seconds they are given to get to their spots
 LOAD_STEP = 6                  # seconds between two boardings (the men of the
                                # last one must be in, or they turn round)
 VULTURES = 5
-SPAWN_VIEW = (119.0, 16.0)     # tile point the new troops stand round (the
-                               # owner's recording: their Vultures at 114 to
-                               # 124, 14 to 18)
-SPAWN_BOXES = [(dx, dy) for dy in (0, -3.2, 3.2) for dx in (0, -5, 5, -10, 10)]
-SPAWN_BOX = (5, 3.2)           # tiles: one box over the new troops (side by
-                               # side, none over another)
+SPAWN_VIEW = (127.5, 20.0)     # tile point the new troops stand round, by the
+                               # Norwegian camp (trial 62: the Vultures in a
+                               # ring of marines at 124 to 131, 17 to 23; the
+                               # view was eight tiles west of them and they
+                               # lay half under the bottom panel)
+SPAWN_BOXES = sorted(((dx, dy) for dy in (-4.8, -2.4, 0, 2.4)
+                      for dx in (-6, -3, 0, 3, 6)),
+                     key=lambda d: abs(d[0]) + abs(d[1]))
+SPAWN_BOX = (3, 2.4)           # tiles: one small box over the new troops (a
+                               # selection is twelve units at most), the
+                               # middle ones first
 SPAWN_TRIES = 3                # looks for the Vultures before giving up
 SPAWN_RETRY = 10               # seconds between them
 OSLO_VIEW = (88.5, 50.0)       # tile point looked at for the mines
@@ -1542,7 +1557,7 @@ def kind_selected(io, kind, label):
     return m if len(live.frames_like(pic, m, kind)) == m else 0
 
 
-def order_dropships(io, st, n):
+def order_dropships(io, st, n, quiet=False):
     """n Dropships at the Starport (on its key), gathering at DROP_RALLY.
     How many were ordered."""
     clear_modes(io)
@@ -1561,14 +1576,17 @@ def order_dropships(io, st, n):
         io.sleep(0.08)
     clear_modes(io)
     st.drop_ordered += n
-    io.log(f"norway: {n} Dropships ordered at the Starport "
-           f"({st.drop_ordered} in all)")
+    if not quiet:
+        io.log(f"norway: {n} Dropships ordered at the Starport (its queue "
+               f"is filled again every {DROP_EVERY} s until there are "
+               f"{DROP_ENOUGH})")
     return n
 
 
 def gather_dropships(io, st):
-    """The Dropships at their rally point boxed and put on their key. How
-    many it holds."""
+    """The Dropships at their rally point boxed and added to their key
+    (those keyed before stay on it wherever they are). How many the key
+    holds."""
     clear_modes(io)
     view = look(io, *DROP_RALLY)
     a = on_view(DROP_RALLY[0] - DROP_BOX, DROP_RALLY[1] - DROP_BOX, view)
@@ -1576,16 +1594,24 @@ def gather_dropships(io, st):
     l, t, r, b = live.GAME_AREA
     io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
     io.sleep(0.15)
-    n = kind_selected(io, "dropship", "dropships")
-    if not n:
-        io.shot("no-dropships")
-        io.log("norway: no Dropships seen at their rally point (picture "
-               "'no-dropships')")
+    pic = io.shot("dropships", keep=False)
+    n = live.frames_shown(pic)
+    if n >= 2:
+        got = kind_selected(io, "dropship", "dropships")
+    else:                               # one unit alone: a Dropship has no
+        got = 1 if live.move_shown(io.card()) and \
+            not live.attack_shown(pic) else 0      # Attack button
+    if got:
+        io.combo("shift" if st.drop_count else "ctrl", st.drop_key)
+        io.sleep(0.05)
+    io.key(st.drop_key)                 # what the key holds now
+    io.sleep(0.2)
+    if not live.move_shown(io.card()):
+        st.drop_count = 0
         return 0
-    io.combo("ctrl", st.drop_key)
-    io.sleep(0.05)
-    st.drop_count = n
-    return n
+    m = live.frames_shown(io.shot("dropships", keep=False))
+    st.drop_count = m if m >= 2 else 1
+    return st.drop_count
 
 
 def one_dropship(io, st, i):
@@ -1605,72 +1631,96 @@ def one_dropship(io, st, i):
     return True
 
 
-def park_dropships(io, st):
-    """Each Dropship to a spot of its own, so that men can be sent into a
-    chosen one by a click where it waits."""
-    # (the selection first, the view after it, then the click: pressing
-    # the key of what is selected already makes the game jump to it)
+def centre_on_selected(io):
+    """Ctrl+C: the game puts the selected unit in the middle of the view
+    (the owner's recording for Russia's air: to half a tile). The screen
+    point it is then at."""
+    io.combo("ctrl", "c")
+    io.sleep(0.15)
+    return CENTRED_AT
+
+
+def someone_aboard(io):
+    """With one Dropship selected: U asks for a target only if someone is
+    aboard. Left out of that mode again."""
+    io.key("u")
+    io.sleep(0.15)
+    loaded = live.placing_shown(io.card())
     clear_modes(io)
-    for i in range(min(st.drop_count, len(DROP_SPOTS))):
-        if not one_dropship(io, st, i):
-            break
-        view = look(io, *DROP_SPOTS[2], wait=0.12)
-        io.click(*on_view(*DROP_SPOTS[i], view), button="right")
-        io.sleep(0.06)
-    io.log(f"norway: {st.drop_count} Dropships on key {st.drop_key} go to "
-           f"their loading spots")
+    return loaded
 
 
-def boarding_plan(st):
-    """(army key, Dropship) in the order the men board: each key's men
-    fill one Dropship after another."""
-    plan, d, room = [], 0, DROP_SEATS
-    for key in st.army_keys:
-        n = st.army_held.get(key) or 12
-        while n > 0 and d < st.drop_count:
-            take = min(n, room)
-            plan.append((key, d))
-            n -= take
-            room -= take
-            if room == 0:
-                d, room = d + 1, DROP_SEATS
-    return plan
-
-
-def board(io, st, key, d):
-    """The men on an army key walk into Dropship d where it waits."""
+def men_into(io, key, ship):
+    """The men on an army key walk into the Dropship that `ship()` selects
+    alone: the Dropship centred with Ctrl+C, then the key, and a
+    right-click on the middle of the view, where it is (trial 62: aimed
+    by where it had been sent, the click fell a tile beside it and nobody
+    got in). False if the key has no men left on the ground."""
     clear_modes(io)
+    if not ship():
+        return False
+    at = centre_on_selected(io)
     io.key(key)
     io.sleep(0.12)
     if not live.move_shown(io.card()):
         return False                    # all of them are aboard already
-    view = look(io, *DROP_SPOTS[2])     # (after the key: see park_dropships)
-    io.click(*on_view(*DROP_SPOTS[d], view), button="right")
+    io.click(at[0], at[1], button="right")
     io.sleep(0.06)
     return True
 
 
+def next_boarding(io, st):
+    """The next Dropship with room gets the men of the next army key that
+    still has some on the ground (kept count of: eight seats a Dropship,
+    each key's men as they were keyed; fewer after losses only means a
+    Dropship is counted full a little early). True if men were sent;
+    False when no Dropship has room or no men are left."""
+    n = st.drop_count
+    while len(st.drop_room) < n:
+        st.drop_room.append(DROP_SEATS)
+    if st.men_left is None:
+        st.men_left = {k: st.army_held.get(k) or 12 for k in st.army_keys}
+    for i in range(n):
+        if st.drop_room[i] <= 0:
+            continue
+        for key in st.army_keys:
+            if st.men_left.get(key, 0) <= 0:
+                continue
+            if not men_into(io, key, lambda i=i: one_dropship(io, st, i)):
+                st.men_left[key] = 0    # nobody of that key on the ground
+                continue
+            took = min(st.men_left[key], st.drop_room[i])
+            st.men_left[key] -= took
+            st.drop_room[i] -= took
+            st.drop_boardings += 1
+            io.log(f"norway: the men on key {key} board Dropship "
+                   f"{i + 1} of {n}")
+            return True
+        return False                    # nobody left on the ground
+    return False
+
+
 def loaded_dropships(io, st):
-    """How many Dropships have someone aboard: each alone, U, and a
-    target is asked for only if it carries anyone."""
+    """How many Dropships have someone aboard."""
     full = 0
     for i in range(st.drop_count):
         clear_modes(io)
         if not one_dropship(io, st, i):
             break
-        io.key("u")
-        io.sleep(0.12)
-        if live.placing_shown(io.card()):
-            full += 1
+        full += bool(someone_aboard(io))
     clear_modes(io)
     return full
 
 
 def dropships_step(io, mapdata, st, t0):
-    """One step of the Dropships: ordered from the first tax, gathered,
-    topped up to ten, parked, loaded with the army. Each call does one
-    short thing or nothing."""
+    """One step of the Dropships, from the first tax on: every DROP_EVERY
+    seconds those that are out are counted at their rally point and the
+    Starport's queue is filled again, until there are enough; between
+    those looks the men board the empty ones, one Dropship at a time.
+    Each call does one short thing or nothing."""
     now = io.now()
+    if st.drop_stage == "done":
+        return
     if st.drop_stage == "wait":
         if "Starport" not in st.landed or game_seconds(io, st, t0) < TAX_AT:
             return
@@ -1679,47 +1729,60 @@ def dropships_step(io, mapdata, st, t0):
             st.drop_stage = "done"
             io.log("norway: no Dropships (no free key, or no Starport)")
             return
-        st.drop_stage, st.drop_next = "second", now + DROP_BATCH * DROP_TIME
-    elif st.drop_stage == "second" and now >= st.drop_next:
-        order_dropships(io, st, DROPSHIPS - DROP_BATCH)
-        st.drop_stage = "gather"
-        st.drop_next = now + (DROPSHIPS - DROP_BATCH) * DROP_TIME + 3
-    elif st.drop_stage == "gather" and now >= st.drop_next:
+        st.drop_stage, st.drop_next = "making", now + DROP_EVERY + 4
+        return
+    if now >= st.drop_next and st.drop_stage == "making":
+        st.drop_looks += 1
+        before = st.drop_count
         n = gather_dropships(io, st)
-        missing = DROPSHIPS - n
-        if missing > 0 and st.drop_topups < DROP_TOPUPS:
-            # (not enough supply or money at the time: the rest again)
-            st.drop_topups += 1
-            k = min(DROP_BATCH, missing)
-            order_dropships(io, st, k)
-            st.drop_next = io.now() + k * DROP_TIME + 6
+        if n != before:
+            io.log(f"norway: {n} Dropships out, on key {st.drop_key}")
+        st.drop_boardable = True            # (new ones may be out)
+        if n < DROP_ENOUGH - 1 and st.drop_looks < DROP_LOOKS:
+            # (the queue holds five: with seven out and three more asked
+            # for there are twelve at most in the end)
+            order_dropships(io, st, min(DROP_BATCH, DROPSHIPS - n), quiet=True)
+        elif n < DROP_ENOUGH and st.drop_looks < DROP_LOOKS:
+            if n == before:             # eight, and none came: one more
+                order_dropships(io, st, 1, quiet=True)
+        else:
+            st.drop_stage = "loading"
+            io.log(f"norway: {n} Dropships: no more are ordered")
+        st.drop_next = io.now() + DROP_EVERY
+        st.drop_board_at = io.now() + 1
+        return
+    if st.drop_count and now >= st.drop_board_at and st.drop_boardable:
+        st.drop_board_at = now + LOAD_STEP
+        if not next_boarding(io, st):
+            st.drop_boardable = False       # all full, or no men left: until
+        return                              # the next look
+    if now >= st.drop_next and st.drop_stage == "loading":
+        # the last ones still come out of the Starport: onto the key too
+        before = st.drop_count
+        n = gather_dropships(io, st)
+        st.drop_next = io.now() + DROP_EVERY
+        if n != before:
+            io.log(f"norway: {n} Dropships out, on key {st.drop_key}")
+            st.drop_boardable, st.drop_quiet = True, 0
             return
-        if not n:
+        st.drop_quiet += 1
+        if st.drop_quiet >= 2 and not st.drop_boardable:
+            full = loaded_dropships(io, st)
+            io.log(f"norway: {full} of {st.drop_count} Dropships have men "
+                   f"aboard")
             st.drop_stage = "done"
-            return
-        io.log(f"norway: {n} of {DROPSHIPS} Dropships on key {st.drop_key}")
-        park_dropships(io, st)
-        st.drop_plan = boarding_plan(st)
-        st.drop_stage, st.drop_next = "load", io.now() + PARK_TIME
-    elif st.drop_stage == "load" and now >= st.drop_next:
-        if st.drop_plan:
-            key, d = st.drop_plan.pop(0)
-            board(io, st, key, d)
-            st.drop_next = io.now() + LOAD_STEP
-            return
-        full = loaded_dropships(io, st)
-        io.log(f"norway: {full} of {st.drop_count} Dropships have men aboard")
-        st.drop_stage = "done"
 
 
 def take_vultures(io, st):
-    """Vultures among the new troops by the camp, onto their key: boxes
-    over the troops, each cut down to its Vultures by their pictures. How
-    many the key holds."""
+    """Vultures among the new troops by the camp, onto their key. Small
+    boxes over the troops until one holds a Vulture (told by its
+    picture); that one is picked alone and centred with Ctrl+C, and
+    Ctrl+click on it selects every Vulture on the screen. No more than
+    five stay on the key. How many it holds."""
     clear_modes(io)
     view = look(io, *SPAWN_VIEW)
     w, h = SPAWN_BOX
-    have = 0
+    found = False
     for dx, dy in SPAWN_BOXES:
         cx, cy = SPAWN_VIEW[0] + dx, SPAWN_VIEW[1] + dy
         a = on_view(cx - w / 2, cy - h / 2, view)
@@ -1728,27 +1791,33 @@ def take_vultures(io, st):
             continue
         io.drag(a[0], a[1], z[0], z[1])
         io.sleep(0.15)
-        n = kind_selected(io, "vulture", "vultures")
-        if not n:
-            continue
-        io.combo("shift" if have else "ctrl", st.vulture_key)
-        io.sleep(0.05)
-        have += n
-        if have >= VULTURES:
+        pic = io.shot("vultures", keep=False)
+        n = live.frames_shown(pic)
+        idx = live.frames_like(pic, n, "vulture") if n >= 2 else []
+        if idx:
+            frame_click(io, idx[0], n)      # that Vulture alone
+            found = True
             break
-    if not have:
+    if not found:
         return 0
-    io.key(st.vulture_key)              # no more than five (the owner)
-    io.sleep(0.2)
-    n = live.frames_shown(io.shot("vultures", keep=False))
-    if n > VULTURES:
+    at = centre_on_selected(io)
+    io.click_with("ctrl", at[0], at[1])     # every Vulture on the screen
+    io.sleep(0.15)
+    pic = io.shot("vultures", keep=False)
+    n = live.frames_shown(pic)
+    if n >= 2:
+        odd = [i for i in range(n) if i not in live.frames_like(pic, n, "vulture")]
+        if odd:
+            return 0                    # (something else was under the click)
         while n > VULTURES:
             frame_click(io, n - 1, n, held="shift")
             n -= 1
-        io.combo("ctrl", st.vulture_key)
-        io.sleep(0.05)
-    st.vulture_count = n if n >= 2 else 1
-    return st.vulture_count
+    else:
+        n = 1                           # only the one there is
+    io.combo("ctrl", st.vulture_key)
+    io.sleep(0.05)
+    st.vulture_count = n
+    return n
 
 
 def one_vulture(io, st, i):

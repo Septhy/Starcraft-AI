@@ -801,3 +801,51 @@ set off 1.2 and 2.4 s after the first).
 - Keys: 0 is the Dropship's. The ten Dropships and the Vultures take 5
   or 4 if the army left them free, else the Barracks' key 6 or the
   Command Center's 8 once those are down.
+
+## Trial 62 (build f514f2c): Finland taken with 38 men; what failed after it
+
+Worked: 38 marines keyed (12, 12, 12, 2); Finland clear at 70 s
+(countdown 3:16); Russia's Starport destroyed at 100 s; Barracks down at
+106 s, Starport at 122 s, Command Center at 185 s, each with one click;
+twelve depots ordered by 152 s (two SCVs found below the Command Center,
+not four).
+
+Failed, and why (from the pictures and the log):
+
+- Shetland: nobody got aboard, three times. The Dropship stopped about a
+  tile from where it was sent (an order on the minimap goes to a two-tile
+  step) and the right-click for the men, aimed at the sent spot, fell 66
+  pixels beside it. The key chosen was the smallest: two men. (The box
+  with "0" on a Dropship's card is its armour, not a passenger.)
+- Vultures: none found. The new troops stand by the Norwegian camp at
+  about 124 to 131, 17 to 23, the Vultures in the middle of a ring of
+  marines; the view was eight tiles west and they lay half under the
+  bottom panel.
+- Dropships: two were out 72 s after five were ordered, three after
+  114 s: one takes about 31 s (not 6.5) and about 300 minerals; at 240 s
+  "not enough minerals". The bot looked for ten after 70 s, found two,
+  and pressed D again (the queue was full: nothing happened).
+
+### The build after trial 62
+
+- A Dropship is boarded by centring on it: the Dropship selected,
+  Ctrl+C (the game puts it in the middle of the view), the army key, a
+  right-click on the middle. Used for Shetland and for the ten.
+- Shetland: the key with the most men boards (eight get in); the unload
+  is a click on the island's beacon on the game screen (the owner: the
+  minimap is too coarse), the view moved there before U.
+- Dropships: every 30 s those at the rally point are added to their key
+  and the Starport's queue is filled again, until eight are out (with
+  the queue: nine to twelve). Between the looks the men board: the next
+  Dropship with room gets the next army key with men on the ground (the
+  seats and the men are kept count of). When no new one has come for two
+  looks and nobody is left to board, the loaded ones are counted.
+- Vultures: the view on the camp (127.5, 20); small boxes, the middle
+  first, until one holds a Vulture; that one alone, Ctrl+C, then
+  Ctrl+click on it: every Vulture on the screen; cut to five.
+- The game is played up to 15 minutes (was 7).
+
+Asked for by the owner and not built yet (the massing cycle): the
+loaded Dropships help Russia's attack at the front, come back to
+Finland, marines are made and the Dropships filled again; SCVs repair
+the Dropships.
