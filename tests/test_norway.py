@@ -2096,3 +2096,43 @@ def test_the_scvs_repair_the_dropships_at_home(monkeypatch):
     st.scvs_home, st.cycle = True, "out"
     norway.repair_dropships(w, st)
     assert not w.orders
+
+
+def test_the_drop_zone_is_judged_by_the_owner_s_rules(monkeypatch):
+    """The owner: not where too many enemy ground troops stand under the
+    drop zone, above all Firebats; under Germany's Battlecruisers if they
+    are there. (Counted by the model; the units named as the owner's
+    reference recording names them.)"""
+    from bot import team
+    for word in ("Veteran Flame Infantry", "German Medium Tank", "Battleship",
+                 "German Messerschmitt"):
+        assert word in team.SCENE_SYSTEM
+    eyes_on(monkeypatch)
+    m = trial.load_map()
+    berlin = trial.place(m, "Berlin 1000")
+    bx, by = berlin["x"] / 32, berlin["y"] / 32
+    point = (131.0, 90.0)
+
+    def judged(scene):
+        w = World([])
+        st = norway.State()
+        st.ears = Ears()
+        st.ears.count_scene = lambda pic: scene
+        return norway.judge_drop(w, m, st, point, "Berlin 1000")
+    quiet = dict(firebats=0, infantry=6, vehicles=2, fighters=0, allies=30,
+                 battlecruisers=[])
+    assert judged(quiet)[0] == point
+    # Firebats under it: back, away from the city
+    (x, y), said = judged(dict(quiet, firebats=4))
+    far = lambda p: ((p[0] - bx) ** 2 + (p[1] - by) ** 2) ** 0.5
+    assert far((x, y)) > far(point) + norway.DROP_SHIFT - 1 and "too many" in said
+    # a crowd of ground troops: back as well
+    assert "too many" in judged(dict(quiet, infantry=25))[1]
+    # a Battlecruiser there: under it
+    (x, y), said = judged(dict(quiet, battlecruisers=[(960 + 3 * 72, 400 - 2 * 72)]))
+    assert "under a Battlecruiser" in said
+    assert abs(x - (point[0] + 3)) <= 1.5 and abs(y - (point[1] - 2)) <= 1.5
+    # it cannot be counted: the point as planned
+    assert judged(None) == (point, "could not be counted")
+    w, st = World([]), norway.State()
+    assert norway.judge_drop(w, m, st, point, "Berlin 1000")[1] == "not looked at"

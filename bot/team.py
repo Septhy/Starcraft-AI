@@ -533,6 +533,43 @@ TARGET_SCHEMA = {
                                "purple", "orange", "other"]},
             "x": {"type": "integer"}, "y": {"type": "integer"}}}}}}
 ENEMY_COLOURS = ("red", "blue", "yellow")   # the Axis: the only targets
+# What stands at a place where Norway's Dropships would unload (the
+# owner's rules for the drop zone). The units are named as this map names
+# them, from the owner's reference recording made as Germany: Veteran
+# Infantry (the Terran Marine), Veteran Flame Infantry (the Firebat),
+# German Medium Tank (the Protoss Dragoon), Battleship (the Battlecruiser),
+# German Messerschmitt (the Protoss Scout), Multi-Level Defense Turret,
+# Fortification (the Bunker).
+SCENE_SYSTEM = (
+    "You look at a screenshot of the game view of StarCraft: Brood War "
+    "(Remastered graphics), 1280 by 480 pixels, on a World War II map. "
+    "Count the enemy's units in it. The enemy are the red, blue and "
+    "yellow players (Germany, Italy, Spain). Brown is Russia and teal, "
+    "purple and orange are its allies: count those together as allies. "
+    "Count, for the enemy only: firebats (Terran Firebats, here "
+    "'Veteran Flame Infantry': infantry in bulky armour with two flame "
+    "nozzles, stockier than a Marine); infantry (Terran Marines, here "
+    "'Veteran Infantry'); vehicles (ground machines: Siege Tanks, "
+    "Goliaths, Vultures, and Protoss Dragoons, here 'German Medium "
+    "Tank', a four-legged walker); fighters (planes in the air: Wraiths "
+    "and Protoss Scouts, here 'German Messerschmitt'). For every enemy "
+    "Battlecruiser (the big capital ship, here 'Battleship') give the "
+    "middle of it as x and y in the picture's pixels. Count what you "
+    "can see; in a crowd give your best estimate. Answer only with the "
+    "JSON asked for.")
+SCENE_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["firebats", "infantry", "vehicles", "fighters", "allies",
+                 "battlecruisers"],
+    "properties": {
+        "firebats": {"type": "integer"}, "infantry": {"type": "integer"},
+        "vehicles": {"type": "integer"}, "fighters": {"type": "integer"},
+        "allies": {"type": "integer"},
+        "battlecruisers": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["x", "y"],
+            "properties": {"x": {"type": "integer"},
+                           "y": {"type": "integer"}}}}}}
 TARGET_VIEW = (0, 40, 1920, 760)       # the game view, sent at 1280 x 480
 
 
@@ -770,6 +807,47 @@ class ChatEars:
                     for g in json.loads(body).get("targets", [])
                     if g.get("owner", "red") in ENEMY_COLOURS
                     and 0 <= int(g["x"]) <= 1280 and 0 <= int(g["y"]) <= 480][:30]
+        except Exception as e:          # never let a bad call stop the bot
+            self.failures += 1
+            self.last_error = type(e).__name__
+            return None
+
+    def count_scene(self, picture):
+        """What stands in the game view: {"firebats", "infantry",
+        "vehicles", "fighters", "allies": counts of the enemy's (and our
+        side's) units, "battlecruisers": [(x, y) screen pixels]}, or None
+        if it cannot be asked."""
+        if self.dead():
+            return None
+        l, t, r, b = TARGET_VIEW
+        try:
+            view = picture.convert("RGB").crop(TARGET_VIEW).resize((1280, 480))
+            out = _io.BytesIO()
+            view.save(out, format="PNG")
+            data = base64.standard_b64encode(out.getvalue()).decode("ascii")
+            response = self.client.messages.create(
+                model=self.model, max_tokens=1000, system=SCENE_SYSTEM,
+                output_config={"format": {"type": "json_schema",
+                                          "schema": SCENE_SCHEMA}},
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png",
+                        "data": data}},
+                    {"type": "text", "text": "Count the units."}]}])
+            self._charge(response)
+            if response.stop_reason != "end_turn":
+                self.last_error = f"scene stopped: {response.stop_reason}"
+                return None
+            body = json.loads(next((b.text for b in response.content
+                                    if b.type == "text"), ""))
+            sx, sy = (r - l) / 1280, (b - t) / 480
+            scene = {k: max(0, int(body.get(k, 0))) for k in
+                     ("firebats", "infantry", "vehicles", "fighters", "allies")}
+            scene["battlecruisers"] = [
+                (l + int(g["x"]) * sx, t + int(g["y"]) * sy)
+                for g in body.get("battlecruisers", [])
+                if 0 <= int(g["x"]) <= 1280 and 0 <= int(g["y"]) <= 480][:10]
+            return scene
         except Exception as e:          # never let a bad call stop the bot
             self.failures += 1
             self.last_error = type(e).__name__

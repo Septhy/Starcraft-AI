@@ -972,3 +972,33 @@ Changed:
   troops, Firebats; under Germany's Battlecruisers), Kerrigans and
   tanks as such (whoever stands at the field boards), the empty
   Dropships staying home.
+
+## The owner's unit reference (recorded as Germany, 70 s)
+
+What this map calls Germany's units, read off the selection cards:
+
+| On the card | The unit |
+|---|---|
+| Veteran Infantry | Terran Marine |
+| Veteran Flame Infantry (120 HP) | Terran Firebat |
+| German Medium Tank (300 HP, no shields) | Protoss Dragoon: it shoots air |
+| German Messerschmitt (80 shields, 200 HP) | Protoss Scout |
+| Battleship (850 HP) | Terran Battlecruiser |
+| Multi-Level Defense Turret | Missile Turret |
+| Fortification | Bunker |
+| Storage Depot, Vehicle Factory | Supply Depot, Factory |
+
+Italy's (blue) Goliaths, tanks and Vultures show in the same pictures.
+The recording itself is not in the repository.
+
+Used for a first form of the drop-zone rules: before the Dropships
+leave, the bot looks at the drop point and the model counts what
+stands there (Firebats, infantry, vehicles, fighters, Battlecruisers,
+our side), with the units named as above. Three Firebats or twenty
+ground units in view: the drop goes six tiles back, away from the city.
+A Battlecruiser there: the drop goes under it. The picture
+("drop-zone") is kept so the count can be checked. How well the model
+counts a crowded view is not known yet.
+
+Still to come from the same pictures: telling these units apart on
+the screen without the model (fast enough for every look).

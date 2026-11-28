@@ -2196,10 +2196,50 @@ def drop_point(watch, picture, mapdata, city):
     return (fx + (fx - cx) / d * back, fy + (fy - cy) / d * back), len(theirs)
 
 
+DROP_FIREBATS = 3              # enemy Firebats in view of the drop zone: too many
+DROP_GROUND = 20               # enemy ground units there in all: too many
+DROP_SHIFT = 6                 # tiles the drop is moved back, away from the city
+
+
+def judge_drop(io, mapdata, st, point, city):
+    """The owner's rules for the drop zone, in a first form: the place is
+    looked at and the model counts what stands there. Under Germany's
+    Battlecruisers if there are any; not among many enemy ground troops,
+    above all Firebats: then the drop goes some tiles back. Returns the
+    point to use and a word for the log."""
+    ears = st.ears
+    if ears is None or not hasattr(ears, "count_scene"):
+        return point, "not looked at"
+    clear_modes(io)
+    view = look(io, point[0], point[1])
+    pic = io.shot("drop-zone")          # (kept: to check the count against)
+    scene = ears.count_scene(pic) if pic is not None else None
+    if scene is None:
+        return point, "could not be counted"
+    ground = scene["firebats"] + scene["infantry"] + scene["vehicles"]
+    said = (f"{scene['firebats']} Firebats, {scene['infantry']} infantry, "
+            f"{scene['vehicles']} vehicles, {scene['fighters']} fighters, "
+            f"{len(scene['battlecruisers'])} Battlecruisers, "
+            f"{scene['allies']} of ours seen")
+    if scene["firebats"] >= DROP_FIREBATS or ground >= DROP_GROUND:
+        c = trial.place(mapdata, city)
+        cx, cy = c["x"] / T, c["y"] / T
+        d = ((point[0] - cx) ** 2 + (point[1] - cy) ** 2) ** 0.5 or 1.0
+        back = (point[0] + (point[0] - cx) / d * DROP_SHIFT,
+                point[1] + (point[1] - cy) / d * DROP_SHIFT)
+        return back, said + f": too many under it, {DROP_SHIFT} tiles back"
+    if scene["battlecruisers"]:
+        bx, by = scene["battlecruisers"][0]
+        under = (view[0] + bx / live.TILE_PX, view[1] + by / live.TILE_PX)
+        return under, said + ": under a Battlecruiser"
+    return point, said
+
+
 def launch(io, watch, mapdata, st, picture):
     """Every Dropship on the key flies to the front and unloads there."""
     city = st.go[0]
     (px, py), seen = drop_point(watch, picture, mapdata, city)
+    (px, py), zone = judge_drop(io, mapdata, st, (px, py), city)
     clear_modes(io)
     io.key(st.drop_key)
     io.sleep(0.2)
@@ -2233,7 +2273,8 @@ def launch(io, watch, mapdata, st, picture):
     io.log(f"norway: drop {st.drops}: {st.drop_count} Dropships fly to "
            f"unload at {px:.0f}, {py:.0f} for {city} ({st.go[2]}; "
            + (f"just behind Russia's front, {seen} of its pixels near"
-              if seen else "no Russian troops seen near: on the city") + ")")
+              if seen else "no Russian troops seen near: on the city")
+           + f"; the drop zone: {zone})")
     st.go = None
     return True
 
