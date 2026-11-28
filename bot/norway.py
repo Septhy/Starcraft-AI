@@ -34,10 +34,21 @@ from bot import trial
 
 SLOT = "4"
 OPENING_LINE = "AF Norway AI v0.01"
-OPENING_TIME = 300             # real seconds the opening is played at most
+OPENING_TIME = 420             # real seconds the opening is played at most
 
 T = 32                         # map pixels a tile
-SHETLAND = (64 * T + 6 * T, 33 * T + 4 * T)     # the middle of Shetland 300
+SHETLAND = (int(64.3 * T), int(31.5 * T))   # the beacon on Shetland's island
+                               # (the owner's recording: where they unloaded.
+                               # Trial 60: the middle of the place "Shetland
+                               # 300" is open sea, six tiles east of the
+                               # island; the Dropship hung there and nobody
+                               # got out)
+SHETLAND_BOX = (58.5, 28.5, 68.5, 35.5)    # tiles: the island, boxed for its men
+SHETLAND_OWNER = "6"           # the slot whose depot and turret stand there
+SHETLAND_REACH = 8             # tiles from the beacon its buildings are within
+SHETLAND_ATTACKS = 2
+SHETLAND_EVERY = 40            # seconds between them
+SHETLAND_FLIGHT = 20           # seconds the Dropship needs to get there
 KIRUNA_LAND = [(139, 8), (130, 1), (128, 2), (126, 2), (133, 3)]   # Command Center (tiles,
                                # top left), the sample games' spots by Kiruna
 DEPOTS_AT = (196, 20)          # tiles: by Arkhangelsk, where the repository
@@ -52,16 +63,19 @@ DEPOTS_AT = (196, 20)          # tiles: by Arkhangelsk, where the repository
 DEPOT_FIELD = [
     ((188, 10), [(201, 14), (197, 14), (205, 14), (201, 11), (197, 11),
                  (205, 11), (201, 17), (205, 17), (197, 17)]),
-    ((188, 20), [(202, 22), (198, 22), (202, 25), (198, 25), (206, 25)]),
+    ((188, 20), [(202, 22), (198, 22), (202, 25), (198, 25), (206, 25),
+                 (206, 22), (198, 28), (202, 28)]),
 ]
 DEPOT_SIZE = (3, 2)            # tiles
-DEPOTS = 10                    # the owner: ten depots by Arkhangelsk
+DEPOTS = 12                    # the owner (after trial 60): twelve depots
+SCVS = 4                       # SCVs made for them (trial 60: two SCVs placed
+                               # two depots every 21 s; the owner: faster)
 SCV_KEY = "9"                  # the SCVs, from the moment they are found
 CC_EXIT = (90.7, 56.4)         # tile point below the Command Center where new
                                # SCVs come out and stand (trials 51-59: both
                                # within a tile of it at 10 and at 18 s)
 SCV_BOX = (-3.9, -1.7, 4.3, 2.6)   # tiles round it boxed to take them
-SCV_OUT = 7                    # seconds from the order until both are out (the
+SCV_OUT = 12                   # seconds from the order until both are out (the
                                # recordings: about 2.5 s an SCV)
 SCV_RETRY = 8                  # seconds between tries to get hold of them
 SCV_TRIES = 8                  # tries before the depots are given up
@@ -71,14 +85,14 @@ SCV_WALK = 40                  # seconds from Oslo to Arkhangelsk (the owner's
 SCV_REMADE_WAIT = 12           # seconds the Command Center's lift waits for
                                # two new SCVs if the first were lost
 SWEEPS = 2                     # sweeps of the screen for lost SCVs, at most
-DEPOT_BUILD = 17               # seconds an SCV is left alone after a depot
+DEPOT_BUILD = 14               # seconds an SCV is left alone after a depot
                                # order: a few to walk, about 12.5 to build (the
                                # owner's recording: 18 of 250 hit points a second)
 FIRST_WALK = 8                 # seconds more after an SCV's first order (it
                                # may still be on its way to Arkhangelsk)
-NO_MONEY_WAIT = 15             # seconds before the next try when the depot
+NO_MONEY_WAIT = 6              # seconds before the next try when the depot
                                # could not be picked (100 minerals each)
-SCV_BUSY = 5                   # seconds an SCV that showed no build menu (it is
+SCV_BUSY = 2                   # seconds an SCV that showed no build menu (it is
                                # building) is left alone
 DEPOT_FAILS = 12               # depot orders that failed in a row: given up
 FINLAND = (125, 15, 150, 50)   # tiles: where Germany's buildings in Finland stand
@@ -197,6 +211,8 @@ class State:
         self.targets = None            # Germany's buildings in Finland left
         self.barracks_in = False
         self.land_tried = set()
+        self.land_clicked = {}          # building -> when it was told to land
+        self.cc_look = -1e9
         self.shetland_lifts = False
         self.barracks_over = False
         self.barracks_land_at = -1e9
@@ -216,12 +232,21 @@ class State:
         self.scv_tries = 0
         self.scv_look = -1e9
         self.scvs_sent = None           # when they set off for Arkhangelsk
-        self.scv_busy = [0.0, 0.0]      # until when each SCV is left alone
-        self.scv_orders = [0, 0]        # depot orders each SCV has had
+        self.scv_busy = [0.0] * SCVS    # until when each SCV is left alone
+        self.scv_orders = [0] * SCVS    # depot orders each SCV has had
         self.no_menu_shown = False
         self.sweeps = 0
         self.sweep_speed = SWEEP_SPEED
         self.port_clicked = 0
+        self.extras = True              # the Dropships and the mines
+        self.shetland_attacks = 0
+        self.shetland_at = -1e9
+        self.drop_stage, self.drop_next = "wait", -1e9
+        self.drop_key = self.vulture_key = None
+        self.drop_ordered = self.drop_count = self.drop_topups = 0
+        self.drop_plan = []
+        self.mine_stage, self.mine_next = "wait", -1e9
+        self.mine_round = self.spawn_tries = self.vulture_count = 0
         self.at = {}                    # building -> tile where it landed
         self.army_held = {}
         # what the Russia bot's box helpers keep count of
@@ -548,6 +573,24 @@ def is_down(io, key):
     return live.building_card(io.card())
 
 
+BUILDING_SPEED = 0.75          # tiles a second a lifted building flies (trial
+                               # 60: the Command Center, 68 tiles in about 90 s)
+LAND_SETTLE = 15               # seconds after a landing click before another
+LAND_SLACK = 15                # seconds past its flight time before another
+LAND_LOOK = 5                  # seconds between looks whether it is down
+
+
+def cc_due(mapdata, st):
+    """When the Command Center, told to land by Kiruna, should be down at
+    the latest (its flight from home, and some slack)."""
+    cc = norway_buildings(mapdata).get("Command Center")
+    if cc is None or "Command Center" not in st.lifted:
+        return -1e9
+    tx, ty = KIRUNA_LAND[0]
+    d = ((cc["x"] / T - tx) ** 2 + (cc["y"] / T - ty) ** 2) ** 0.5
+    return st.lifted["Command Center"] + d / BUILDING_SPEED + LAND_SLACK
+
+
 def dest_name(mapdata, xy):
     return trial.place_name(mapdata, *xy) if xy else "-"
 
@@ -586,26 +629,29 @@ def land(io, kind, spots, st):
             clear_modes(io)
             continue
         io.click(*spot)
+        io.sleep(0.3)
+        if live.placing_shown(io.card()):
+            clear_modes(io)             # refused there: the next spot
+            continue
         st.land_tried.add(kind)
+        st.land_clicked[kind] = io.now()
         # where it comes down, for later (the repair): the footprint hangs
         # from the tile under the mouse, and this is its middle
         size = footprint_size("land-" + kind)
         st.at[kind] = (view[0] + spot[0] // live.TILE_PX + size[0] / 2,
                        view[1] + spot[1] // live.TILE_PX + size[1] / 2)
-        io.sleep(0.3)
-        io.key("esc")                   # out of placing if the spot was refused
-        io.sleep(0.1)
+        io.log(f"norway: {kind} told to land by {x // T}, {y // T} (one "
+               f"click; it comes down when it gets there)")
+        # One accepted click is the whole landing (the owner, trial 60:
+        # the Command Center, still a minute's flight away, was given a
+        # new spot every few seconds and came down a minute late). The
+        # building flies there and lands; the caller only looks, later,
+        # whether it is down.
         if is_down(io, key):
             st.landed.add(kind)
             io.log(f"norway: {kind} landed by {x // T}, {y // T}")
             return True
-        # landing takes a moment: the building still shows Move while it
-        # comes down, so look again before the next spot
-        io.sleep(2.5)
-        if is_down(io, key):
-            st.landed.add(kind)
-            io.log(f"norway: {kind} landed by {x // T}, {y // T}")
-            return True
+        return False
     return False
 
 
@@ -702,7 +748,7 @@ def drop_on_shetland(io, mapdata):
         io.key("u")                         # unload: a target is asked for
         io.sleep(0.12)                      # (only Cancel shows) if anyone
         if live.placing_shown(io.card()):   # is aboard
-            io.click(*live.mm_point(SHETLAND[0] // T, SHETLAND[1] // T))
+            io.click(*live.mm_point(SHETLAND[0] / T, SHETLAND[1] / T))
             io.sleep(0.05)
             io.log("norway: the Dropship goes to unload on Shetland")
             return True
@@ -711,6 +757,58 @@ def drop_on_shetland(io, mapdata):
     io.log("norway: the Dropship was not sent to Shetland (it was not "
            "picked, or nobody had boarded)")
     return False
+
+
+def shetland_buildings(mapdata):
+    """The enemy's buildings on Shetland's island (tile points), those
+    that shoot first."""
+    bx, by = SHETLAND[0] / T, SHETLAND[1] / T
+    out = [(b["type"], b["x"] / T, b["y"] / T)
+           for b in mapdata["slots"].get(SHETLAND_OWNER, {}).get("buildings", [])
+           if abs(b["x"] / T - bx) <= SHETLAND_REACH and
+           abs(b["y"] / T - by) <= SHETLAND_REACH]
+    out.sort(key=lambda b: b[0] not in FIRST_KINDS)
+    return out
+
+
+def attack_on_shetland(io, mapdata):
+    """The men dropped on Shetland attack its buildings in turn (the
+    owner's game: the island's turret and depot were down before their
+    Factory floated in). The island is boxed, then A and a click on each
+    building, the later ones queued with Shift. True if ordered."""
+    targets = shetland_buildings(mapdata)
+    if not targets:
+        return False
+    clear_modes(io)
+    view = look(io, SHETLAND[0] / T, SHETLAND[1] / T)
+    x0, y0, x1, y1 = SHETLAND_BOX
+    a, z = on_view(x0, y0, view), on_view(x1, y1, view)
+    l, t, r, b = live.GAME_AREA
+    io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
+    io.sleep(0.15)
+    if not live.move_shown(io.card()):
+        io.shot("shetland-nobody")
+        io.log("norway: nobody of ours seen on Shetland (picture "
+               "'shetland-nobody')")
+        return False
+    first = True
+    for kind, tx, ty in targets:
+        x, y = on_view(tx, ty, view)
+        if not in_free_area(x, y, 5):
+            continue
+        if first:
+            io.key("a")
+            io.sleep(0.05)
+            io.click(x, y)
+        else:
+            io.combo("shift", "a")
+            io.sleep(0.05)
+            io.click_with("shift", x, y)
+        io.sleep(0.08)
+        first = False
+    io.log("norway: the men on Shetland attack " +
+           ", ".join(f"{k} {int(x)},{int(y)}" for k, x, y in targets))
+    return True
 
 
 # ----------------------------------------------------------------- the SCVs
@@ -845,12 +943,11 @@ def make_scvs(io, mapdata, st=None):
     if not pick(io, cc):                # looked for, and made again)
         io.log("norway: the Command Center was not found")
         return False
-    io.key("s")
-    io.sleep(0.05)
-    io.key("s")
-    io.sleep(0.05)
-    io.log("norway: 2 SCVs ordered at the Command Center (they wait below it "
-           f"and go on key {SCV_KEY} once the army has left)")
+    for _ in range(SCVS):
+        io.key("s")
+        io.sleep(0.05)
+    io.log(f"norway: {SCVS} SCVs ordered at the Command Center (they wait "
+           f"below it and go on key {SCV_KEY} once the army has left)")
     return True
 
 
@@ -1246,6 +1343,382 @@ def repair_barracks(io, st):
     st.scv_busy[i] = now + REPAIR_TIME
     io.log("norway: an SCV goes to repair the Barracks")
     return True
+
+
+# ------------------------------------------- after the opening (trial 60 on)
+# The owner, after trial 60: from the first tax (the countdown at 2:00) ten
+# Dropships are made at the Starport and loaded with our men; when the
+# reinforcements come (the countdown near 1:00) five Vultures go and lay
+# mines at Oslo. How the owner did both is in their recording: D at the
+# Starport, with a rally point, ten in four goes between 123 and 164 s;
+# the Vultures picked out of the new troops by the Norwegian camp, then I
+# and a click for each mine round Oslo's beacon.
+SPARE_KEYS = ["0", "5", "4"]   # number keys the army may have left free
+TAX_AT = 180                   # game seconds: the first tax (countdown 2:00)
+SPAWN_AT = 250                 # game seconds: the reinforcements are out
+                               # (trial 60: the supply jumped at about 240)
+DROPSHIPS = 10
+DROP_BATCH = 5                 # a Starport's queue
+DROP_TIME = 6.5                # seconds one Dropship takes (the owner's ten
+                               # in about 40 s)
+DROP_RALLY = (155.5, 10.5)     # tile point they gather at: below the
+                               # Starport, clear of the army's waiting place
+                               # (a selection is twelve units at most, so the
+                               # box there should hold Dropships only)
+DROP_BOX = 3.0                 # tiles round it boxed to take them
+DROP_TOPUPS = 2                # times more are ordered when some are missing
+DROP_SPOTS = [(145.0 + 2.8 * c, 9.5 + 3 * r) for r in range(2) for c in range(5)]
+                               # where each one waits for its men (tile points)
+DROP_SEATS = 8                 # marines a Dropship holds
+PARK_TIME = 5                  # seconds they are given to get to their spots
+LOAD_STEP = 6                  # seconds between two boardings (the men of the
+                               # last one must be in, or they turn round)
+VULTURES = 5
+SPAWN_VIEW = (119.0, 16.0)     # tile point the new troops stand round (the
+                               # owner's recording: their Vultures at 114 to
+                               # 124, 14 to 18)
+SPAWN_BOXES = [(dx, dy) for dy in (0, -3.2, 3.2) for dx in (0, -5, 5, -10, 10)]
+SPAWN_BOX = (5, 3.2)           # tiles: one box over the new troops (side by
+                               # side, none over another)
+SPAWN_TRIES = 3                # looks for the Vultures before giving up
+SPAWN_RETRY = 10               # seconds between them
+OSLO_VIEW = (88.5, 50.0)       # tile point looked at for the mines
+OSLO_MINES = [                 # tile points round Oslo's beacon (the first
+    (87.9, 51.3), (86.1, 49.2), (89.3, 49.5), (86.8, 48.1), (88.2, 47.5),
+    (87.6, 52.1), (86.8, 50.4), (88.5, 51.6), (86.3, 52.5), (90.7, 50.6),
+    (89.9, 51.3), (88.3, 49.7), (90.9, 48.5), (85.4, 50.9), (89.6, 52.6),
+]                              # nine are the owner's own clicks)
+MINE_ROUNDS = 3                # a Vulture carries three mines
+MINE_TRAVEL = 18               # seconds from the camp to Oslo
+MINE_EVERY = 5                 # seconds between a Vulture's mines once there
+
+
+def game_seconds(io, st, t0):
+    """Game seconds since the start (the countdown's seconds): from the
+    clock read off the screen, else from the time played."""
+    real = st.clock.time() if st.clock is not None else io.now() - t0
+    return real * trial.COUNTDOWN_RATE
+
+
+def spare_key(st, taken=()):
+    """A number key nothing of ours is on."""
+    for k in SPARE_KEYS:
+        if k not in st.army_keys and k not in taken:
+            return k
+    return None
+
+
+def kind_selected(io, kind, label):
+    """Whatever is selected, cut down to its units of one kind by their
+    pictures (Ctrl+click on one picks every one of them in the selection).
+    How many are selected after; 0 if none (a single unit cannot be told:
+    it shows no small picture)."""
+    if not live.move_shown(io.card()):
+        return 0
+    pic = io.shot(label, keep=False)
+    n = live.frames_shown(pic)
+    if n < 2:
+        return 0
+    idx = live.frames_like(pic, n, kind)
+    if not idx:
+        return 0
+    if len(idx) == n:
+        return n
+    frame_click(io, idx[0], n, held="ctrl")
+    pic = io.shot(label, keep=False)
+    m = live.frames_shown(pic)
+    if m < 2:
+        return 1 if len(idx) == 1 else 0
+    return m if len(live.frames_like(pic, m, kind)) == m else 0
+
+
+def order_dropships(io, st, n):
+    """n Dropships at the Starport (on its key), gathering at DROP_RALLY.
+    How many were ordered."""
+    clear_modes(io)
+    io.key(KEYS["Starport"])
+    io.sleep(0.2)
+    if not live.building_card(io.card()):
+        io.log("norway: the Starport's key does not show its buttons: no "
+               "Dropships ordered")
+        return 0
+    io.key("r")                         # the rally point (the owner's way),
+    io.sleep(0.1)                       # first, so that all of them go there
+    io.click(*live.mm_point(*DROP_RALLY))
+    io.sleep(0.1)
+    for _ in range(n):
+        io.key("d")
+        io.sleep(0.08)
+    clear_modes(io)
+    st.drop_ordered += n
+    io.log(f"norway: {n} Dropships ordered at the Starport "
+           f"({st.drop_ordered} in all)")
+    return n
+
+
+def gather_dropships(io, st):
+    """The Dropships at their rally point boxed and put on their key. How
+    many it holds."""
+    clear_modes(io)
+    view = look(io, *DROP_RALLY)
+    a = on_view(DROP_RALLY[0] - DROP_BOX, DROP_RALLY[1] - DROP_BOX, view)
+    z = on_view(DROP_RALLY[0] + DROP_BOX, DROP_RALLY[1] + DROP_BOX, view)
+    l, t, r, b = live.GAME_AREA
+    io.drag(max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
+    io.sleep(0.15)
+    n = kind_selected(io, "dropship", "dropships")
+    if not n:
+        io.shot("no-dropships")
+        io.log("norway: no Dropships seen at their rally point (picture "
+               "'no-dropships')")
+        return 0
+    io.combo("ctrl", st.drop_key)
+    io.sleep(0.05)
+    st.drop_count = n
+    return n
+
+
+def one_dropship(io, st, i):
+    """Dropship i of the key selected alone. False if the key does not
+    hold that many."""
+    io.key(st.drop_key)
+    io.sleep(0.2)
+    if not live.move_shown(io.card()):
+        return False
+    n = live.frames_shown(io.shot("dropships", keep=False))
+    if n >= 2:
+        if i >= n:
+            return False
+        frame_click(io, i, n)
+    elif i:
+        return False
+    return True
+
+
+def park_dropships(io, st):
+    """Each Dropship to a spot of its own, so that men can be sent into a
+    chosen one by a click where it waits."""
+    # (the selection first, the view after it, then the click: pressing
+    # the key of what is selected already makes the game jump to it)
+    clear_modes(io)
+    for i in range(min(st.drop_count, len(DROP_SPOTS))):
+        if not one_dropship(io, st, i):
+            break
+        view = look(io, *DROP_SPOTS[2], wait=0.12)
+        io.click(*on_view(*DROP_SPOTS[i], view), button="right")
+        io.sleep(0.06)
+    io.log(f"norway: {st.drop_count} Dropships on key {st.drop_key} go to "
+           f"their loading spots")
+
+
+def boarding_plan(st):
+    """(army key, Dropship) in the order the men board: each key's men
+    fill one Dropship after another."""
+    plan, d, room = [], 0, DROP_SEATS
+    for key in st.army_keys:
+        n = st.army_held.get(key) or 12
+        while n > 0 and d < st.drop_count:
+            take = min(n, room)
+            plan.append((key, d))
+            n -= take
+            room -= take
+            if room == 0:
+                d, room = d + 1, DROP_SEATS
+    return plan
+
+
+def board(io, st, key, d):
+    """The men on an army key walk into Dropship d where it waits."""
+    clear_modes(io)
+    io.key(key)
+    io.sleep(0.12)
+    if not live.move_shown(io.card()):
+        return False                    # all of them are aboard already
+    view = look(io, *DROP_SPOTS[2])     # (after the key: see park_dropships)
+    io.click(*on_view(*DROP_SPOTS[d], view), button="right")
+    io.sleep(0.06)
+    return True
+
+
+def loaded_dropships(io, st):
+    """How many Dropships have someone aboard: each alone, U, and a
+    target is asked for only if it carries anyone."""
+    full = 0
+    for i in range(st.drop_count):
+        clear_modes(io)
+        if not one_dropship(io, st, i):
+            break
+        io.key("u")
+        io.sleep(0.12)
+        if live.placing_shown(io.card()):
+            full += 1
+    clear_modes(io)
+    return full
+
+
+def dropships_step(io, mapdata, st, t0):
+    """One step of the Dropships: ordered from the first tax, gathered,
+    topped up to ten, parked, loaded with the army. Each call does one
+    short thing or nothing."""
+    now = io.now()
+    if st.drop_stage == "wait":
+        if "Starport" not in st.landed or game_seconds(io, st, t0) < TAX_AT:
+            return
+        st.drop_key = spare_key(st)
+        if st.drop_key is None or not order_dropships(io, st, DROP_BATCH):
+            st.drop_stage = "done"
+            io.log("norway: no Dropships (no free key, or no Starport)")
+            return
+        st.drop_stage, st.drop_next = "second", now + DROP_BATCH * DROP_TIME
+    elif st.drop_stage == "second" and now >= st.drop_next:
+        order_dropships(io, st, DROPSHIPS - DROP_BATCH)
+        st.drop_stage = "gather"
+        st.drop_next = now + (DROPSHIPS - DROP_BATCH) * DROP_TIME + 3
+    elif st.drop_stage == "gather" and now >= st.drop_next:
+        n = gather_dropships(io, st)
+        missing = DROPSHIPS - n
+        if missing > 0 and st.drop_topups < DROP_TOPUPS:
+            # (not enough supply or money at the time: the rest again)
+            st.drop_topups += 1
+            k = min(DROP_BATCH, missing)
+            order_dropships(io, st, k)
+            st.drop_next = io.now() + k * DROP_TIME + 6
+            return
+        if not n:
+            st.drop_stage = "done"
+            return
+        io.log(f"norway: {n} of {DROPSHIPS} Dropships on key {st.drop_key}")
+        park_dropships(io, st)
+        st.drop_plan = boarding_plan(st)
+        st.drop_stage, st.drop_next = "load", io.now() + PARK_TIME
+    elif st.drop_stage == "load" and now >= st.drop_next:
+        if st.drop_plan:
+            key, d = st.drop_plan.pop(0)
+            board(io, st, key, d)
+            st.drop_next = io.now() + LOAD_STEP
+            return
+        full = loaded_dropships(io, st)
+        io.log(f"norway: {full} of {st.drop_count} Dropships have men aboard")
+        st.drop_stage = "done"
+
+
+def take_vultures(io, st):
+    """Vultures among the new troops by the camp, onto their key: boxes
+    over the troops, each cut down to its Vultures by their pictures. How
+    many the key holds."""
+    clear_modes(io)
+    view = look(io, *SPAWN_VIEW)
+    w, h = SPAWN_BOX
+    have = 0
+    for dx, dy in SPAWN_BOXES:
+        cx, cy = SPAWN_VIEW[0] + dx, SPAWN_VIEW[1] + dy
+        a = on_view(cx - w / 2, cy - h / 2, view)
+        z = on_view(cx + w / 2, cy + h / 2, view)
+        if not (in_free_area(*a, margin=4) and in_free_area(*z, margin=4)):
+            continue
+        io.drag(a[0], a[1], z[0], z[1])
+        io.sleep(0.15)
+        n = kind_selected(io, "vulture", "vultures")
+        if not n:
+            continue
+        io.combo("shift" if have else "ctrl", st.vulture_key)
+        io.sleep(0.05)
+        have += n
+        if have >= VULTURES:
+            break
+    if not have:
+        return 0
+    io.key(st.vulture_key)              # no more than five (the owner)
+    io.sleep(0.2)
+    n = live.frames_shown(io.shot("vultures", keep=False))
+    if n > VULTURES:
+        while n > VULTURES:
+            frame_click(io, n - 1, n, held="shift")
+            n -= 1
+        io.combo("ctrl", st.vulture_key)
+        io.sleep(0.05)
+    st.vulture_count = n if n >= 2 else 1
+    return st.vulture_count
+
+
+def one_vulture(io, st, i):
+    """Vulture i of the key selected alone; how many the key holds (0:
+    none, or not that many)."""
+    io.key(st.vulture_key)
+    io.sleep(0.2)
+    if not live.move_shown(io.card()):
+        return 0
+    n = live.frames_shown(io.shot("vultures", keep=False))
+    if n >= 2:
+        if i >= n:
+            return 0
+        frame_click(io, i, n)
+        return n
+    return 1 if i == 0 else 0
+
+
+def lay_mines(io, st, round_no):
+    """Each Vulture lays one mine at a spot of its own by Oslo (I, then a
+    click: it drives there and lays it). How many orders were taken."""
+    clear_modes(io)
+    given = 0
+    for i in range(st.vulture_count):
+        if not one_vulture(io, st, i):
+            break
+        # (the view after the key, and before I: a click on the minimap
+        # with a mine on the cursor would lay it there)
+        view = look(io, *OSLO_VIEW, wait=0.12)
+        io.key("i")
+        io.sleep(0.12)
+        if not live.placing_shown(io.card()):
+            clear_modes(io)             # no mine left, or not a Vulture
+            continue
+        spot = OSLO_MINES[(round_no * VULTURES + i) % len(OSLO_MINES)]
+        io.click(*on_view(*spot, view))
+        io.sleep(0.08)
+        given += 1
+    clear_modes(io)
+    return given
+
+
+def vultures_step(io, mapdata, st, t0):
+    """One step of the mines at Oslo: once the reinforcements are out,
+    five Vultures on a key, then three rounds of mines."""
+    now = io.now()
+    if st.mine_stage == "wait":
+        if game_seconds(io, st, t0) < SPAWN_AT or now < st.mine_next:
+            return
+        st.vulture_key = st.vulture_key or spare_key(st, (st.drop_key,))
+        if st.vulture_key is None:
+            st.mine_stage = "done"
+            io.log("norway: no free key for the Vultures")
+            return
+        st.spawn_tries += 1
+        n = take_vultures(io, st)
+        if not n:
+            io.shot("no-vultures")
+            if st.spawn_tries >= SPAWN_TRIES:
+                st.mine_stage = "done"
+                io.log("norway: no Vultures found among the new troops "
+                       "(picture 'no-vultures'): no mines")
+            st.mine_next = now + SPAWN_RETRY
+            return
+        io.log(f"norway: {n} Vultures on key {st.vulture_key} go to lay "
+               f"mines at Oslo")
+        given = lay_mines(io, st, 0)
+        st.mine_round, st.mine_stage = 1, "mines"
+        st.mine_next = io.now() + MINE_TRAVEL
+        if not given:
+            st.mine_stage = "done"
+            io.log("norway: the Vultures took no mine order (no mines?)")
+    elif st.mine_stage == "mines" and now >= st.mine_next:
+        given = lay_mines(io, st, st.mine_round)
+        st.mine_round += 1
+        st.mine_next = io.now() + MINE_EVERY
+        if st.mine_round >= MINE_ROUNDS or not given:
+            st.mine_stage = "done"
+            io.log(f"norway: the mines at Oslo are ordered "
+                   f"({st.mine_round} rounds)")
 
 
 def selected(io):
@@ -1748,6 +2221,13 @@ def opening(io, watch, mapdata, st, first):
         if st.clock is not None:
             st.clock.update(picture)
         left = countdown(st)
+        # Shetland: the men dropped there are sent at its turret and depot
+        # (twice: the second for what the first left), once Finland is clear
+        if st.finland_clear and st.shetland_attacks < SHETLAND_ATTACKS and \
+                io.now() - st.shetland_at >= SHETLAND_EVERY:
+            st.shetland_at = io.now()
+            st.shetland_attacks += 1
+            attack_on_shetland(io, mapdata)
         if st.finland_clear and not st.shetland_lifts:
             st.shetland_lifts = True
             lift(io, mapdata, st, "Factory", SHETLAND)
@@ -1767,9 +2247,21 @@ def opening(io, watch, mapdata, st, first):
         if "Command Center" in st.lifted and \
                 "Command Center" not in st.landed and \
                 io.now() - st.lifted.get("Command Center", 1e9) > 25:
-            land(io, "Command Center",
-                 [(x * T + 2 * T, y * T + int(1.5 * T)) for x, y in KIRUNA_LAND],
-                 st)
+            clicked = st.land_clicked.get("Command Center")
+            if clicked is None or io.now() >= max(clicked + LAND_SETTLE,
+                                                  cc_due(mapdata, st)):
+                # (again only if it did not come down long after it should
+                # have got there)
+                land(io, "Command Center",
+                     [(x * T + 2 * T, y * T + int(1.5 * T))
+                      for x, y in KIRUNA_LAND], st)
+                st.cc_look = io.now()
+            elif io.now() - st.cc_look >= LAND_LOOK:
+                st.cc_look = io.now()
+                clear_modes(io)
+                if is_down(io, KEYS["Command Center"]):
+                    st.landed.add("Command Center")
+                    io.log("norway: Command Center landed by Kiruna")
         # Finland: attack until no red is left (first: the opening's race).
         # A look every LOOK_EVERY seconds; and the moment the attack on the
         # Finland spot is due (the opening before it is now about two
@@ -1818,6 +2310,7 @@ def opening(io, watch, mapdata, st, first):
             result = build_depot(io, st)
             if result == "placed":
                 st.depot_fails = 0
+                st.depot_look = now - DEPOT_EVERY   # the next SCV at once
             elif result == "failed":
                 st.depot_fails += 1
             elif result == "no-money":  # wait for the next payday
@@ -1898,8 +2391,13 @@ def opening(io, watch, mapdata, st, first):
                 st.repaired += 1
         cc_done = "Command Center" in st.landed or \
             (st.cc_lifted and "Command Center" not in st.lifted)
+        if st.extras:
+            dropships_step(io, mapdata, st, t0)
+            vultures_step(io, mapdata, st, t0)
+        extras_done = not st.extras or \
+            (st.drop_stage == "done" and st.mine_stage == "done")
         if {"Barracks", "Starport"} <= st.landed and cc_done and \
-                st.depots_ordered:
+                st.depots_ordered and extras_done:
             break
         io.sleep(0.5)
     io.log(f"norway: opening over after {io.now() - t0:.0f} s; landed: "

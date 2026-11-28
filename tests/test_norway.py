@@ -3,6 +3,7 @@ from bot import norway, trial
 from eyes import live
 from tests.test_trial import blob
 from PIL import Image
+import pytest
 
 
 class Clock:
@@ -149,6 +150,13 @@ def setup(monkeypatch, **kw):
         io.log("norway: an SCV goes to repair the Barracks")
         return True
     monkeypatch.setattr(norway, "repair_barracks", repair)
+    # (so have Shetland's attack, the Dropships and the mines)
+    monkeypatch.setattr(norway, "attack_on_shetland", lambda io, m: True)
+
+    def done(io, m, st, t0):
+        st.drop_stage = st.mine_stage = "done"
+    monkeypatch.setattr(norway, "dropships_step", done)
+    monkeypatch.setattr(norway, "vultures_step", lambda io, m, st, t0: None)
     real_key = game.key
 
     def key(name):
@@ -187,7 +195,7 @@ def test_the_opening_in_the_owner_s_order(monkeypatch):
     assert said == ["chat to everyone: AF Norway AI v0.01"]
     # Shetland drop, SCVs, and every building lifted, keyed where it is landed
     assert any("Dropship goes to unload on Shetland" in l for l in game.lines)
-    assert any("2 SCVs ordered" in l for l in game.lines)
+    assert any("4 SCVs ordered" in l for l in game.lines)
     # the SCVs on their key once the army has left, sent to Arkhangelsk,
     # ten depots there and the Barracks repaired
     order = [l for l in game.lines if l.startswith("norway:")]
@@ -867,7 +875,7 @@ class Snap:
         self.mode, self.mouse, self.view = w.mode, w.mouse, w.view
         self.building = w.building
         self.world = w
-        if w.mode in ("placing", "unload", "repair"):
+        if w.mode in ("placing", "unload", "repair", "attack", "mine", "rally"):
             self.card = "blank"
         elif w.mode == "menu":
             self.card = "menu"
@@ -901,6 +909,9 @@ class World:
         self.refused = 0                # clicks to place a building on taken ground
         self.lines, self.keys, self.combos, self.clicks = [], [], [], []
         self.cc = None                  # the Command Center's tile, if it makes SCVs
+        self.building_keys = {}         # number key -> a building on it
+        self.rally = None               # where the Starport's Dropships gather
+        self.jumps = True               # a key pressed twice moves the view
 
     # -- time and the log
     def now(self):
@@ -974,7 +985,7 @@ class World:
     def drag(self, x0, y0, x1, y1):
         a, z = self._tile(x0, y0), self._tile(x1, y1)
         self.sel = [i for i, u in enumerate(self.units) if not u["inside"]
-                    and a[0] <= u["x"] <= z[0] and a[1] <= u["y"] <= z[1]]
+                    and a[0] <= u["x"] <= z[0] and a[1] <= u["y"] <= z[1]][:12]
         self.building, self.mode = None, None
         self.t += 0.1
 
@@ -991,18 +1002,28 @@ class World:
             i = self._unit_at(x, y)
             if i is not None and self.units[i]["kind"] == "dropship":
                 tx, ty = self.units[i]["x"], self.units[i]["y"]
+                ship = self.units[i]
                 for j in list(self.sel):    # the men beside it walk in
                     u = self.units[j]
-                    if u["kind"] == "marine" and abs(u["x"] - tx) <= 6 and abs(u["y"] - ty) <= 6:
+                    if u["kind"] == "marine" and not u["inside"] and \
+                            ship.get("cargo", 0) < 8 and \
+                            abs(u["x"] - tx) <= 10 and abs(u["y"] - ty) <= 10:
                         u["inside"] = True
+                        ship["cargo"] = ship.get("cargo", 0) + 1
                         self.loaded += 1
                 return
             self.orders.append(("move", tuple(self.sel), self._tile(x, y)))
+            for j in self.sel:              # (what flies is there at once)
+                if self.units[j]["kind"] == "dropship":
+                    self.units[j]["x"], self.units[j]["y"] = self._tile(x, y)
             return
         if self._on_minimap(x, y):
             assert self.mode != "placing", "a click on the minimap while placing"
             if self.mode == "unload":
                 self.orders.append(("unload", tuple(self.sel), self._minimap_tile(x, y)))
+                self.mode = None
+            elif self.mode == "rally":
+                self.rally = self._minimap_tile(x, y)
                 self.mode = None
             else:
                 self.view = live.view_after_click(x, y)
@@ -1022,8 +1043,8 @@ class World:
             self.units[self.sel[0]]["busy"] = self.t + 14.0   # walks, then builds
             self.mode = None
             return
-        if self.mode == "repair":
-            self.orders.append(("repair", tuple(self.sel), self._tile(x, y)))
+        if self.mode in ("repair", "attack", "mine"):
+            self.orders.append((self.mode, tuple(self.sel), self._tile(x, y)))
             self.mode = None
             return
         i = self._unit_at(x, y)
@@ -1038,6 +1059,9 @@ class World:
         self.t += 0.1
         i = self._frame(x, y)
         if i is None:
+            if held == "shift" and self.mode == "attack":
+                self.orders.append(("attack", tuple(self.sel), self._tile(x, y)))
+                self.mode = None
             return
         if held == "shift":
             del self.sel[i]
@@ -1049,8 +1073,31 @@ class World:
         self.keys.append(name)
         self.t += 0.05
         if name.isdigit():
-            self.sel = [i for i in self.groups.get(name, [])]
-            self.building, self.mode = None, None
+            group = [i for i in self.groups.get(name, [])
+                     if not self.units[i]["inside"]]
+            if group and group == self.sel and self.jumps:
+                # the key of what is selected already: the game jumps there
+                u = self.units[group[0]]
+                self.view = (int(u["x"]) - 13, int(u["y"]) - 5)
+            self.sel = group
+            self.building, self.mode = self.building_keys.get(name), None
+        elif name == "a":
+            if self.sel:
+                self.mode = "attack"
+        elif name == "d":
+            if self.building == "Starport":
+                at = self.rally or (156, 9)
+                n = sum(u["kind"] == "dropship" for u in self.units)
+                self.units.append(dict(kind="dropship", x=at[0] + 0.4 * (n % 5),
+                                       y=at[1] + 0.4 * (n // 5), busy=0.0,
+                                       inside=False))
+        elif name == "i":
+            if self.mode is None and len(self.sel) == 1 and \
+                    self.units[self.sel[0]]["kind"] == "vulture" and \
+                    self.units[self.sel[0]].get("mines", 3) > 0:
+                self.units[self.sel[0]]["mines"] = \
+                    self.units[self.sel[0]].get("mines", 3) - 1
+                self.mode = "mine"
         elif name == "esc":
             self.mode = {"placing": "menu"}.get(self.mode)
         elif name == "b":
@@ -1065,18 +1112,24 @@ class World:
                 self.units.append(dict(kind="scv", x=norway.CC_EXIT[0] + 0.6 * len(self.units) % 2,
                                        y=norway.CC_EXIT[1], busy=0.0, inside=False))
         elif name == "u":
-            if self.mode is None and self.loaded and \
-                    [self.units[i]["kind"] for i in self.sel] == ["dropship"]:
+            if self.mode is None and \
+                    [self.units[i]["kind"] for i in self.sel] == ["dropship"] and \
+                    self.units[self.sel[0]].get("cargo"):
                 self.mode = "unload"
         elif name == "r":
-            if self.mode is None and len(self.sel) == 1 and \
+            if self.building == "Starport":
+                self.mode = "rally"
+            elif self.mode is None and len(self.sel) == 1 and \
                     self.units[self.sel[0]]["kind"] == "scv":
                 self.mode = "repair"
 
     def combo(self, held, name):
         self.combos.append((held, name))
         self.t += 0.1
-        if held == "ctrl" and name.isdigit():
+        if held == "shift" and name == "a":
+            if self.sel:
+                self.mode = "attack"
+        elif held == "ctrl" and name.isdigit():
             self.groups[name] = list(self.sel)
         elif held == "shift" and name.isdigit():
             self.groups[name] = self.groups.get(name, []) + \
@@ -1195,8 +1248,9 @@ def test_ten_depots_by_arkhangelsk_one_scv_an_order(monkeypatch):
     while st.depots_placed < norway.DEPOTS and w.t < 400:
         results.append(norway.build_depot(w, st))
         w.sleep(norway.DEPOT_EVERY)
-    assert st.depots_placed == 10 and len(w.depots) == 10
-    assert len(set(w.depots)) == 10
+    assert norway.DEPOTS == 12              # the owner, after trial 60
+    assert st.depots_placed == 12 and len(w.depots) == 12
+    assert len(set(w.depots)) == 12
     for dx, dy in w.depots:                 # none on taken ground
         assert not {(dx + i, dy + j) for i in range(3) for j in range(2)} & w.blocked
     spots = [tile for view, tile in norway.depot_spots()]
@@ -1279,12 +1333,12 @@ def test_two_scvs_are_ordered_with_no_rally_and_made_again_if_lost(monkeypatch):
     w.cc = (cc["x"] / 32, cc["y"] / 32)
     st = norway.State()
     assert norway.make_scvs(w, m, st)
-    assert w.keys[-2:] == ["s", "s"] and "r" not in w.keys       # no rally
-    assert sum(u["kind"] == "scv" for u in w.units) == 2
+    assert w.keys[-4:] == ["s"] * 4 and "r" not in w.keys        # no rally
+    assert sum(u["kind"] == "scv" for u in w.units) == norway.SCVS == 4
     assert st.scvs_made is not None
     # they stand below the Command Center: found there
     w.sleep(8)
-    assert norway.get_scvs(w, m, st) == 2 and w.kinds("9") == ["scv", "scv"]
+    assert norway.get_scvs(w, m, st) == 4 and w.kinds("9") == ["scv"] * 4
     assert any("walk to Arkhangelsk" in l for l in w.lines)
     # lost (none there, none on an army key): the second try makes two more
     w = World([])
@@ -1479,3 +1533,172 @@ def test_on_the_real_box_round_the_command_center_the_scvs_pictures_are_clicked(
     assert norway.scvs_selected(Still(hud("hud_two_scvs.jpg"))) == 2
     assert norway.scvs_selected(Still(hud("hud_scv_moving.jpg"))) == 1
     assert norway.scvs_selected(Still(hud("hud_marine.jpg"))) == 0
+
+
+# ------------------------------------------------- after trial 60 (the owner)
+def test_shetland_s_point_is_on_the_island_and_its_buildings_are_attacked(monkeypatch):
+    """Trial 60: the Dropship was sent to the middle of the place
+    "Shetland 300", open sea six tiles east of the island, hung there and
+    nobody got out. The point is now the island's beacon (the owner's own
+    unload click), and once Finland is clear the men there attack the
+    island's turret, then its depot."""
+    import numpy as np
+    from PIL import Image
+    land = np.asarray(Image.open(live.data_path("land.png")).convert("L")) > 127
+    tx, ty = norway.SHETLAND[0] / 32, norway.SHETLAND[1] / 32
+    near = land[int((ty - 1) * 1.125):int((ty + 3) * 1.125) + 1,
+                int((tx - 3) * 1.125):int((tx + 1) * 1.125) + 1]
+    assert near.any()                                   # the island is right there
+    assert not land[int(37 * 1.125), int(70 * 1.125)]   # the old point: sea
+    eyes_on(monkeypatch)
+    m = trial.load_map()
+    targets = norway.shetland_buildings(m)
+    assert [k for k, x, y in targets] == ["Missile Turret", "Supply Depot"]
+    w = World([("marine", tx, ty), ("marine", tx + 0.7, ty + 0.4),
+               ("marine", 120.0, 20.0)])
+    assert norway.attack_on_shetland(w, m)
+    attacks = [o for o in w.orders if o[0] == "attack"]
+    assert len(attacks) == 2 and all(who == (0, 1) for what, who, where in attacks)
+    for (kind, x, y), (what, who, where) in zip(targets, attacks):
+        assert abs(where[0] - x) <= 0.6 and abs(where[1] - y) <= 0.6
+    # nobody there: said, and no order
+    w = World([("marine", 120.0, 20.0)])
+    assert not norway.attack_on_shetland(w, m) and not w.orders
+    assert any("nobody of ours seen on Shetland" in l for l in w.lines)
+
+
+def test_a_building_is_told_to_land_once_and_then_only_watched(monkeypatch):
+    """Trial 60: the Command Center, still a minute's flight from Kiruna,
+    was given a new landing spot every few seconds (nine clicks) and came
+    down a minute late. One accepted click is the landing; another only
+    long after it should have got there."""
+    class Io:
+        t, clicks, lines = 0.0, [], []
+        def now(self): return self.t
+        def sleep(self, s): self.t += s
+        def key(self, k): pass
+        def click(self, x, y, button="left"): self.clicks.append((x, y))
+        def card(self): return "air"
+        def shot(self, *a, **k): return None
+        def log(self, text): self.lines.append(text)
+    io = Io()
+    monkeypatch.setattr(trial, "look_at", lambda io, x, y, wait=0: (x, y))
+    monkeypatch.setattr(live, "on_screen", lambda x, y, cam: (900, 400))
+    monkeypatch.setattr(live, "move_shown", lambda c: True)
+    monkeypatch.setattr(live, "placing_shown", lambda c: False)
+    monkeypatch.setattr(norway, "green_spot", lambda *a, **k: (910, 410))
+    monkeypatch.setattr(norway, "is_down", lambda io, key: False)
+    st = norway.State()
+    spots = [(x * 32 + 64, y * 32 + 48) for x, y in norway.KIRUNA_LAND]
+    assert not norway.land(io, "Command Center", spots, st)
+    assert io.clicks.count((910, 410)) == 1             # one spot, one click
+    assert st.land_clicked["Command Center"] == pytest.approx(io.t, abs=1)
+    assert any("told to land" in l for l in io.lines)
+    # a spot the game refuses (still placing after the click): the next one
+    io2, st2, cards = Io(), norway.State(), iter(["blank", "air", "air"])
+    io2.clicks = []
+    monkeypatch.setattr(live, "placing_shown", lambda c: next(cards) == "blank")
+    assert not norway.land(io2, "Command Center", spots, st2)
+    assert io2.clicks.count((910, 410)) == 2
+    # and it is due about a minute and a half after its lift
+    m = trial.load_map()
+    st.lifted["Command Center"] = 74.0
+    assert 150 <= norway.cc_due(m, st) <= 190
+
+
+def air_world(extra=()):
+    w = World(list(extra))
+    w.building_keys["7"] = "Starport"
+    st = norway.State()
+    st.landed.add("Starport")
+    return w, st
+
+
+def step(w, st, fn, seconds, m=None):
+    end = w.t + seconds
+    while w.t < end:
+        fn(w, m, st, 0.0)
+        w.sleep(0.5)
+
+
+def test_ten_dropships_from_the_first_tax_each_loaded_with_men(monkeypatch):
+    """The owner, after trial 60: from the first tax (countdown 2:00) ten
+    Dropships at the Starport; they are loaded with our men."""
+    eyes_on(monkeypatch)
+    men = [("marine", 146.0 + 0.5 * (i % 6), 15.0 + 0.5 * (i // 6)) for i in range(24)]
+    w, st = air_world(men)
+    st.army_keys, st.army_held = ["1", "2"], {"1": 12, "2": 12}
+    w.groups["1"], w.groups["2"] = list(range(12)), list(range(12, 24))
+    # before the tax: nothing
+    step(w, st, norway.dropships_step, 100)
+    assert "d" not in w.keys and st.drop_stage == "wait"
+    w.t = norway.TAX_AT / trial.COUNTDOWN_RATE + 1
+    step(w, st, norway.dropships_step, 200)
+    assert w.keys.count("d") == 10 and st.drop_stage == "done"
+    ships = [u for u in w.units if u["kind"] == "dropship"]
+    assert len(ships) == 10 and w.kinds(st.drop_key) == ["dropship"] * 10
+    assert st.drop_key not in st.army_keys and st.drop_key != norway.SCV_KEY
+    # each waits on a spot of its own, and the men are in three of them
+    spots = {(round(u["x"]), round(u["y"])) for u in ships}
+    assert len(spots) == 10
+    assert sorted(u.get("cargo", 0) for u in ships)[-3:] == [8, 8, 8]
+    assert all(u["inside"] for u in w.units if u["kind"] == "marine")
+    assert any("3 of 10 Dropships have men aboard" in l for l in w.lines)
+
+
+def test_missing_dropships_are_ordered_again(monkeypatch):
+    eyes_on(monkeypatch)
+    w, st = air_world()
+    st.army_keys = ["1"]
+    w.t = norway.TAX_AT / trial.COUNTDOWN_RATE + 1
+    real_key, block = w.key, [True]
+
+    def key(name):                      # no supply for the second five at first
+        if name == "d" and block[0] and \
+                sum(u["kind"] == "dropship" for u in w.units) >= 5:
+            w.keys.append(name)
+            return
+        real_key(name)
+    w.key = key
+    step(w, st, norway.dropships_step, 75)
+    block[0] = False
+    step(w, st, norway.dropships_step, 200)
+    assert sum(u["kind"] == "dropship" for u in w.units) == 10
+    assert st.drop_topups >= 1
+
+
+def test_five_vultures_lay_mines_at_oslo_when_the_new_troops_come(monkeypatch):
+    """The owner, after trial 60: when Norway gets its new troops, five
+    Vultures go and lay mines at Oslo. Their way (their recording): the
+    Vultures picked out of the troops by the camp, I and a click for each
+    mine."""
+    eyes_on(monkeypatch)
+    cx, cy = norway.SPAWN_VIEW
+    troops = [("vulture", cx - 2 + 0.6 * i, cy + 0.3 * (i % 3)) for i in range(9)] + \
+        [("marine", cx - 2.5 + 0.5 * i, cy + 1.5) for i in range(10)]
+    w, st = air_world(troops)
+    st.army_keys = ["1", "2", "3"]
+    step(w, st, norway.vultures_step, 100)
+    assert "i" not in w.keys and st.mine_stage == "wait"    # not before they come
+    w.t = norway.SPAWN_AT / trial.COUNTDOWN_RATE + 1
+    step(w, st, norway.vultures_step, 60)
+    assert w.kinds(st.vulture_key) == ["vulture"] * 5
+    mines = [o for o in w.orders if o[0] == "mine"]
+    assert len(mines) == 15 and all(len(who) == 1 for what, who, where in mines)
+    assert len({who for what, who, where in mines}) == 5            # each lays three
+    assert len({(round(x, 1), round(y, 1)) for what, who, (x, y) in mines}) == 15
+    for what, who, (x, y) in mines:                                 # round Oslo's beacon
+        assert 84 <= x <= 92 and 46 <= y <= 54
+    assert st.mine_stage == "done"
+    # none among the troops: looked for three times, then given up
+    w, st = air_world([("marine", cx, cy), ("marine", cx + 1, cy)])
+    w.t = norway.SPAWN_AT / trial.COUNTDOWN_RATE + 1
+    step(w, st, norway.vultures_step, 60)
+    assert st.mine_stage == "done" and "i" not in w.keys
+    assert any("no Vultures found" in l for l in w.lines)
+
+
+def test_a_vulture_is_told_by_its_picture():
+    assert "vulture" in live.FRAME_KINDS
+    t = Image.open(live.data_path(live.FRAME_KINDS["vulture"]))
+    assert t.size == Image.open(live.data_path(live.FRAME_KINDS["scv"])).size

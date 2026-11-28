@@ -657,3 +657,97 @@ Not tried in a live game yet. Things to look at in the next recording:
 whether the SCVs stand below the Command Center at about 26 s, the log
 line "2 SCVs below the Command Center, on key 9", the walk to
 Arkhangelsk (they pass north of Finland), and the first depot.
+
+## Trial 60 (build 076c001): the first whole opening
+
+What worked, for the first time: the two SCVs were found below the
+Command Center and keyed (27 s), walked to Arkhangelsk, and ten depots
+were ordered; the Dropship took three men aboard and set off; Finland
+was clear at 67 s (countdown 3:21); Russia's Starport was destroyed
+(93 s) and ours landed on the Control Tower with one click (129 s); the
+Barracks was down at 99 s (countdown 2:33) and an SCV went to repair
+it. The opening was over at 227 s.
+
+The owner's six points, and what the recording showed:
+
+1. Depots too slow after Finland. Ordered at 76, 88, 129, 160, 180,
+   184, 201, 206, 223, 227 s. Two causes: two SCVs place two depots
+   every 21 s at best; and between 100 and 165 s the bot was busy with
+   the Command Center's landing (below), which cost about 70 s.
+2. Twelve depots, not ten.
+3. The Command Center "landed several times". It was lifted at 74 s and
+   needs about 90 s to fly to Kiruna (68 tiles; a lifted building flies
+   about 0.75 tiles a second). The first landing click (104 s) was
+   taken, but the bot looked 3 s later, saw it still in the air, and
+   gave it the next spot, and the next: nine clicks. It came down at
+   165 s, when it had at last arrived.
+4. Ten Dropships from the first tax (the countdown at 2:00, about 121 s
+   real), loaded with our men.
+5. Shetland not taken. The Dropship was sent to the middle of the place
+   "Shetland 300", tile (70, 37): open sea, six tiles east of the
+   island (the place's box is mostly water). It hung there all game.
+   The owner's unload click in their recording is on the island's
+   beacon, tile (64.3, 31.5). Their men had the island's turret and
+   depot down before their Factory floated in.
+6. When the reinforcements come, five Vultures lay mines at Oslo.
+
+What the game showed about money and supply: 900 minerals until the
+first tax, 3350 after it; supply 23 of 58 until the reinforcements,
+then 99 used (at the countdown near 1:00, about 161 s real).
+
+The owner's own recording (243 s) has both new things: D at the
+Starport, with R and a click for the rally point, ten in four goes
+between 123 and 164 s; the reinforcements by the Norwegian camp (tiles
+114 to 124, 14 to 18), nine Vultures among them; four Vultures picked,
+then I and a click for each mine round Oslo's beacon (tiles 86 to 91,
+47 to 53), from afar: a Vulture drives there and lays it.
+
+### The build after trial 60
+
+- Shetland: the unload point is the beacon. Once Finland is clear the
+  men on the island are boxed and attack its turret, then its depot
+  (again 40 s later); the Factory and the Engineering Bay float to the
+  beacon as before.
+- The Command Center: one accepted landing click, then only looks
+  whether it is down (every 5 s); another click only 15 s after it
+  should have arrived. A spot the game refuses (still placing after the
+  click) is passed over at once.
+- Depots: twelve; four SCVs instead of two (all made at the start);
+  after a depot is placed the next free SCV gets its order at once; an
+  SCV is left alone 14 s (was 17); with no money the next try comes
+  after 6 s (was 15). Three more depot spots.
+- Dropships: from the first tax, with the Starport down: the rally
+  point set below the Starport (tile 155.5, 10.5), five ordered, five
+  more 32 s later; 35 s after that they are boxed there, told by their
+  pictures and put on a free key (0, else 5 or 4); if fewer than ten,
+  the rest are ordered again (twice at most). Each then flies to a spot
+  of its own (two rows of five, tiles 145 to 156, 9.5 and 12.5), and
+  the army's keys are sent into them one Dropship at a time (a
+  right-click where it waits, 6 s apart). At the end each Dropship is
+  asked whether it carries anyone (U asks for a target only then).
+- Vultures: from game second 250 (countdown 0:50) the troops by the camp
+  are boxed, fifteen boxes side by side; each box is cut down to its
+  Vultures by their pictures (a new picture, from the owner's
+  recording; no false hit in 624 recorded selections) and added to a
+  free key, cut down to five. Each Vulture gets a mine order at a spot
+  of its own by Oslo (I and a click; the first nine spots are the
+  owner's own clicks), again 18 s later and again 5 s after that:
+  fifteen mines.
+- A rule found on the way: pressing the number key of what is selected
+  already makes the game jump the view to it. So in the new steps the
+  key comes first, the view after it, the click last; the test game
+  now jumps the same way.
+
+Open, and to be seen in the next recording:
+
+- Which men the owner wants in the Dropships, and where they go. For
+  now only the starting army (keys 1 to 3) boards, about four or five
+  Dropships; the new troops are left where they are and the loaded
+  Dropships wait.
+- Whether a right-click where a Dropship hovers puts the men into it
+  (pictures and the log line "N of 10 Dropships have men aboard").
+- Whether the Vultures' second and third mine orders come too early or
+  too late (18 s is a guess at the drive from the camp to Oslo).
+- Whether four SCVs and the money before the first tax (900, less 200
+  for the SCVs: seven depots) get twelve depots up before the
+  reinforcements need the supply.
