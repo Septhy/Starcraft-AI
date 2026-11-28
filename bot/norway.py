@@ -240,7 +240,8 @@ class State:
         self.port_clicked = 0
         self.extras = True              # the Dropships and the mines
         self.shetland_attacks = 0
-        self.shetland_at = -1e9
+        self.ship_stage, self.ship_next = "wait", -1e9
+        self.ship_tries, self.ship_clear_at = 0, -1e9
         self.drop_stage, self.drop_next = "wait", -1e9
         self.drop_key = self.vulture_key = None
         self.drop_ordered = self.drop_count = self.drop_topups = 0
@@ -811,6 +812,108 @@ def attack_on_shetland(io, mapdata):
     return True
 
 
+# Shetland after Finland (the owner, after trial 61: every marine goes to
+# Finland first). The Dropship has not moved from where it starts. Once
+# Finland is clear it is picked there, put on a key and flown to a spot
+# beside the army's waiting place; when Russia's Starport is down the
+# army's smallest key walks into it, it unloads on Shetland's beacon, and
+# the men attack the island's turret and depot (as in the owner's game).
+SHIP_KEY = "0"
+SHIP_PICKUP = (151.0, 18.5)    # tile point it waits at, beside the army
+SHIP_FLIGHT = 20               # seconds from Oslo to there
+SHIP_BOARD = 6                 # seconds the men are given to walk in
+SHIP_TRIES = 3                 # boardings tried
+SHIP_LATEST = 45               # seconds after Finland it goes even if
+                               # Russia's Starport still stands
+SHETLAND_TRIP = 26             # seconds from there to Shetland
+
+
+def call_ship(io, mapdata, st):
+    """The Dropship, picked where it starts, onto its key and off to the
+    pick-up spot. True if it went."""
+    d = next((a for a in mapdata["slots"][SLOT]["air"]
+              if a["type"] == "Dropship"), None)
+    if d is None:
+        return False
+    clear_modes(io)
+    tx, ty = d["x"] / T, d["y"] / T
+    view = look(io, tx, ty, wait=0.2)
+    io.click(*on_view(tx, ty, view))
+    io.sleep(0.12)
+    if not live.move_shown(io.card()):
+        io.shot("no-dropship")
+        io.log("norway: the Dropship was not found where it starts (picture "
+               "'no-dropship'): no drop on Shetland")
+        return False
+    io.combo("ctrl", SHIP_KEY)
+    io.sleep(0.05)
+    io.click(*live.mm_point(*SHIP_PICKUP), button="right")
+    io.sleep(0.05)
+    io.log(f"norway: the Dropship (key {SHIP_KEY}) flies to the army for "
+           f"the men for Shetland")
+    return True
+
+
+def ship_loaded(io):
+    """With the Dropship selected: U asks for a target only if someone is
+    aboard. Leaves that question open (a click answers it)."""
+    io.key("u")
+    io.sleep(0.12)
+    return live.placing_shown(io.card())
+
+
+def shetland_step(io, mapdata, st):
+    """One step of taking Shetland after Finland. Each call does one
+    short thing or nothing."""
+    now = io.now()
+    if not st.finland_clear or st.ship_stage == "done":
+        return
+    if st.ship_stage == "wait":
+        st.ship_clear_at = now
+        st.ship_stage = "flying" if call_ship(io, mapdata, st) else "done"
+        st.ship_next = now + SHIP_FLIGHT
+    elif st.ship_stage == "flying" and now >= st.ship_next and \
+            (st.port_gone or now - st.ship_clear_at >= SHIP_LATEST):
+        if not st.army_keys:
+            st.ship_stage = "done"
+            return
+        key = min(st.army_keys, key=lambda k: st.army_held.get(k, 12))
+        clear_modes(io)
+        io.key(key)
+        io.sleep(0.12)
+        view = look(io, *SHIP_PICKUP)       # (the key first, the view after)
+        io.click(*on_view(*SHIP_PICKUP, view), button="right")
+        io.sleep(0.05)
+        st.ship_tries += 1
+        st.ship_stage, st.ship_next = "boarding", io.now() + SHIP_BOARD
+        io.log(f"norway: the men on key {key} board the Dropship for "
+               f"Shetland")
+    elif st.ship_stage == "boarding" and now >= st.ship_next:
+        clear_modes(io)
+        io.key(SHIP_KEY)
+        io.sleep(0.15)
+        if live.move_shown(io.card()) and ship_loaded(io):
+            io.click(*live.mm_point(SHETLAND[0] / T, SHETLAND[1] / T))
+            io.sleep(0.05)
+            io.log("norway: the Dropship goes to unload on Shetland")
+            st.ship_stage, st.ship_next = "over", io.now() + SHETLAND_TRIP
+            return
+        clear_modes(io)
+        if st.ship_tries >= SHIP_TRIES:
+            io.shot("nobody-aboard")
+            io.log("norway: nobody got aboard the Dropship (picture "
+                   "'nobody-aboard'): no drop on Shetland")
+            st.ship_stage = "done"
+        else:
+            st.ship_stage = "flying"        # once more
+    elif st.ship_stage == "over" and now >= st.ship_next:
+        st.shetland_attacks += 1
+        attack_on_shetland(io, mapdata)
+        st.ship_next = io.now() + SHETLAND_EVERY
+        if st.shetland_attacks >= SHETLAND_ATTACKS:
+            st.ship_stage = "done"
+
+
 # ----------------------------------------------------------------- the SCVs
 # What went wrong before (trials 51 to 59, found in the recordings):
 # - the two new SCVs come out of the Command Center at about 7 and 10 s,
@@ -1353,7 +1456,10 @@ def repair_barracks(io, st):
 # Starport, with a rally point, ten in four goes between 123 and 164 s;
 # the Vultures picked out of the new troops by the Norwegian camp, then I
 # and a click for each mine round Oslo's beacon.
-SPARE_KEYS = ["0", "5", "4"]   # number keys the army may have left free
+SPARE_KEYS = ["5", "4", "6", "8"]  # number keys that may be free: the
+                               # army's last ones if it did not need them,
+                               # then the Barracks' and the Command Center's
+                               # once they are down (0 is the Dropship's)
 TAX_AT = 180                   # game seconds: the first tax (countdown 2:00)
 SPAWN_AT = 250                 # game seconds: the reinforcements are out
                                # (trial 60: the supply jumped at about 240)
@@ -1402,9 +1508,13 @@ def game_seconds(io, st, t0):
 
 def spare_key(st, taken=()):
     """A number key nothing of ours is on."""
+    held = {KEYS[b]: b for b in KEYS}
     for k in SPARE_KEYS:
-        if k not in st.army_keys and k not in taken:
-            return k
+        if k in st.army_keys or k in taken:
+            continue
+        if k in held and held[k] not in st.landed:
+            continue                    # still needed to land it
+        return k
     return None
 
 
@@ -1778,12 +1888,16 @@ def start_groups(mapdata):
 def box_start_group(io, pts):
     """Box the ground round some starting troops (the camera on them).
     True if the game shows units selected."""
+    # (with the exact view. Trials 60 and 61: drawn with the Russia bot's
+    # camera the boxes lay two tiles too high; the one for Sweden's four
+    # men at 104, 66 covered rows 61.5 to 65.6 and held nobody, twice, and
+    # one man at 103, 15 was missed the same way)
     l, t, r, b = live.GAME_AREA
-    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    xs, ys = [p[0] / T for p in pts], [p[1] / T for p in pts]
     cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-    cam = trial.look_at(io, *trial.centred(cx, cy), wait=0.2)
-    a = live.on_screen(min(xs) - 2 * T, min(ys) - 2 * T, cam)
-    z = live.on_screen(max(xs) + 2 * T, max(ys) + 2 * T, cam)
+    view = look(io, cx, cy, wait=0.2)
+    a = on_view(min(xs) - 2, min(ys) - 2, view)
+    z = on_view(max(xs) + 2, max(ys) + 2, view)
     box = (max(l + 4, a[0]), max(t + 4, a[1]), min(r - 4, z[0]), min(b - 4, z[1]))
     if box[2] - box[0] < 30 or box[3] - box[1] < 30:
         return False
@@ -2207,7 +2321,8 @@ def opening(io, watch, mapdata, st, first):
     t0 = io.now()
     trial.opening(io, st, line=OPENING_LINE)
     make_scvs(io, mapdata, st)          # first, as the owner (at 2 s)
-    drop_on_shetland(io, mapdata)       # the owner: by 8 s
+    # (no drop on Shetland now: the owner, after trial 61: every marine
+    # to Finland first, Shetland after it)
     # the army keyed and sent to Kiruna before the lifts, so it walks while
     # the buildings go up (trial 44: keyed after them, it set off at 26 s
     # and reached Finland 7 s behind the owner)
@@ -2231,11 +2346,7 @@ def opening(io, watch, mapdata, st, first):
         left = countdown(st)
         # Shetland: the men dropped there are sent at its turret and depot
         # (twice: the second for what the first left), once Finland is clear
-        if st.finland_clear and st.shetland_attacks < SHETLAND_ATTACKS and \
-                io.now() - st.shetland_at >= SHETLAND_EVERY:
-            st.shetland_at = io.now()
-            st.shetland_attacks += 1
-            attack_on_shetland(io, mapdata)
+        shetland_step(io, mapdata, st)
         if st.finland_clear and not st.shetland_lifts:
             st.shetland_lifts = True
             lift(io, mapdata, st, "Factory", SHETLAND)
@@ -2403,7 +2514,8 @@ def opening(io, watch, mapdata, st, first):
             dropships_step(io, mapdata, st, t0)
             vultures_step(io, mapdata, st, t0)
         extras_done = not st.extras or \
-            (st.drop_stage == "done" and st.mine_stage == "done")
+            (st.drop_stage == "done" and st.mine_stage == "done" and
+             st.ship_stage == "done")
         if {"Barracks", "Starport"} <= st.landed and cc_done and \
                 st.depots_ordered and extras_done:
             break

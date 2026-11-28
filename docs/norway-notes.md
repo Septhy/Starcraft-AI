@@ -777,3 +777,27 @@ Changed after it: in an attack on buildings in turn, every key now gets
 its first target before any key gets the rest of its chain (a key's
 whole chain takes 1.2 s to give, so the second and third keys used to
 set off 1.2 and 2.4 s after the first).
+
+### After trial 61: all marines to Finland, Shetland after it (the owner)
+
+- Checked on the recording: the four marines at 104, 66 (Sweden) were
+  never boxed. The boxes over the starting groups were drawn with the
+  Russia bot's camera, two tiles too high: that group's box covered
+  rows 61.5 to 65.6, twice, and held nobody. One marine at 103, 15 was
+  missed the same way. So were they in trial 60 (33 men keyed in both).
+  The boxes are now drawn with the exact view; a test boxes every
+  starting group on the map and only Denmark's three stay out.
+- No drop on Shetland at the start: its three men go to Finland with
+  the rest. With the five found, 40 marines less Denmark's 3: 37 go
+  (33 before, and 3 on the Dropship).
+- Shetland after Finland: at "Finland clear" the Dropship is picked
+  where it starts (it has not moved), put on key 0 and flown to a spot
+  beside the army's waiting place (151, 18.5). When Russia's Starport is
+  down (or 45 s after Finland), the army's smallest key walks into it
+  (a right-click where it waits); 6 s later U: if a target is asked for
+  (someone is aboard) the beacon on Shetland is given; else once more,
+  three times at most. 26 s later the men on the island attack its
+  turret, then its depot, and again 40 s after.
+- Keys: 0 is the Dropship's. The ten Dropships and the Vultures take 5
+  or 4 if the army left them free, else the Barracks' key 6 or the
+  Command Center's 8 once those are down.

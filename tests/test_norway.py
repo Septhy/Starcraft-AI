@@ -1002,6 +1002,10 @@ class World:
                 return
             if self._on_minimap(x, y):
                 self.orders.append(("move", tuple(self.sel), self._minimap_tile(x, y)))
+                for j in self.sel:          # (what flies is there at once)
+                    if self.units[j]["kind"] == "dropship":
+                        self.units[j]["x"], self.units[j]["y"] = \
+                            (v + 1.0 for v in self._minimap_tile(x, y))
                 return
             i = self._unit_at(x, y)
             if i is not None and self.units[i]["kind"] == "dropship":
@@ -1706,3 +1710,85 @@ def test_a_vulture_is_told_by_its_picture():
     assert "vulture" in live.FRAME_KINDS
     t = Image.open(live.data_path(live.FRAME_KINDS["vulture"]))
     assert t.size == Image.open(live.data_path(live.FRAME_KINDS["scv"])).size
+
+
+# ------------------------------------------------- after trial 61 (the owner)
+def test_sweden_s_four_men_at_104_66_are_boxed(monkeypatch):
+    """Trials 60 and 61: drawn with the Russia bot's camera the boxes lay
+    two tiles too high; the one for the four men at 104, 66 held nobody
+    (twice), and one man at 103, 15 was missed too. With the exact view
+    every starting group's box holds its men."""
+    eyes_on(monkeypatch)
+    monkeypatch.setattr(live, "units_selected", lambda s: s.card == "move")
+    m = trial.load_map()
+    ship = next(a for a in m["slots"]["4"]["air"] if a["type"] == "Dropship")
+    men = [(x / 32, y / 32) for x, y in m["slots"]["4"]["units"]
+           if (x, y) != (ship["x"], ship["y"])]
+    w = World([("marine", x, y) for x, y in men])
+    boxed = set()
+    for group in norway.start_groups(m):
+        assert norway.box_start_group(w, group)
+        boxed |= set(w.sel)
+    left = [men[i] for i in range(len(men)) if i not in boxed]
+    assert all(norway.in_denmark(x * 32, y * 32) for x, y in left)   # only Denmark's
+    sweden = [i for i, (x, y) in enumerate(men) if 103 <= x <= 106 and 66 <= y <= 67]
+    assert len(sweden) == 4 and set(sweden) <= boxed
+
+
+def test_shetland_is_taken_after_finland_not_at_the_start(monkeypatch):
+    """The owner, after trial 61: every marine to Finland first. Once it
+    is clear the Dropship is fetched from where it starts; when Russia's
+    Starport is down the smallest army key boards it, it unloads on
+    Shetland's beacon, and the men attack the island's buildings."""
+    import inspect
+    assert "drop_on_shetland(io, mapdata)" not in inspect.getsource(norway.opening)
+    eyes_on(monkeypatch)
+    m = trial.load_map()
+    d = next(a for a in m["slots"]["4"]["air"] if a["type"] == "Dropship")
+    px, py = norway.SHIP_PICKUP
+    men = [("marine", px - 3 + 0.5 * i, py + 2.0) for i in range(5)]
+    w = World([("dropship", d["x"] / 32, d["y"] / 32)] + men +
+              [("marine", 148.0 + 0.4 * i, 16.0) for i in range(12)])
+    st = norway.State()
+    st.army_keys, st.army_held = ["1", "2"], {"1": 12, "2": 5}
+    w.groups["2"], w.groups["1"] = [1, 2, 3, 4, 5], list(range(6, 18))
+
+    def run(seconds):
+        end = w.t + seconds
+        while w.t < end:
+            norway.shetland_step(w, m, st)
+            w.sleep(0.5)
+    run(20)
+    assert not w.orders and st.ship_stage == "wait"         # not before Finland
+    st.finland_clear = True
+    run(30)
+    assert w.kinds(norway.SHIP_KEY) == ["dropship"]
+    assert abs(w.units[0]["x"] - px) <= 2 and abs(w.units[0]["y"] - py) <= 2
+    assert w.loaded == 0 and st.ship_stage == "flying"      # waits for the Starport
+    st.port_gone = True
+    run(12)
+    assert w.loaded == 5 and all(w.units[i]["inside"] for i in range(1, 6))
+    assert not any(w.units[i]["inside"] for i in range(6, 18))   # the small key only
+    what, who, where = [o for o in w.orders if o[0] == "unload"][-1]
+    assert who == (0,)
+    assert abs(where[0] - norway.SHETLAND[0] / 32) <= 2 and \
+        abs(where[1] - norway.SHETLAND[1] / 32) <= 2
+    # there: out, and at the island's turret and depot
+    for i in range(1, 6):
+        w.units[i].update(inside=False, x=64.0 + 0.3 * i, y=31.8)
+    run(norway.SHETLAND_TRIP + 2)
+    attacks = [o for o in w.orders if o[0] == "attack"]
+    assert len(attacks) == 2 and set(attacks[0][1]) == {1, 2, 3, 4, 5}
+    run(norway.SHETLAND_EVERY + 2)
+    assert st.ship_stage == "done"
+    # nobody gets aboard: tried three times, then given up
+    w = World([("dropship", d["x"] / 32, d["y"] / 32)])
+    st = norway.State()
+    st.army_keys, st.army_held, st.finland_clear, st.port_gone = ["1"], {"1": 3}, True, True
+    w.groups["1"] = []
+    end = w.t + 120
+    while w.t < end:
+        norway.shetland_step(w, m, st)
+        w.sleep(0.5)
+    assert st.ship_stage == "done" and st.ship_tries == norway.SHIP_TRIES
+    assert any("nobody got aboard" in l for l in w.lines)
