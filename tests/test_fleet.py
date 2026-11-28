@@ -625,6 +625,9 @@ def fight_setup(monkeypatch, looks, counts=None):
     monkeypatch.setattr(trial, "fleet_left",
                         lambda io_, st_: next(c, 20))
     monkeypatch.setattr(trial, "attack_move", lambda *a: None)
+    # (asked of the game: by default it answers where the fleet was sent)
+    monkeypatch.setattr(trial, "where_is_fleet",
+                        lambda io_, st_, quiet=False: trial.fleet_spot())
     return st, io
 
 
@@ -666,8 +669,12 @@ def test_the_dogfight_steps_back_when_scouts_die_fast_and_goes_home_at_half(monk
 def test_the_dogfight_ends_when_the_fleet_is_out_of_sight(monkeypatch):
     m = trial.load_map()
     st, io = fight_setup(monkeypatch, [(None, [])] * 200)
+    asked = []
+    monkeypatch.setattr(trial, "where_is_fleet",
+                        lambda io_, st_, quiet=False: asked.append(1))
     assert trial.dogfight(io, None, m, st, "Warsaw 200") == 0
-    assert trial.LOST_SIGHT <= io.t - 100 <= trial.LOST_SIGHT + 1
+    assert len(asked) == 1 + trial.FIND_TRIES   # at the start, then three looks
+    assert io.t - 100 < 5                       # and over at once, not after 15 s
     assert any("out of sight" in l for l in io.lines)
 
 
@@ -840,12 +847,20 @@ def test_the_fleet_is_found_on_its_way_out_not_only_where_it_goes(monkeypatch):
     was still on its way, so every dogfight ended at once."""
     m = trial.load_map()
     looked = []
-    st, io = fight_setup(monkeypatch, [(None, [])] * 3 + [(trial.live.CENTRE, [])] * 200)
+    there = (150 * 32, 90 * 32)             # where it really is
+    enemy = (trial.live.CENTRE[0] + 200, trial.live.CENTRE[1])
+    st, io = fight_setup(monkeypatch, [(None, [])] * 2 +
+                         [(trial.live.CENTRE, [enemy])] * 6 +
+                         [(trial.live.CENTRE, [])] * 200)
     monkeypatch.setattr(trial, "look_at",
                         lambda io_, x, y, wait=0: looked.append((x, y)) or (x, y))
-    trial.dogfight(io, None, m, st, "Warsaw 200")
-    assert not any("out of sight" in l for l in io.lines)
-    assert len({(round(x), round(y)) for x, y in looked[:4]}) >= 3   # searched
+    monkeypatch.setattr(trial, "where_is_fleet", lambda io_, st_, quiet=False: there)
+    n = trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert n > 0 and not any("out of sight" in l for l in io.lines)
+    # (after trial 39: no guessing; the game is asked, and the view goes
+    # to where the fleet is)
+    want = trial.centred(*there)
+    assert all(abs(x - want[0]) < 1 and abs(y - want[1]) < 1 for x, y in looked[:3])
 
 
 def test_no_marines_while_the_air_is_out_with_a_hit(monkeypatch):
@@ -1093,3 +1108,104 @@ def test_the_fleet_waits_by_a_beacon_with_friends_not_in_the_mass(monkeypatch):
     assert trial.fleet_spot() == default
     trial.State()                                 # a new game forgets it
     assert trial.fleet_spot() == default
+
+
+# ------------------------------------------------ plan phase 1: where it is
+from PIL import Image as _Image
+import os as _os
+
+
+def _data(name):
+    return _Image.open(_os.path.join(_os.path.dirname(__file__), "data", name))
+
+
+def test_scouts_and_the_artillery_are_told_by_their_small_pictures():
+    """The owner's recording for phase 0: a key with six Scouts and the
+    Heavy Artillery (second picture), one with four and it (third)."""
+    seven, five = _data("fleet_key_7.jpg"), _data("fleet_key_5.jpg")
+    assert trial.scout_pictures(seven) == (7, [0, 2, 3, 4, 5, 6])
+    assert trial.scout_pictures(five) == (5, [0, 1, 3, 4])
+    assert trial.live.frames_like(seven, 7, "artillery") == [1]
+    assert trial.live.frames_like(five, 5, "artillery") == [2]
+
+
+class FindIO(StubIO):
+    """A fleet key shows its pictures; a click on a Scout's picture and
+    Ctrl+C centre the view on the Scouts, a click on the artillery's on
+    Moscow."""
+    def __init__(self, keys):
+        super().__init__()
+        self.groups = keys              # key -> list of "scout"/"artillery"
+        self.sel, self.one, self.centred_on = [], None, None
+        self.combos = []
+        self.shot = lambda label, keep=True: self
+
+    def key(self, name):
+        super().key(name)
+        if name in self.groups:
+            self.sel, self.one = list(self.groups[name]), None
+
+    def sleep(self, s):
+        self.t += s
+
+    def click(self, x, y, button="left"):
+        super().click(x, y, button)
+        for i in range(len(self.sel)):
+            x0, y0, x1, y1 = trial.live.frame_box(i, len(self.sel))
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                self.one = self.sel[i]
+
+    def combo(self, *keys):
+        self.combos.append(keys)
+        if keys == ("ctrl", "c"):
+            self.centred_on = self.one
+
+
+def find_setup(monkeypatch, keys, fleet_at=(150 * 32, 90 * 32)):
+    io = FindIO(keys)
+    st = trial.State()
+    st.air_keys = list(keys)
+    live = trial.live
+    monkeypatch.setattr(live, "frames_shown",
+                        lambda s: len(s.sel) if len(s.sel) >= 2 else 0)
+    monkeypatch.setattr(live, "frames_like",
+                        lambda s, n, kind: [i for i, k in enumerate(s.sel) if k == kind])
+    monkeypatch.setattr(live, "camera_from_minimap",
+                        lambda s: fleet_at if s.centred_on == "scout"
+                        else (209 * 32, 50 * 32) if s.centred_on else None)
+    monkeypatch.setattr(trial, "gold_on_screen",
+                        lambda s, cx, cy, r: [(cx, cy)] if s.centred_on == "scout" else [])
+    return io, st
+
+
+def test_the_fleet_is_found_by_a_scout_s_picture_and_ctrl_c(monkeypatch):
+    """Phase 0 (the owner's recording): the key twice lands eleven to
+    fifteen tiles off the Scouts, pulled by the artillery at Moscow; one
+    Scout's picture clicked, then Ctrl+C, centres on it."""
+    io, st = find_setup(monkeypatch, {"9": ["artillery"] + ["scout"] * 6})
+    assert trial.where_is_fleet(io, st) == (150 * 32, 90 * 32)
+    assert io.one == "scout" and ("ctrl", "c") in io.combos    # never the gun
+    assert st.air.seen[0] == (150 * 32, 90 * 32) and st.air.finds == 1
+    assert io.t - 100 < 1.0                                    # about half a second
+    assert any("the fleet is at 150, 90" in l for l in io.lines)
+    # the first key holds only its artillery: the next key's Scout
+    io, st = find_setup(monkeypatch, {"9": ["artillery"],
+                                      "0": ["scout", "artillery", "scout"]})
+    assert trial.where_is_fleet(io, st) == (150 * 32, 90 * 32) and io.one == "scout"
+    # no Scout on any key: nothing clicked, no Ctrl+C
+    io, st = find_setup(monkeypatch, {"9": ["artillery"], "0": []})
+    assert trial.where_is_fleet(io, st) is None and not io.combos
+
+
+def test_a_single_fleet_key_has_its_view_put_back_before_the_click(monkeypatch):
+    st = trial.State()
+    st.air_keys = ["9"]
+    st.dogfight_cam, st.dogfight_look = (4000, 2000), (4000, 2000)
+    io = StubIO()
+    trial.order_fleet(io, st, (900, 400))
+    kinds = [(c[2], c[1] > 800) for c in io.clicks]
+    assert kinds == [("left", True), ("right", False)]   # the minimap, then the hop
+    st.air_keys = ["9", "0"]                             # two keys take turns: no need
+    io = StubIO()
+    trial.order_fleet(io, st, (900, 400))
+    assert [c[2] for c in io.clicks] == ["right", "right"]

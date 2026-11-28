@@ -411,7 +411,8 @@ def frame_box(i, n=12):
 
 SCV_FRAME_MATCH = 0.4                 # overlap with the SCV wireframe: an SCV
 FRAME_KINDS = {"scv": "scv_frame.png", "dropship": "dropship_frame.png",
-               "vulture": "vulture_frame.png"}
+               "vulture": "vulture_frame.png", "scout": "scout_frame.png",
+               "artillery": "artillery_frame.png"}
 
 
 def _frame_lines(a, box):

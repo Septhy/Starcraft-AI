@@ -67,7 +67,35 @@ Purpose: learn how the game answers before anything is built on it.
 - Done when: the log says which of the two puts the Scouts on screen,
   with the Heavy Artillery on the key.
 
+Result (the owner's recording, 115 s, made by hand):
+
+- A fleet key pressed twice moves the view to the average place of
+  everything on the key. The Heavy Artillery at Moscow pulls it off the
+  Scouts: about 11 tiles with six Scouts on the key (they show at the
+  screen's left edge, 5 tries of 5), about 15 with four (at the edge or
+  off the screen, 7 tries). The view landed one seventh of the way from
+  the Scouts to Moscow, to a tile or two, in each jump measured.
+- One Scout's small picture clicked, then Ctrl+C: the view jumps to
+  that Scout and puts it in the middle (to about half a tile).
+- The Scout's and the artillery's small pictures are told apart
+  without a mistake (564 pictures; also on the bot's own older game
+  pictures, where the old picture check had failed).
+- So the artillery stays on the keys (decision 2 is settled).
+
 ### Phase 1: always know where the fleet is
+
+Built (not yet tried in a game): `where_is_fleet` in `bot/trial.py`: a
+fleet key, the first small picture that is a Scout clicked, Ctrl+C, the
+white box on the minimap read, a gold Scout checked for in the middle.
+About half a second. The dogfight asks it at its start and whenever it
+does not see the fleet where it thought; the guesses at where the fleet
+"should be by now" are gone; three looks in a row without a Scout end
+the dogfight. The upkeep's look uses it too. The air report counts the
+finds, their time, and the times no Scout was seen where the view
+landed (a picture "fleet-not-centred" is kept once). With a single
+fleet key, the view is put back before each hop (a key pressed twice
+running may move the view).
+
 
 - A single `where_is_fleet`: jump the screen to the fleet (the way
   phase 0 proved), read the white box with the exact reader made for

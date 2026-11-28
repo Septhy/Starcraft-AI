@@ -5438,6 +5438,7 @@ class AirStats:
         self.reported = now
         self.upkeeps = 0
         self.last_upkeep = now
+        self.finds, self.find_time, self.find_misses = 0, 0.0, 0
 
     def order(self, kind, now):
         self.orders[kind] = self.orders.get(kind, 0) + 1
@@ -5490,6 +5491,10 @@ def air_report(io, st):
              f"target 23 to 40 while fighting): "
              + ", ".join(f"{n} {k}" for k, n in sorted(a.orders.items())),
              f"* Holds after moves: {holds} of {a.orders.get('move', 0)} moves",
+             f"* Fleet found by Ctrl+C on a Scout: {a.finds} times"
+             + (f", {a.find_time / a.finds:.2f} s each" if a.finds else "")
+             + (f"; {a.find_misses} times no Scout was seen where the view "
+                f"landed" if a.find_misses else ""),
              "* Scouts on the keys: " + (
                  ", ".join(f"{(t - a.t0) / 60:.0f} min: {n}"
                            for t, n in a.counts[-8:]) or "not counted yet")
@@ -5511,9 +5516,81 @@ def screen_to_map(sx, sy, camera):
             camera[1] + (sy - live.CENTRE[1]) / live.ZOOM)
 
 
+# Where the fleet is, asked of the game itself (plan phase 1). The owner's
+# recording for phase 0 showed two things. Pressing a fleet key twice
+# moves the view to the average place of everything on the key, and the
+# Heavy Artillery at Moscow pulls that eleven tiles off six Scouts and
+# fifteen off four, to the screen's edge or past it. But one Scout picked
+# by its small picture, then Ctrl+C, puts that Scout in the middle of the
+# view (to half a tile). The Scout and the artillery are told apart by
+# their pictures (no mistake in 564 of them).
+CENTRED_AT = (966, 424)        # screen point Ctrl+C puts the picked unit on
+FIND_GOLD = 320                # screen pixels round it a gold Scout must show
+FIND_HOVER = 0.08              # seconds the mouse rests on the picture first
+FIND_TRIES = 3                 # looks in a row without a Scout: the fleet is gone
+
+
+def scout_pictures(pic):
+    """(units selected, which of their small pictures are Scouts)."""
+    n = live.frames_shown(pic)
+    return n, (live.frames_like(pic, n, "scout") if n >= 2 else [])
+
+
+def where_is_fleet(io, st, quiet=False):
+    """The fleet's place (a map point), from the game: a fleet key, one
+    Scout's small picture clicked, Ctrl+C, and the white box on the
+    minimap read. None if no key shows a Scout, or none is seen where the
+    view lands. Leaves one Scout selected: orders press the keys again."""
+    a = air_stats(io, st)
+    t0 = io.now()
+    for key in st.air_keys:
+        io.key(key)
+        io.sleep(0.08)
+        pic = io.shot("fleet-find", keep=False)
+        if pic is None:
+            return None
+        n, scouts = scout_pictures(pic)
+        if not scouts:
+            continue                    # its artillery alone, or nothing
+        x0, y0, x1, y1 = live.frame_box(scouts[0], n)
+        x, y = (x0 + x1) // 2, (y0 + y1) // 2
+        if getattr(io, "hover", None) is not None:
+            io.hover(x, y)
+            io.sleep(FIND_HOVER)
+        io.click(x, y)
+        io.sleep(0.08)
+        io.combo("ctrl", "c")
+        io.sleep(0.12)
+        pic = io.shot("fleet-found", keep=False)
+        mid = live.camera_from_minimap(pic) if pic is not None else None
+        if mid is None:
+            continue
+        if not gold_on_screen(pic, CENTRED_AT[0], CENTRED_AT[1], FIND_GOLD):
+            if not a.find_misses:
+                io.shot("fleet-not-centred")    # (kept once, to see why)
+            a.find_misses += 1
+            continue
+        took = io.now() - t0
+        a.finds += 1
+        a.find_time += took
+        moved = a.seen is None or \
+            abs(mid[0] - a.seen[0][0]) + abs(mid[1] - a.seen[0][1]) > 8 * 32
+        a.seen = (mid, io.now())
+        if not quiet and (moved or a.finds <= 3):
+            io.log(f"air: the fleet is at {int(mid[0] // 32)}, "
+                   f"{int(mid[1] // 32)} (a Scout of key {key} centred; "
+                   f"{took:.2f} s)")
+        return mid
+    return None
+
+
 def locate_fleet(io, st):
-    """Where the fleet really is: a look where it was last sent (or its
-    parking spot), and the middle of the gold Scouts there."""
+    """Where the fleet really is: asked of the game (where_is_fleet);
+    failing that, a look where it was last sent (or its parking spot),
+    and the middle of the gold Scouts there."""
+    found = where_is_fleet(io, st, quiet=True)
+    if found is not None:
+        return found
     a = air_stats(io, st)
     guess = a.target or st.fleet_spot or fleet_spot()
     cam = look_at(io, *centred(*guess), wait=0.2)
@@ -5693,9 +5770,17 @@ def order_fleet(io, st, screen_point, hold=False):
         else:
             x = min(max(x, l + 30), r - 30)
             y = min(max(y, t + 30), b - 30)
+    again = getattr(st, "dogfight_look", None) if len(st.air_keys) == 1 \
+        else None
     for key in st.air_keys:
         io.key(key)
         io.sleep(0.02)
+        if again is not None:
+            # (one key alone is pressed twice running, and the key of what
+            # is selected already makes the game jump the view to it: the
+            # view is put back before the click)
+            io.click(*live.minimap_point(*again))
+            io.sleep(0.06)
         io.click(x, y, button="right")
         if hold:
             io.sleep(0.12)
@@ -5874,8 +5959,8 @@ def dogfight(io, watch, mapdata, st, target):
     # where it set off from: where it was last seen, else its parking spot
     # (trial 34: looked for where it was going, it was not there yet, and
     # every dogfight ended at once, "the fleet is out of sight")
-    origin = a.seen[0] if a.seen and io.now() - a.seen[1] < 300 \
-        else fleet_spot()
+    origin = where_is_fleet(io, st) or \
+        (a.seen[0] if a.seen and io.now() - a.seen[1] < 300 else fleet_spot())
     fleet_xy = origin
     set_air_state(io, st, "fighting", f"dogfight on the way to {target}",
                   target=fleet_xy)
@@ -5891,7 +5976,8 @@ def dogfight(io, watch, mapdata, st, target):
     thin = 0                              # counts in a row without cover
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
-        cam = look_at(io, *centred(*fleet_xy), wait=0.1)
+        st.dogfight_look = centred(*fleet_xy)
+        cam = look_at(io, *st.dogfight_look, wait=0.1)
         st.dogfight_cam = cam
         pic = io.shot("dogfight", keep=False)
         if pic is None:
@@ -5899,17 +5985,31 @@ def dogfight(io, watch, mapdata, st, target):
         guess = live.on_screen(fleet_xy[0], fleet_xy[1], cam)
         fleet, enemies = sense_fight(pic, guess, own_buildings_on_screen(cam))
         if fleet is None:
-            unseen += 1
-            if io.now() - seen_at >= LOST_SIGHT:
-                why = "the fleet is out of sight"
+            # not where it was thought to be: the game is asked (trial 39:
+            # three dogfights in four ended here, the fleet "out of
+            # sight", after guesses at where it should be by now)
+            found = where_is_fleet(io, st)
+            if found is None:
+                unseen += 1
+                if unseen >= FIND_TRIES:
+                    why = "the fleet is out of sight (no Scout found on its keys)"
+                    break
+                io.sleep(TICK)
+                continue
+            fleet_xy = found
+            st.dogfight_look = centred(*fleet_xy)
+            cam = look_at(io, *st.dogfight_look, wait=0.1)
+            st.dogfight_cam = cam
+            pic = io.shot("dogfight", keep=False)
+            if pic is None:
                 break
-            # look where it should be by now on its way, then where it
-            # was going, then where it set off from, in turn
-            gone = SCOUT_SPEED * (io.now() - seen_at)
-            on_way = toward(origin, dest, gone) if not fought else origin
-            fleet_xy = [on_way, dest, origin][unseen % 3]
-            io.sleep(TICK)
-            continue
+            guess = live.on_screen(fleet_xy[0], fleet_xy[1], cam)
+            fleet, enemies = sense_fight(pic, guess,
+                                         own_buildings_on_screen(cam))
+            if fleet is None:
+                fleet = guess           # (one or two Scouts: too few to be
+                                        # told from lamps, but Ctrl+C put
+                                        # one of them there)
         unseen, seen_at = 0, io.now()
         fleet_xy = screen_to_map(fleet[0], fleet[1], cam)
         origin = fleet_xy                   # a later search starts here
