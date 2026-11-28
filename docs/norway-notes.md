@@ -940,3 +940,35 @@ Changed:
   No number keys are needed, so the new troops are loaded as well.
 - The mines: fifteen spots on the beacon itself, the middle first, 0.6
   tiles apart.
+
+## The massing cycle, first version (built after trial 64, not yet played)
+
+- The chat is read with Russia's reader (it needs the API key; without
+  one the log says so and the Dropships are loaded but never sent). A
+  line from an ally's colour (brown, teal, purple) is a word to go when
+  it says "@N drop <city>", or "gone east" / "gone balks" (not "gone
+  east in 30 seconds").
+- "gone east" means Berlin's front, "gone balks" Romania's. The
+  Dropships leave 25 s after it (Russia's men must get there first); at
+  once on an "@N drop". A word not acted on lapses after 150 s.
+- Where: of Russia's troops on the minimap within 60 tiles of the city,
+  the ten nearest it are the front; the drop goes two tiles behind
+  their middle (beside the enemy, among our allies). With none of
+  Russia's near, on the city itself.
+- How: the Dropships' key, U and a click on the minimap; one Dropship at
+  a time if the group takes no Unload. They fly home after the flight
+  time and 14 s for the unload; at home they are counted (more are
+  ordered if some were lost), repaired and loaded again.
+- Marines: every 20 s, with the Barracks down and from the first tax,
+  the minerals are read; the price of the missing Dropships (three at
+  most) is kept back, the rest goes on marines, five at a time, their
+  rally point the loading field. The Barracks is let go of after (no
+  Esc on it).
+- Repairs: once the depots are ordered the SCVs walk to where the
+  Dropships wait. After each return each Dropship in turn is centred
+  (Ctrl+C) and the SCVs told to repair it; a whole one is refused by
+  the game.
+- Not in this version: judging the drop zone (too many enemy ground
+  troops, Firebats; under Germany's Battlecruisers), Kerrigans and
+  tanks as such (whoever stands at the field boards), the empty
+  Dropships staying home.

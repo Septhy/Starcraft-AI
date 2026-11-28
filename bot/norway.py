@@ -34,7 +34,7 @@ from bot import trial
 
 SLOT = "4"
 OPENING_LINE = "AF Norway AI v0.01"
-OPENING_TIME = 900             # real seconds the opening is played at most
+OPENING_TIME = 7200            # real seconds the opening is played at most
 
 T = 32                         # map pixels a tile
 SHETLAND = (int(66.5 * T), int(33.9 * T))   # the beacon on Shetland's island
@@ -253,10 +253,16 @@ class State:
         self.drop_ordered = self.drop_count = self.drop_looks = 0
         self.drop_boardings = 0
         self.drop_quiet = 0
+        self.drop_said = False
         self.drop_full = set()          # Dropships (their place on the key) full
         self.field_ship, self.field_ready = None, -1e9
         self.field_tries = self.field_aboard = 0
         self.army_called_home = False
+        self.ears, self.heard_at, self.go = None, -1e9, None
+        self.cycle, self.cycle_at, self.cycle_far = "home", -1e9, 0.0
+        self.drops = self.marines = self.repairs = self.repair_i = 0
+        self.trained_at = self.repair_at = -1e9
+        self.barracks_rally = self.scvs_home = False
         self.drop_board_at, self.drop_boardable = -1e9, True
         self.mine_stage, self.mine_next = "wait", -1e9
         self.mine_round = self.spawn_tries = self.vulture_count = 0
@@ -1908,11 +1914,14 @@ def dropships_step(io, mapdata, st, t0):
             st.drop_boardable, st.drop_quiet = True, 0
             return
         st.drop_quiet += 1
-        if st.drop_quiet >= 2 and not st.drop_boardable:
-            full = loaded_dropships(io, st)
-            io.log(f"norway: {full} of {st.drop_count} Dropships have men "
-                   f"aboard")
-            st.drop_stage = "done"
+        if n < DROP_ENOUGH - 1:
+            st.drop_stage = "making"    # some were lost: more are ordered
+            st.drop_full = set()        # (their places on the key moved)
+        if st.drop_quiet == 2 and not st.drop_boardable and not st.drop_said:
+            st.drop_said = True
+            io.log(f"norway: {len(st.drop_full)} of {st.drop_count} "
+                   f"Dropships are loaded; waiting for the word to go")
+        st.drop_boardable = True        # (new men may have come)
 
 
 def take_vultures(io, st):
@@ -2092,6 +2101,264 @@ def vultures_step(io, mapdata, st, t0):
             st.mine_stage = "done"
             io.log(f"norway: the mines at Oslo are ordered "
                    f"({st.mine_round} rounds)")
+
+
+# ------------------------------------------------------- the massing cycle
+# The owner's cycle for Norway: nine to twelve Dropships loaded at the
+# field in Finland; on the word they fly to the front and unload beside
+# Russia's attack; back to Finland; marines made as the money allows (with
+# enough kept to replace lost Dropships); the Dropships filled again; the
+# SCVs repair them. The word is "@N drop <city>" from an ally, or Russia
+# saying "gone east" or "gone balks" (the owner's answers). The chat is
+# read by the same reader as Russia's bot uses (it needs the API key).
+import re
+
+DROP_ORDER = re.compile(r"@\s*n\s+drop\s+(.+)", re.I)
+GONE = re.compile(r"\bgone\s+(east|balks)\b(?!\s+in\b)", re.I)
+ALLY_COLOURS = ("brown", "teal", "purple")
+FRONT_CITY = {"east": "Berlin 1000", "balks": "Romania 300"}
+RUSSIA = [5]
+GO_DELAY = 25                  # seconds after "gone east" before the Dropships
+                               # leave: Russia's men must reach the front first
+GO_STALE = 150                 # seconds after which a word not acted on lapses
+FRONT_MEN = 10                 # of Russia's minimap pixels nearest the city: the front
+FRONT_REACH = 60               # tiles from the city within which they count
+FRONT_BACK = 2                 # tiles behind that front the drop goes
+DROP_SPEED = 4.0               # tiles a second a Dropship flies
+UNLOAD_TIME = 14               # seconds to put eight men down
+TRAIN_EVERY = 20               # seconds between rounds of marines
+TRAIN_BATCH = 5                # a Barracks' queue
+MARINE_COST = 50
+DROPSHIP_COST = 300            # (trial 62: about 300 minerals each)
+REPAIR_EVERY = 3               # seconds between two Dropships' repairs
+
+
+def hear(io, mapdata, st, picture):
+    """Listen to the chat: a word to go sets st.go = (city, when, why)."""
+    ears = st.ears
+    now = io.now()
+    if ears is None or picture is None or now - st.heard_at < trial.HEAR_EVERY:
+        return
+    st.heard_at = now
+    if ears.dead():
+        io.log(f"the chat reader is out: {ears.summary()}")
+        st.ears = None
+        return
+    clock = st.clock.time() if st.clock is not None else now
+    ears.listen(picture, clock)
+    for when, colour, text in ears.lines(clock):
+        io.log(f"chat [{colour}] {text}")
+        said = text.split(":", 1)[-1].strip() if ":" in text else text
+        if colour not in ALLY_COLOURS:
+            continue
+        word = heard_go(mapdata, said)
+        if word:
+            st.go = (word[0], now, word[1])
+            io.log(f"norway: heard '{said[:40]}': the Dropships go to "
+                   f"{word[0]}")
+    ears.orders(clock)                  # (Russia's "@R" orders are not ours)
+
+
+def heard_go(mapdata, said):
+    """(city, why) if a chat line is a word to go, else None."""
+    m = DROP_ORDER.search(said)
+    if m:
+        from bot import places
+        name = places.resolve(mapdata, m.group(1).strip(" .!"))
+        return (name, "order") if name else None
+    m = GONE.search(said)
+    if m:
+        return FRONT_CITY[m.group(1).lower()], "gone " + m.group(1).lower()
+    return None
+
+
+def drop_point(watch, picture, mapdata, city):
+    """Where the Dropships unload for an attack on `city` (tile point):
+    just behind the foremost of Russia's troops on the way to it, beside
+    the enemy but among our allies; the city itself if none of Russia's
+    are anywhere near."""
+    c = trial.place(mapdata, city)
+    cx, cy = c["x"] / T, c["y"] / T
+    theirs = []
+    if watch is not None and picture is not None:
+        for p in watch.others(picture, RUSSIA):
+            x, y = live.from_drawn(*p)
+            d = ((x / T - cx) ** 2 + (y / T - cy) ** 2) ** 0.5
+            if d <= FRONT_REACH:
+                theirs.append((d, x / T, y / T))
+    if len(theirs) < FRONT_MEN:
+        return (cx, cy), 0
+    front = sorted(theirs)[:FRONT_MEN]
+    fx = sum(p[1] for p in front) / len(front)
+    fy = sum(p[2] for p in front) / len(front)
+    d = ((fx - cx) ** 2 + (fy - cy) ** 2) ** 0.5 or 1.0
+    back = min(FRONT_BACK, d)
+    return (fx + (fx - cx) / d * back, fy + (fy - cy) / d * back), len(theirs)
+
+
+def launch(io, watch, mapdata, st, picture):
+    """Every Dropship on the key flies to the front and unloads there."""
+    city = st.go[0]
+    (px, py), seen = drop_point(watch, picture, mapdata, city)
+    clear_modes(io)
+    io.key(st.drop_key)
+    io.sleep(0.2)
+    if not live.move_shown(io.card()):
+        return False
+    io.key("u")
+    io.sleep(0.15)
+    sent = live.placing_shown(io.card())
+    if sent:
+        io.click(*live.mm_point(px, py))
+        io.sleep(0.05)
+    else:
+        # (the group took no Unload: one Dropship at a time)
+        clear_modes(io)
+        for i in range(st.drop_count):
+            if not one_dropship(io, st, i):
+                break
+            io.key("u")
+            io.sleep(0.15)
+            if live.placing_shown(io.card()):
+                io.click(*live.mm_point(px, py))
+                io.sleep(0.05)
+                sent = True
+            clear_modes(io)
+    if not sent:
+        return False
+    far = ((px - DROP_RALLY[0]) ** 2 + (py - DROP_RALLY[1]) ** 2) ** 0.5
+    st.cycle, st.cycle_at = "out", io.now() + far / DROP_SPEED + UNLOAD_TIME
+    st.cycle_far = far
+    st.drops += 1
+    io.log(f"norway: drop {st.drops}: {st.drop_count} Dropships fly to "
+           f"unload at {px:.0f}, {py:.0f} for {city} ({st.go[2]}; "
+           + (f"just behind Russia's front, {seen} of its pixels near"
+              if seen else "no Russian troops seen near: on the city") + ")")
+    st.go = None
+    return True
+
+
+def cycle_step(io, watch, mapdata, st, picture):
+    """One step of the cycle's flying: out on the word, home after the
+    unload, then loading again."""
+    now = io.now()
+    if st.drop_key is None or not st.drop_count:
+        return
+    if st.cycle == "home":
+        if st.go is None:
+            return
+        city, when, why = st.go
+        if now - when > GO_STALE:
+            st.go = None
+            return
+        loaded = len(st.drop_full) + (1 if st.field_aboard else 0)
+        if not loaded or now - when < (0 if why == "order" else GO_DELAY):
+            return
+        if not launch(io, watch, mapdata, st, picture):
+            st.go = None
+    elif st.cycle == "out" and now >= st.cycle_at:
+        clear_modes(io)
+        io.key(st.drop_key)
+        io.sleep(0.2)
+        if live.move_shown(io.card()):
+            io.click(*live.mm_point(*DROP_RALLY), button="right")
+            io.sleep(0.05)
+        st.cycle, st.cycle_at = "back", now + st.cycle_far / DROP_SPEED
+        io.log("norway: the Dropships fly home to Finland")
+    elif st.cycle == "back" and now >= st.cycle_at:
+        # home: counted again (some may be lost), repaired, loaded again
+        st.cycle = "home"
+        st.drop_full, st.field_ship = set(), None
+        st.drop_boardable, st.drop_stage = True, "making"
+        st.drop_next = now
+        st.repair_i = 0
+        io.log("norway: the Dropships are home: repairs, and loading again")
+
+
+def train_marines(io, mapdata, st, picture, t0):
+    """Marines at the Barracks, as the money allows; enough is kept to
+    replace the Dropships that are missing (the owner)."""
+    now = io.now()
+    if "Barracks" not in st.landed or "Barracks" not in st.at or \
+            now - st.trained_at < TRAIN_EVERY or \
+            game_seconds(io, st, t0) < TAX_AT:
+        return 0
+    st.trained_at = now
+    from eyes import numbers
+    money = numbers.read_minerals(picture) if picture is not None else None
+    if money is None:
+        return 0
+    # (the Dropships come first: before there are enough, and after any
+    # were lost, their price is kept back, for three at a time at most)
+    missing = max(0, DROP_ENOUGH - st.drop_count)
+    spare = money - min(missing, 3) * DROPSHIP_COST
+    n = min(TRAIN_BATCH, int(spare // MARINE_COST))
+    if n < 1:
+        return 0
+    bx, by = st.at["Barracks"]
+    clear_modes(io)
+    view = look(io, bx, by)
+    io.click(*on_view(bx, by, view))
+    io.sleep(0.12)
+    if not live.building_card(io.card()):
+        return 0
+    if not st.barracks_rally:
+        io.key("r")                     # new men walk to the loading field
+        io.sleep(0.1)
+        io.click(*live.mm_point(*HOME_FIELD))
+        io.sleep(0.08)
+        st.barracks_rally = True
+    for _ in range(n):
+        io.key("m")
+        io.sleep(0.06)
+    leave_building(io, st)              # (an Esc on it would cancel them)
+    st.marines += n
+    if st.marines == n or st.marines % 25 < n:
+        io.log(f"norway: marines ordered at the Barracks ({st.marines} so "
+               f"far; {money} minerals)")
+    st.drop_boardable = True            # men to load are coming
+    return n
+
+
+def repair_dropships(io, st):
+    """The SCVs repair the Dropships while they wait at home: one
+    Dropship a step, centred with Ctrl+C, then the SCVs' key, R and a
+    click on it (a Dropship that is whole is refused by the game)."""
+    now = io.now()
+    if st.cycle != "home" or not st.drop_count or not st.scv_count or \
+            not st.depots_ordered or now - st.repair_at < REPAIR_EVERY:
+        return
+    st.repair_at = now
+    if not st.scvs_home:
+        # the depots are done: the SCVs walk to where the Dropships wait
+        if call_scvs(io, st):
+            io.click(*live.mm_point(*DROP_RALLY), button="right")
+            io.sleep(0.05)
+            st.scvs_home = True
+            st.repair_at = now + 35     # (the walk from Arkhangelsk)
+            io.log("norway: the SCVs walk to the Dropships to repair them")
+        return
+    if st.repair_i >= st.drop_count:
+        return                          # all looked at since they came home
+    i = st.repair_i
+    st.repair_i += 1
+    clear_modes(io)
+    if not one_dropship(io, st, i):
+        return
+    at = centre_on_selected(io)
+    io.key(SCV_KEY)
+    io.sleep(0.12)
+    if not live.move_shown(io.card()):
+        return
+    io.key("r")
+    io.sleep(0.1)
+    io.click(at[0], at[1])
+    io.sleep(0.1)
+    if live.placing_shown(io.card()):
+        clear_modes(io)                 # not damaged: nothing to repair
+    else:
+        st.repairs += 1
+        io.log(f"norway: the SCVs repair Dropship {i + 1}")
 
 
 def selected(io):
@@ -2774,8 +3041,13 @@ def opening(io, watch, mapdata, st, first):
         cc_done = "Command Center" in st.landed or \
             (st.cc_lifted and "Command Center" not in st.lifted)
         if st.extras:
-            dropships_step(io, mapdata, st, t0)
+            hear(io, mapdata, st, picture)
+            if st.cycle == "home":
+                dropships_step(io, mapdata, st, t0)
+                repair_dropships(io, st)
             vultures_step(io, mapdata, st, t0)
+            cycle_step(io, watch, mapdata, st, picture)
+            train_marines(io, mapdata, st, picture, t0)
         extras_done = not st.extras or \
             (st.drop_stage == "done" and st.mine_stage == "done" and
              st.ship_stage == "done")
@@ -2800,6 +3072,13 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
     st = State()
     st.clock = team_rules.GameClock(io.now)
     st.clock.update(first)
+    st.ears = ears
+    if ears is not None:
+        from bot import places
+        ears.places = places.names_for_chat(mapdata)
+    else:
+        io.log("no API key: the chat cannot be read, so the Dropships are "
+               "loaded but never sent ('@N drop <city>', 'gone east')")
     opening(io, watch, mapdata, st, first)
     for kind in ("Barracks", "Starport", "Command Center"):
         if kind in st.lifted:

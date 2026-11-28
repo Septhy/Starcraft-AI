@@ -158,6 +158,11 @@ def setup(monkeypatch, **kw):
         st.drop_stage = st.mine_stage = "done"
     monkeypatch.setattr(norway, "dropships_step", done)
     monkeypatch.setattr(norway, "vultures_step", lambda io, m, st, t0: None)
+    # (and the cycle: the chat, the flights, the marines, the repairs)
+    monkeypatch.setattr(norway, "hear", lambda io, m, st, pic: None)
+    monkeypatch.setattr(norway, "cycle_step", lambda io, w, m, st, pic: None)
+    monkeypatch.setattr(norway, "train_marines", lambda io, m, st, pic, t0: 0)
+    monkeypatch.setattr(norway, "repair_dropships", lambda io, st: None)
     real_key = game.key
 
     def key(name):
@@ -918,6 +923,9 @@ class World:
         self.rally = None               # where the Starport's Dropships gather
         self.jumps = True               # a key pressed twice moves the view
         self.queue = []                 # when each Dropship in the making is out
+        self.buildings = {}             # name -> tile, picked by a click
+        self.rallies = {}               # building -> its rally tile
+        self.money = 1000
         self.build_time = 31.0
 
     # -- time and the log
@@ -1037,11 +1045,23 @@ class World:
             return
         if self._on_minimap(x, y):
             assert self.mode != "placing", "a click on the minimap while placing"
-            if self.mode == "unload":
+            if self.mode == "unload" and len(self.sel) == 1 and \
+                    not self.units[self.sel[0]].get("cargo"):
                 self.orders.append(("unload", tuple(self.sel), self._minimap_tile(x, y)))
                 self.mode = None
             elif self.mode == "rally":
-                self.rally = self._minimap_tile(x, y)
+                self.rallies[self.building] = self._minimap_tile(x, y)
+                if self.building == "Starport":
+                    self.rally = self._minimap_tile(x, y)
+                self.mode = None
+            elif self.mode == "unload":
+                tx, ty = self._minimap_tile(x, y)
+                self.orders.append(("unload", tuple(self.sel), (tx, ty)))
+                for j in self.sel:              # there at once, everyone out
+                    self.units[j].update(x=tx + 1.0, y=ty + 1.0, cargo=0)
+                for u in self.units:
+                    if u["inside"]:
+                        u.update(inside=False, x=tx + 1.0, y=ty + 1.0)
                 self.mode = None
             else:
                 self.view = live.view_after_click(x, y)
@@ -1061,6 +1081,11 @@ class World:
             self.units[self.sel[0]]["busy"] = self.t + 14.0   # walks, then builds
             self.mode = None
             return
+        if self.mode == "repair":
+            j = self._unit_at(x, y)
+            if j is not None and not self.units[j].get("hurt") and \
+                    self.units[j]["kind"] == "dropship":
+                return                      # whole: refused, still asking
         if self.mode in ("repair", "attack", "mine", "unload"):
             self.orders.append((self.mode, tuple(self.sel), self._tile(x, y)))
             self.mode = None
@@ -1071,6 +1096,11 @@ class World:
         elif self.cc and abs(self._tile(x, y)[0] - self.cc[0]) <= 2 \
                 and abs(self._tile(x, y)[1] - self.cc[1]) <= 1.5:
             self.sel, self.building, self.mode = [], "Command Center", None
+        else:
+            for name, (bx, by) in self.buildings.items():
+                if abs(self._tile(x, y)[0] - bx) <= 2 and \
+                        abs(self._tile(x, y)[1] - by) <= 1.5:
+                    self.sel, self.building, self.mode = [], name, None
 
     def click_with(self, held, x, y, button="left"):
         self.clicks.append((x, y, held))
@@ -1121,6 +1151,9 @@ class World:
                     self.units[self.sel[0]].get("mines", 3) - 1
                 self.mode = "mine"
         elif name == "esc":
+            assert not (self.building in ("Starport", "Barracks") and self.mode is None
+                        and (self.queue or self.building == "Barracks")), \
+                "Esc with a building that is making units selected: it cancels one"
             self.mode = {"placing": "menu"}.get(self.mode)
         elif name == "b":
             if self.mode is None and len(self.sel) == 1 and \
@@ -1134,15 +1167,23 @@ class World:
                 self.units.append(dict(kind="scv", x=norway.CC_EXIT[0] + 0.6 * len(self.units) % 2,
                                        y=norway.CC_EXIT[1], busy=0.0, inside=False))
         elif name == "u":
-            if self.mode is None and \
-                    [self.units[i]["kind"] for i in self.sel] == ["dropship"] and \
-                    self.units[self.sel[0]].get("cargo"):
+            if self.mode is None and self.sel and \
+                    all(self.units[i]["kind"] == "dropship" for i in self.sel) and \
+                    any(self.units[i].get("cargo") for i in self.sel):
                 self.mode = "unload"
+        elif name == "m":
+            if self.building == "Barracks" and self.money >= 50:
+                self.money -= 50
+                at = self.rallies.get("Barracks") or self.buildings["Barracks"]
+                k = sum(u["kind"] == "marine" for u in self.units)
+                self.units.append(dict(kind="marine", x=at[0] + 0.5 * (k % 6),
+                                       y=at[1] + 0.5 * (k // 6 % 4), busy=0.0,
+                                       inside=False))
         elif name == "r":
-            if self.building == "Starport":
+            if self.building in ("Starport", "Barracks"):
                 self.mode = "rally"
-            elif self.mode is None and len(self.sel) == 1 and \
-                    self.units[self.sel[0]]["kind"] == "scv":
+            elif self.mode is None and self.sel and \
+                    all(self.units[i]["kind"] == "scv" for i in self.sel):
                 self.mode = "repair"
 
     def combo(self, held, name):
@@ -1890,3 +1931,168 @@ def test_the_mines_go_on_oslo_s_beacon():
     assert len(set(norway.OSLO_MINES)) == 15
     assert norway.OSLO_MINES[0] == (bx, by)
     assert all(abs(x - bx) <= 1.3 and abs(y - by) <= 0.7 for x, y in norway.OSLO_MINES)
+
+
+# ----------------------------------------------------- the massing cycle
+class Ears:
+    """Stands in for the chat reader: lines queued by the test."""
+    def __init__(self):
+        self.queue, self.places = [], None
+
+    def dead(self):
+        return False
+
+    def listen(self, picture, clock):
+        return True
+
+    def lines(self, clock):
+        out, self.queue = self.queue, []
+        return [(clock, c, t) for c, t in out]
+
+    def orders(self, clock):
+        return []
+
+
+class Allies:
+    """Russia's troops on the minimap."""
+    def __init__(self, tiles):
+        self.px = {live.to_drawn(x * 32, y * 32) for x, y in tiles}
+
+    def others(self, picture, slots):
+        return set(self.px) if slots == norway.RUSSIA else set()
+
+
+def test_the_word_to_go_is_an_order_or_russia_s_gone_east(monkeypatch):
+    """The owner: Norway goes on "@N drop <city>", or when Russia says
+    "gone east" or "gone balks" (not at the 30 seconds' warning)."""
+    m = trial.load_map()
+    assert norway.heard_go(m, "@N drop Berlin") == ("Berlin 1000", "order")
+    assert norway.heard_go(m, "@n drop warsaw!")[0] == "Warsaw 200"
+    assert norway.heard_go(m, "gone east") == ("Berlin 1000", "gone east")
+    assert norway.heard_go(m, "gone balks") == ("Romania 300", "gone balks")
+    assert norway.heard_go(m, "gone east in 30 seconds") is None
+    assert norway.heard_go(m, "@R hit east") is None
+    assert norway.heard_go(m, "@N drop nowhereland") is None
+    # heard from an ally, not from an enemy
+    w = World([])
+    st = norway.State()
+    st.ears = Ears()
+    st.ears.queue = [("red", "Someone: gone east")]
+    norway.hear(w, m, st, "pic")
+    assert st.go is None
+    w.sleep(1)
+    st.ears.queue = [("brown", "Someone: gone east")]
+    norway.hear(w, m, st, "pic")
+    assert st.go[0] == "Berlin 1000" and st.go[2] == "gone east"
+
+
+def cycle_world(monkeypatch):
+    eyes_on(monkeypatch)
+    rx, ry = norway.DROP_RALLY
+    w = World([("dropship", rx + 0.5 * i, ry) for i in range(3)] +
+              [("marine", 100.0, 100.0) for _ in range(16)] +
+              [("scv", rx + 1.0, ry + 2.0), ("scv", rx + 1.6, ry + 2.0)])
+    for i in (0, 1):
+        w.units[i]["cargo"] = 8
+    for u in w.units[3:19]:
+        u["inside"] = True
+    w.groups["5"], w.groups["9"] = [0, 1, 2], [19, 20]
+    w.groups["1"] = []
+    st = norway.State()
+    st.drop_key, st.drop_count, st.drop_full = "5", 3, {0, 1}
+    st.drop_stage, st.army_keys = "loading", ["1"]
+    st.scv_count, st.depots_ordered = 2, True
+    return w, st
+
+
+def test_on_the_word_the_dropships_unload_behind_russia_s_front_and_come_home(monkeypatch):
+    """The owner: drop right at the front where Russia attacks, next to
+    the enemy; then back to Finland to be filled again."""
+    m = trial.load_map()
+    w, st = cycle_world(monkeypatch)
+    berlin = trial.place(m, "Berlin 1000")
+    bx, by = berlin["x"] / 32, berlin["y"] / 32
+    # Russia's army: its mass at Smolensk, its front by Warsaw
+    front = [(130 + 0.7 * (i % 5), 90 + 0.7 * (i // 5)) for i in range(20)]
+    mass = [(160 + (i % 6), 76 + (i // 6)) for i in range(30)]
+    allies = Allies(front + mass)
+    st.go = ("Berlin 1000", w.t, "gone east")
+    norway.cycle_step(w, allies, m, st, "pic")
+    assert not w.orders                                 # not at once: Russia must get there
+    w.sleep(norway.GO_DELAY + 1)
+    norway.cycle_step(w, allies, m, st, "pic")
+    what, who, (x, y) = w.orders[-1]
+    assert what == "unload" and set(who) == {0, 1, 2}
+    assert abs(x - 131.5) <= 5 and abs(y - 91) <= 5     # by Russia's front,
+    assert ((x - bx) ** 2 + (y - by) ** 2) ** 0.5 > 15  # not on Berlin itself
+    assert st.cycle == "out" and st.go is None
+    assert not any(u["inside"] for u in w.units)        # the men are out
+    # then home, and loading again
+    w.sleep(60)
+    norway.cycle_step(w, allies, m, st, "pic")
+    assert st.cycle == "back" and w.orders[-1][0] == "move"
+    w.sleep(60)
+    norway.cycle_step(w, allies, m, st, "pic")
+    assert st.cycle == "home" and st.drop_full == set() and st.drop_stage == "making"
+    assert any("fly home" in l for l in w.lines)
+    # an order names the city: at once; with none of Russia's near, on the city
+    w, st = cycle_world(monkeypatch)
+    st.go = ("London 400", w.t, "order")
+    norway.cycle_step(w, Allies(mass), m, st, "pic")
+    london = trial.place(m, "London 400")
+    what, who, (x, y) = w.orders[-1]
+    assert what == "unload" and abs(x - london["x"] / 32) <= 2.5 and \
+        abs(y - london["y"] / 32) <= 2.5
+    # nothing loaded: nobody goes
+    w, st = cycle_world(monkeypatch)
+    st.drop_full = set()
+    st.go = ("London 400", w.t, "order")
+    norway.cycle_step(w, Allies(mass), m, st, "pic")
+    assert not w.orders
+
+
+def test_marines_are_made_as_money_allows_with_dropships_budgeted_for(monkeypatch):
+    """The owner: as many marines as the money allows; lost Dropships
+    are budgeted for."""
+    from eyes import numbers
+    m = trial.load_map()
+    w, st = cycle_world(monkeypatch)
+    monkeypatch.setattr(numbers, "read_minerals", lambda pic: w.money)
+    monkeypatch.setattr(norway, "game_seconds", lambda io, st_, t0: 999)
+    st.landed.add("Barracks")
+    st.at["Barracks"] = (149.0, 39.0)
+    w.buildings["Barracks"] = (149.0, 39.0)
+    before = sum(u["kind"] == "marine" for u in w.units)
+    st.drop_count = 9                                   # enough Dropships: all for marines
+    assert norway.train_marines(w, m, st, "pic", 0.0) == 5
+    assert sum(u["kind"] == "marine" for u in w.units) == before + 5
+    assert w.rallies["Barracks"] is not None            # they walk to the field
+    fx, fy = norway.HOME_FIELD
+    assert abs(w.rallies["Barracks"][0] - fx) <= 2 and abs(w.rallies["Barracks"][1] - fy) <= 2
+    assert w.building is None                           # the Barracks let go of
+    assert norway.train_marines(w, m, st, "pic", 0.0) == 0     # not before its time
+    # after a drop that cost Dropships: money is kept for them first
+    w.sleep(norway.TRAIN_EVERY + 1)
+    st.drop_count, w.money = 7, 700                     # two missing: 600 kept
+    assert norway.train_marines(w, m, st, "pic", 0.0) == 2
+    w.sleep(norway.TRAIN_EVERY + 1)
+    w.money = 500
+    assert norway.train_marines(w, m, st, "pic", 0.0) == 0
+
+
+def test_the_scvs_repair_the_dropships_at_home(monkeypatch):
+    w, st = cycle_world(monkeypatch)
+    w.units[1]["hurt"] = True
+    st.scvs_home = True
+    for _ in range(5):
+        norway.repair_dropships(w, st)
+        w.sleep(norway.REPAIR_EVERY + 0.1)
+    repairs = [o for o in w.orders if o[0] == "repair"]
+    assert len(repairs) == 1 and set(repairs[0][1]) == {19, 20}
+    assert abs(repairs[0][2][0] - w.units[1]["x"]) <= 0.6
+    assert w.mode is None and st.repairs == 1
+    # not while they are away
+    w, st = cycle_world(monkeypatch)
+    st.scvs_home, st.cycle = True, "out"
+    norway.repair_dropships(w, st)
+    assert not w.orders
