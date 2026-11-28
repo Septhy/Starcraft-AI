@@ -1175,8 +1175,11 @@ def find_setup(monkeypatch, keys, fleet_at=(150 * 32, 90 * 32)):
     monkeypatch.setattr(live, "camera_from_minimap",
                         lambda s: fleet_at if s.centred_on == "scout"
                         else (209 * 32, 50 * 32) if s.centred_on else None)
+    # (gold lamps show at Moscow too: the gun centred is told by its buttons)
     monkeypatch.setattr(trial, "gold_on_screen",
-                        lambda s, cx, cy, r: [(cx, cy)] if s.centred_on == "scout" else [])
+                        lambda s, cx, cy, r: [(cx, cy)] if s.centred_on else [])
+    monkeypatch.setattr(live, "gun_selected",
+                        lambda s: s.centred_on == "artillery")
     return io, st
 
 
@@ -1263,3 +1266,62 @@ def test_with_nothing_near_the_fleet_waits_behind_the_front_by_a_move(monkeypatc
     assert n >= 1 and not amoves and "a" not in io.keys
     rights = [c for c in io.clicks if c[2] == "right"]
     assert rights and len(rights) <= 2 * 9          # one order a look, both keys
+
+
+def test_the_artillery_centred_is_never_taken_for_the_fleet(monkeypatch):
+    """Trial 41: the remembered picture had become the gun's, the view
+    went to Moscow, gold lamps there passed for Scouts, and the bot
+    stared at the Heavy Artillery for a minute."""
+    io, st = find_setup(monkeypatch, {"9": ["artillery", "scout", "scout"]})
+    trial.air_stats(io, st).scout_at["9"] = (0, 3)   # wrongly remembered: the gun
+    assert trial.where_is_fleet(io, st) == (150 * 32, 90 * 32)
+    assert io.one == "scout" and st.air.scout_at["9"] == (1, 3)
+
+
+def test_far_outnumbered_the_fleet_keeps_back_and_picks_no_target(monkeypatch):
+    """The owner: three to one of our Scouts is a large body. Trial 41:
+    seven Scouts flew into the middle of Germany's army after a
+    Battlecruiser and all were lost in 27 s."""
+    m = trial.load_map()
+    fleet = trial.CENTRED_AT
+    crowd = [(fleet[0] + 150 + 12 * i, fleet[1] + 8 * (i % 5)) for i in range(24)]
+    st, io = fight_setup(monkeypatch, [(fleet, crowd)] * 400, counts=[7] * 50)
+    monkeypatch.setattr(trial, "DOGFIGHT_TIME", 10)
+    shot = []
+    monkeypatch.setattr(trial, "attack_target",
+                        lambda *a, **k: shot.append(1) or True)
+    trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert any("the fleet keeps back" in l for l in io.lines)
+    assert not shot and "a" not in io.keys
+    rights = [c for c in io.clicks if c[2] == "right"]
+    assert rights and all(c[0] < fleet[0] + 150 or c[1] > 800 for c in rights)   # never into them
+
+
+def test_on_a_balkan_hit_the_air_waits_for_the_army_to_go_on_into_serbia(monkeypatch):
+    """The owner (trial 41): on a Balkan hit the air takes a pause until
+    most of the army has reached Romania and been sent on into Serbia."""
+    import inspect
+    src = inspect.getsource(trial.hit)
+    assert 'front_of(target) == "balks"' in src and "air_waits_serbia = True" in src
+    src = inspect.getsource(trial.into_serbia)
+    assert "air_waits_serbia" in src and "dogfight(" in src
+
+
+def test_no_hit_east_while_our_troops_are_in_the_balkans(monkeypatch):
+    from tests.test_trial import StubWatch, blob
+    m = trial.load_map()
+    st = trial.State()
+    st.t0, st.balkan_start = 0.0, 0
+    io = StubIO()
+    io.shot = lambda label, keep=True: "pic"
+    io.t = 500.0                                # the plan says north now
+    assert trial.planned_front(500.0) == "north"
+    ours = blob(trial.BALKS_POINT, 8) | blob(trial.MASS, 6)
+    target = trial.choose_target(io, StubWatch(ours, set()), st, m)
+    assert trial.team_rules.front_of(target) == "balks"
+    assert any("still in the Balkans" in l for l in io.lines)
+    io2 = StubIO()
+    io2.shot = io.shot
+    io2.t = 500.0
+    target = trial.choose_target(io2, StubWatch(blob(trial.MASS, 6), set()), st, m)
+    assert trial.team_rules.front_of(target) == "east"

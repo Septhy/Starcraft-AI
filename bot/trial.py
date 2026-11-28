@@ -2310,7 +2310,16 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
         orders += send_fleet_with_hit(io, mapdata, st, target)
     io.log(f"hit: the ground and the fleet sent in {io.now() - t_hit:.0f} s "
            f"({orders} groups)")
-    if DOGFIGHT and own_fleet_keys(st):
+    st.air_waits_serbia = False
+    if DOGFIGHT and own_fleet_keys(st) and \
+            team_rules.front_of(target) == "balks":
+        # a Balkan hit (the owner, trial 41): no air work until the army
+        # has reached Romania and been sent on into Serbia (the minute of
+        # dogfight came first, and the army stood at Romania meanwhile)
+        st.air_waits_serbia = True
+        io.log("air: a Balkan hit: no dogfight until the army has been sent "
+               "on into Serbia")
+    elif DOGFIGHT and own_fleet_keys(st):
         # most of the hit is out: now only the air (the repository owner)
         dogfight(io, watch, mapdata, st, target)
     st.hit_sent = io.now()
@@ -3157,6 +3166,10 @@ def south_next(st):
     return "Romania 300"
 
 
+BALKANS_HOLD = 40              # our minimap pixels on the Balkan road: with
+                               # this many there the next hit goes there too
+
+
 def choose_target(io, watch, st, mapdata=None, battle=None):
     """Where the next hit should go.
 
@@ -3164,11 +3177,21 @@ def choose_target(io, watch, st, mapdata=None, battle=None):
     south when qororo98 and penny[eef] go south. Otherwise south if the
     Axis has grown in the Balkans since the start (Germany starts with
     troops there), and Berlin itself if not (never a city on the way)."""
+    south = south_next(st)
+    if watch is not None and mapdata is not None:
+        # the owner (trial 41): no hit east while our troops are still in
+        # the Balkans; the next hit follows them
+        there = len(balkan_units(st, mapdata,
+                                 watch.units(io.shot("choose", keep=False)),
+                                 io.now()))
+        if there >= BALKANS_HOLD:
+            io.log(f"next target {south} (our troops are still in the "
+                   f"Balkans, {there} pixels: no hit east meanwhile)")
+            return south
     if st.advised and io.now() - st.advised[1] <= 40:
         name = road_start(st, st.advised[0])
         io.log(f"next target {name} (the general's choice of front)")
         return name
-    south = south_next(st)
     if planned_front(io.now() - st.t0) == "south":
         io.log(f"next target {south} (the plan: south at this point in the "
                f"game, as qororo98 and penny[eef] do)")
@@ -3620,6 +3643,11 @@ def into_serbia(io, watch, mapdata, st, picture):
             send_at(io, mapdata, st, SERBIA)
             orders += 1
     io.log(f"  {orders} groups sent on into Serbia")
+    if getattr(st, "air_waits_serbia", False):
+        st.air_waits_serbia = False
+        if DOGFIGHT and own_fleet_keys(st) and not st.air_home:
+            # now the air: from where it waits, with the army
+            dogfight(io, watch, mapdata, st, SERBIA)
     return True
 
 
@@ -5578,7 +5606,7 @@ def screen_to_map(sx, sy, camera):
 # view (to half a tile). The Scout and the artillery are told apart by
 # their pictures (no mistake in 564 of them).
 CENTRED_AT = (966, 424)        # screen point Ctrl+C puts the picked unit on
-FIND_GOLD = 320                # screen pixels round it a gold Scout must show
+FIND_GOLD = 200                # screen pixels round it a gold Scout must show
 FIND_HOVER = 0.08              # seconds the mouse rests on the picture first
 FIND_TRIES = 3                 # looks in a row without a Scout: the fleet is gone
 
@@ -5629,7 +5657,11 @@ def where_is_fleet(io, st, quiet=False):
             io.sleep(0.1)
             pic = io.shot("fleet-found", keep=False)
             at = live.camera_from_minimap(pic) if pic is not None else None
-            if at is not None and \
+            # (not the artillery: trial 41, the remembered picture had
+            # become the gun's after Scouts died, the view went to Moscow,
+            # where gold lamps passed for Scouts, and the air was "worked"
+            # there for a minute)
+            if at is not None and not live.gun_selected(pic) and \
                     gold_on_screen(pic, CENTRED_AT[0], CENTRED_AT[1], FIND_GOLD):
                 mid = at
                 break
@@ -6107,6 +6139,7 @@ def dogfight(io, watch, mapdata, st, target):
     scanner = Scanner(st.ears)
     thin = 0                              # counts in a row without cover
     gone = 0                              # counts in a row with the hit gone
+    kept_back = False                     # said once in the log
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
         # Every look asks the game where the fleet is (phase 2; trial 40:
@@ -6211,6 +6244,23 @@ def dogfight(io, watch, mapdata, st, target):
         e = close[0]
         e_xy = screen_to_map(e[0], e[1], cam)
         dist = ((e_xy[0] - fleet_xy[0]) ** 2 + (e_xy[1] - fleet_xy[1]) ** 2) ** 0.5 / 32
+        if len(close) >= AIR_ODDS * max(last_n or first or 1, 1):
+            # far too many near for the Scouts there are (the owner: three
+            # to one of our Scouts is a large body; trial 41: seven Scouts
+            # flew into the middle of Germany's army after a Battlecruiser
+            # and all were lost in 27 s): no targets, the fleet keeps back
+            # behind our front
+            if not kept_back:
+                kept_back = True
+                io.log(f"dogfight: {len(close)} enemy near to "
+                       f"{last_n or first} Scouts: the fleet keeps back")
+            to_shoot, hop_back = [], False
+            back = off_turrets(toward(fleet_xy, anchor if anchor != fleet_xy
+                                      else MASS, HOP * 2), mapdata)
+            order_fleet(io, st, live.on_screen(back[0], back[1], cam))
+            orders += 1
+            io.sleep(TICK)
+            continue
         if io.now() < focus_until:
             io.sleep(TICK)                  # shooting what they were sent at
             continue

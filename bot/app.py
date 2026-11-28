@@ -1,8 +1,9 @@
 """The first trial as a small Windows app.
 
-Start it, get into a game as Russia, then press F9. It takes over the
-mouse and keyboard for up to two hours, or until the game ends. Press F9 again to
-stop it at any moment.
+Start it and get into a game as the country chosen in its window. It
+starts by itself when the game begins (bot/autostart.py) and takes over
+the mouse and keyboard for up to two hours, or until the game ends.
+Press F9 to stop it at any moment.
 """
 import os
 import sys
@@ -46,11 +47,11 @@ def main(keys_version=False, rel_version=False, back_version=False):
                + f" - build {trial.build_id()}")
     root.attributes("-topmost", True)
     root.resizable(False, False)
-    status = tk.StringVar(value="Get into a game as the country chosen below,\n"
-                                "then press F9.\n"
-                                "It will use your mouse and keyboard.\n"
+    status = tk.StringVar(value="Choose the country below and get into a game.\n"
+                                "The bot starts by itself when the game begins\n"
+                                "and uses your mouse and keyboard.\n"
                                 "This window hides while it plays.\n"
-                                "Press F9 again to stop it.")
+                                "Press F9 to stop it.")
     tk.Label(root, textvariable=status, width=52, height=5,
              justify="left").pack(padx=10, pady=8)
     state = {"busy": False, "down": False}
@@ -149,7 +150,6 @@ def main(keys_version=False, rel_version=False, back_version=False):
         try:
             with mss.mss() as sct:
                 io = WinIO(out, sct, status=lambda s: status.set(s[:200]))
-                time.sleep(0.6)          # let go of F9 first
                 try:
                     key = secret.load()
                     advisor = general_module.make(
@@ -187,14 +187,46 @@ def main(keys_version=False, rel_version=False, back_version=False):
             status.set(f"Something went wrong:\n{e!r}"[:300])
         root.after(0, root.deiconify)
         time.sleep(1.0)
+        starter.played()                # not again for the same game
         state["busy"] = False
 
-    def poll():
-        down = bool(user.GetAsyncKeyState(STOP_KEY) & 0x8000)
-        if down and not state["down"] and not state["busy"]:
+    def start():
+        if not state["busy"]:
             state["busy"] = True
             threading.Thread(target=work, daemon=True).start()
-        state["down"] = down
+
+    # The bot starts by itself when a game begins (the owner: the seconds
+    # until F9 is pressed count); F9 only stops it. The button is there in
+    # case a game is not noticed.
+    from bot import autostart
+    from eyes import live as live_eyes
+    from hands.win import GAME_WINDOW
+    starter = autostart.Starter()
+    tk.Button(root, text="Start now (if it did not start by itself)",
+              command=start).pack(pady=(0, 8))
+    watcher = {"sct": None, "last": 0.0}
+
+    def game_in_front():
+        title = ctypes.create_unicode_buffer(200)
+        user.GetWindowTextW(user.GetForegroundWindow(), title, 200)
+        return title.value == GAME_WINDOW
+
+    def look():
+        from PIL import Image
+        if watcher["sct"] is None:
+            watcher["sct"] = mss.mss()
+        shot = watcher["sct"].grab(watcher["sct"].monitors[1])
+        return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+
+    def poll():
+        now = time.time()
+        if not state["busy"] and now - watcher["last"] >= autostart.LOOK_EVERY:
+            watcher["last"] = now
+            try:
+                if game_in_front() and starter.look(look()):
+                    start()
+            except Exception:
+                pass
         root.after(50, poll)
 
     poll()
