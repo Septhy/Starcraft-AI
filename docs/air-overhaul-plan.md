@@ -424,3 +424,28 @@ box; 0.6 s a screen before its first box; 12 screens.
   near the target (three marines to one of our Scouts is large) and no
   large air (two Wraiths or Scouts to one of ours), as long as the bot
   first finishes sending most of the hit.
+
+## The faster send, and the first-minute variant (built after trial 40)
+
+- A hit's boxes: only the first box of a view and every fourth are
+  counted from a screenshot (the count sizes the next boxes); the
+  others get the small look at the buttons, enough to tell that nobody
+  was taken. Scouts caught in a box go with it (no clicks to take them
+  out); the fleet's own order calls them back.
+- The later passes of a hit leave a view with fewer than eight men for
+  the next hit, and a pass that sent fewer than a fifth of the first
+  pass's boxes is the last. (Trial 40: 18 to 24 s on such leftovers.)
+- The log says how long the ground and the fleet took to send ("hit:
+  the ground and the fleet sent in N s").
+- Checked on the way: in the hits themselves the boxes were planned for
+  about eleven men each; the six a box in the log's average counts
+  every box of the game (gathering, spreading the mass). So "boxes of
+  twelve" was not the gain it looked. And filling the number keys
+  beforehand saves only about 3 s (seven boxes), so it was left out.
+- An honest estimate for a hit like trial 40's second (330 men): about
+  40 s instead of 67 (not measured in a game yet).
+- The first-minute variant: about 2 games in 15 (drawn at the start,
+  said in the log), the starting army is sent straight at the first
+  target instead of to the massing place, "gone east" is said at once,
+  and the hit (keys, what stands at the mass, the fleet, the dogfight)
+  follows without the wait for the mass.

@@ -1481,18 +1481,28 @@ def battleship_groups(mapdata):
     return groups
 
 
-def first_orders(io, watch, mapdata, st, t0):
+RUSH_ODDS = 2 / 15             # games whose first hit is the first-minute one
+                               # (the owner: about 2 games in 15)
+
+
+def first_orders(io, watch, mapdata, st, t0, rush=None):
     """Order the starting army to the massing place: the Battlecruisers
     with it, the ground groups biggest first, on 1 to 8. (The fleet was
     put on its keys before; it is ordered once the Middle East scouts
-    have arrived.)"""
+    have arrived.) With `rush` (a target): the first-minute variant, as
+    the best player in the replays often opens: every starting group goes
+    straight at the target instead (130 to 190 units were sent forward in
+    their first minute)."""
     orders = 0
     air_px = set(live.to_drawn(a["x"], a["y"])
                  for a in mapdata["slots"][SLOT]["air"])
     for group in battleship_groups(mapdata):
         pixels = [live.to_drawn(a["x"], a["y"]) for a in group]
         if select_group(io, pixels, st):
-            attack_move(io, *MASS)       # with the ground army
+            if rush:
+                send_at(io, mapdata, st, rush)
+            else:
+                attack_move(io, *MASS)   # with the ground army
             orders += 1
     pixels = watch.units(io.shot("before-orders"))
     pixels -= at_mass(pixels)
@@ -1506,13 +1516,16 @@ def first_orders(io, watch, mapdata, st, t0):
             continue                    # a stray dot: not worth a trip
         if orders % 6 == 5:
             consult(io, watch, mapdata, st)
-        if io.now() - t0 >= OPENING_ANNOUNCE:
+        if io.now() - t0 >= OPENING_ANNOUNCE and not rush:
             # the first hit is announced on time; it goes 30 s later
             team_gate(io, watch, mapdata, st, True,
                       st.opening_target or TARGETS[0])
         if not select_group(io, group, st, watch):
             continue
-        attack_move(io, *MASS)
+        if rush:
+            send_at(io, mapdata, st, rush)
+        else:
+            attack_move(io, *MASS)
         orders += 1
         free = free_ground_keys(st)
         if len(st.ground_keys) < len(free):
@@ -1520,7 +1533,8 @@ def first_orders(io, watch, mapdata, st, t0):
             io.combo("ctrl", key)
             io.sleep(0.04)
             st.ground_keys.append(key)
-    io.log(f"starting army: {orders} groups ordered to the massing place; "
+    io.log(f"starting army: {orders} groups ordered to "
+           f"{'the front at ' + rush if rush else 'the massing place'}; "
            f"number keys {''.join(st.ground_keys)} ground, "
            f"{''.join(st.air_keys)} air")
     return orders
@@ -1820,8 +1834,14 @@ def plan_screen_boxes(points, toward_target, per_box):
 SCREEN_PAD = 28                # screen pixels round the men a box is drawn
 
 
+CHECK_EVERY = 4                # in a hit, every fourth box is looked at (and the
+                               # first of each view): what it took sizes the next
+VIEW_LEAST = 8                 # men in a view, in a hit's later passes: fewer
+                               # are left for the next hit
+
+
 def sweep_screen(io, watch, mapdata, st, target, w, cam, dest, max_boxes,
-                 boxes):
+                 boxes, least=0):
     """One view of a hit, the boxes planned on the game screen (the
     repository owner): our men are found on the screen, every box mapped
     out round them, back to front, before any is drawn; then each is drawn,
@@ -1839,33 +1859,46 @@ def sweep_screen(io, watch, mapdata, st, target, w, cam, dest, max_boxes,
     second = own_on_screen(io.shot("hit-view", keep=False))
     points = [p for p in second if any(abs(p[0] - q[0]) <= STILL_PX and
                                        abs(p[1] - q[1]) <= STILL_PX for q in first)]
-    if not points:
+    if not points or len(points) < least:
         return orders, boxes
     per_box = st.screen_per_box
     plan = plan_screen_boxes(points, toward_target, per_box)
     io.log(f"  hit: {len(plan)} boxes planned on the screen for "
            f"{len(points)} men in view")
-    for box, men in plan:
+    # Speed (the owner, after trial 40: what counts in a hit is how fast
+    # the units are boxed and sent). A box cost about 0.55 s, of which the
+    # look at what it took (a whole screenshot, to count it) was 0.15 s
+    # and more: now only the first box of a view and every fourth are
+    # counted; for the others the small look at the buttons says whether
+    # anyone was taken. Scouts a box catches go with it (taking them out
+    # cost up to 6 s a hit); the fleet's own order calls them back.
+    have = False
+    for k, (box, men) in enumerate(plan):
         if max_boxes is not None and boxes >= max_boxes:
             break
         boxes += 1
         io.drag(*box)
-        io.sleep(0.05)
+        io.sleep(0.03)
         st.boxes += 1
-        shot = io.shot("box", keep=False)
-        n = live.selected_count(shot)
-        if n and st.scout_frame is not None:
-            n = drop_scouts(io, st, shot)
-        st.selected += n
-        st.selections += 1
-        if n == 0:
-            st.empty += 1
-            continue
-        # the next boxes are sized from what this one took
-        if n >= FULL:
-            st.screen_per_box = max(6, st.screen_per_box - 1)
-        elif n < GOOD_BOX and men:
-            st.screen_per_box = min(24, st.screen_per_box + 2)
+        if k % CHECK_EVERY == 0 or not have:
+            # (also every box until one of this view has taken someone:
+            # before that, what is selected is whatever was before, the
+            # fleet perhaps, and must not get the ground's order)
+            n = live.selected_count(io.shot("box", keep=False))
+            st.selected += n
+            st.selections += 1
+            if n == 0:
+                st.empty += 1
+                continue
+            have = True
+        elif not live.units_selected(io.card()):
+            st.empty += 1               # (the small look at the buttons:
+            continue                    # quick, and enough to tell nobody)
+            # the next boxes are sized from what this one took
+            if n >= FULL:
+                st.screen_per_box = max(6, st.screen_per_box - 1)
+            elif n < GOOD_BOX and men:
+                st.screen_per_box = min(24, st.screen_per_box + 2)
         if dest is not None:
             attack_move(io, *dest)
         else:
@@ -1885,7 +1918,8 @@ STILL_PX = 5                   # screen pixels a standing man may seem to move
 
 def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
                radius=MASS_RADIUS, least=12, max_boxes=None, front_first=False,
-               steer=True, skip=(), settle=1.2, plan_first=False):
+               steer=True, skip=(), settle=1.2, plan_first=False,
+               view_least=0):
     """One pass over the massing place (or the ground round `centre`):
     every part of it where the minimap shows units standing still is
     boxed, back to front, each box drawn to hold as near to twelve units
@@ -1921,7 +1955,7 @@ def sweep_mass(io, watch, mapdata, st, target, centre=None, dest=None,
             # a hit: the boxes planned on the game screen (the repository
             # owner; the old minimap way is in docs/archive/old_hit_boxes.py)
             o, b = sweep_screen(io, watch, mapdata, st, target, w, cam, dest,
-                                max_boxes, boxes)
+                                max_boxes, boxes, least=view_least)
             orders += o
             boxes = b
             continue
@@ -2190,6 +2224,8 @@ def send_fleet_with_hit(io, mapdata, st, target):
     return orders
 
 
+TAIL_SHARE = 0.2               # a pass that sent fewer than this share of the
+                               # first pass's boxes is the last
 HIT_SETTLE_LOOK = 0.6          # seconds between the two looks of a sweep at a hit
 
 
@@ -2197,6 +2233,7 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     """Send the mass at the target as a wall, the fleet with it. In the
     keys version the keyed line goes first."""
     orders = 0
+    t_hit = io.now()
     regroup_fleet(io, st)               # every Scout parked on a key first
     a = pic = None
     if watch is not None:
@@ -2243,11 +2280,23 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
     # reinforcements, straight to the hit), short pauses
     start = None
     fleet_sent = False
+    first_n = None
     for sweep in range(sweeps):
+        # (the later passes: only views with a body of men left; a few
+        # stragglers wait for the next hit. Trial 40: after the fleet was
+        # sent, 18 to 24 s went on views of 1 to 18 men)
         n, found = sweep_mass(io, watch, mapdata, st, target, steer=False,
-                              settle=HIT_SETTLE_LOOK, plan_first=True)
+                              settle=HIT_SETTLE_LOOK, plan_first=True,
+                              view_least=VIEW_LEAST if sweep else 0)
         orders += n
         start = start or max(found, 1)
+        if first_n is None:
+            first_n = n
+        elif n < TAIL_SHARE * first_n:
+            if not fleet_sent and n:
+                orders += send_fleet_with_hit(io, mapdata, st, target)
+                fleet_sent = True
+            break                       # the tail: enough
         if not fleet_sent and n:
             # the first pass has sent most of the mass: the fleet goes
             # now, not after the tail (trial 35: 38 s later), as one
@@ -2259,6 +2308,8 @@ def hit(io, watch, mapdata, st, target, use_keys=True, sweeps=HIT_SWEEPS):
         io.sleep(0.4)
     if not fleet_sent:
         orders += send_fleet_with_hit(io, mapdata, st, target)
+    io.log(f"hit: the ground and the fleet sent in {io.now() - t_hit:.0f} s "
+           f"({orders} groups)")
     if DOGFIGHT and own_fleet_keys(st):
         # most of the hit is out: now only the air (the repository owner)
         dogfight(io, watch, mapdata, st, target)
@@ -6658,9 +6709,22 @@ def run(io, mapdata=None, general=None, save_lessons=None, ears=None):
         result["trained"] = train_everywhere(io, mapdata, st,
                                              check_supply=False)
         io.log(f"  ({since()} since start)")
-        result["gathered"] = first_orders(io, watch, mapdata, st, t0)
+        import random
+        rush = random.random() < RUSH_ODDS
+        if rush:
+            # the first-minute variant of the first hit (the owner: about
+            # 2 games in 15): no massing first, the starting army goes
+            # straight in and the allies are told at once
+            target = st.opening_target or TARGETS[0]
+            io.log(f"first hit: the first-minute variant, at {target} "
+                   f"(about 2 games in 15)")
+            announce(f"gone {team_rules.front_of(target)}")
+        result["gathered"] = first_orders(io, watch, mapdata, st, t0,
+                                          rush=target if rush else None)
         io.log(f"  ({since()} since start)")
-        wait_for_mass(io, watch, mapdata, st, t0, WAVE_EARLIEST, WAVE_LATEST)
+        if not rush:
+            wait_for_mass(io, watch, mapdata, st, t0, WAVE_EARLIEST,
+                          WAVE_LATEST)
         result["hit_at"] = round(io.now() - t0)
         target = st.chosen_target or st.opening_target or TARGETS[0]
         if st.opening_target and not st.chosen_target:

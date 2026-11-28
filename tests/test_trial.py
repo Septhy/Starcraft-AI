@@ -1324,6 +1324,87 @@ def test_a_hit_view_boxes_only_men_standing_still(monkeypatch):
     assert any("boxes planned on the screen" in l for l in io.lines)
 
 
+def test_in_a_hit_only_some_boxes_are_looked_at_and_scouts_go_along(monkeypatch):
+    """The owner, after trial 40: what counts is how fast the units are
+    boxed and sent. Only the first box of a view and every fourth are
+    looked at; Scouts a box catches are not taken out; a view with only a
+    few men is left for the next hit in the later passes."""
+    m = trial.load_map()
+    st, io = trial.State(), StubIO()
+    io.card = lambda: "card"
+    st.scout_frame = "scout"
+    men = [(300 + 28 * i, 200 + 26 * j) for i in range(16) for j in range(6)]   # 96
+    io.shot = lambda label, keep=True: men_picture(men) if label == "hit-view" else label
+    boxes, looks, sent = [], [], []
+    io.drag = lambda *b: boxes.append(b)
+    monkeypatch.setattr(trial.live, "selected_count",
+                        lambda pic: looks.append(pic) or 12)
+    monkeypatch.setattr(trial, "drop_scouts",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("Scouts taken out")))
+    monkeypatch.setattr(trial, "send_at", lambda *a, **k: sent.append(1))
+    monkeypatch.setattr(trial.live, "units_selected", lambda card: True)
+    w = trial.place(m, "Berlin 1000")
+    n, _ = trial.sweep_screen(io, None, m, st, "Berlin 1000", w, trial.MASS,
+                              None, None, 0)
+    assert n == len(boxes) == len(sent) >= 6
+    assert len(looks) == -(-len(boxes) // trial.CHECK_EVERY)    # counted: one in four
+    # a box that took nobody: none after it goes unlooked-at until one has
+    st, io2 = trial.State(), StubIO()
+    io2.card = io.card
+    io2.shot = io.shot
+    drawn, counts = [], iter([0, 0, 12] + [12] * 50)
+    io2.drag = lambda *b: drawn.append(b)
+    seen = []
+    monkeypatch.setattr(trial.live, "selected_count",
+                        lambda pic: seen.append(1) or next(counts))
+    sent.clear()
+    trial.sweep_screen(io2, None, m, st, "Berlin 1000", w, trial.MASS, None, None, 0)
+    assert len(sent) == len(drawn) - 2 and len(seen) >= 3
+    # the later passes of a hit leave a view of a few men alone
+    st, io3 = trial.State(), StubIO()
+    few = men[:5]
+    io3.shot = lambda label, keep=True: men_picture(few) if label == "hit-view" else label
+    io3.drag = lambda *b: (_ for _ in ()).throw(AssertionError("boxed"))
+    assert trial.sweep_screen(io3, None, m, st, "Berlin 1000", w, trial.MASS,
+                              None, None, 0, least=trial.VIEW_LEAST)[0] == 0
+
+
+def test_now_and_then_the_first_hit_is_the_first_minute_one(monkeypatch):
+    """The owner: the first hit may vary; about 2 games in 15 the
+    starting army goes straight at the target in the first minute, as
+    the best player in the replays often opens, and the allies are told
+    at once."""
+    assert abs(trial.RUSH_ODDS - 0.0) < 1e-9        # off in the other tests
+    monkeypatch.setattr(trial, "RUSH_ODDS", 1.0)
+    monkeypatch.setattr(trial, "DOGFIGHT", False)
+    monkeypatch.setattr(trial, "TRIAL_SECONDS", 150)
+    m = trial.load_map()
+    g = FakeGame(m, error=(0, 0))
+    lines = []
+    real_log = g.log
+    g.log = lambda text, quiet=False: lines.append(text) or real_log(text, quiet)
+    waited = []
+    monkeypatch.setattr(trial, "wait_for_mass",
+                        lambda *a, **k: waited.append(1))
+    first, real_send = {}, g.send
+
+    def send(units, mx, my):                        # where each man first went
+        for u in units:
+            first.setdefault(id(u), (mx, my, g.time))
+        real_send(units, mx, my)
+    g.send = send
+    result = trial.run(g, m)
+    assert any("the first-minute variant" in l for l in lines)
+    assert any("ordered to the front at" in l for l in lines)
+    assert not waited                               # no massing before it
+    assert result["hit_at"] <= 70
+    # most of the starting army was sent toward the target, not the mass
+    early = [v for v in first.values() if v[2] <= 60]
+    forward = [v for v in early if not near(v[:2], trial.MASS, 14)
+               and v[0] < trial.MASS[0] - 10 * 32]  # west of the mass: the front
+    assert len(early) >= 60 and len(forward) >= 0.8 * len(early)
+
+
 def test_a_sieged_gun_is_told_by_its_buttons():
     """The repository owner's pictures: the Heavy Defensive Artillery
     selected shows an empty first button and Stop second."""
