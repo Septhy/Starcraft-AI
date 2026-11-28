@@ -449,3 +449,33 @@ box; 0.6 s a screen before its first box; 12 screens.
   target instead of to the massing place, "gone east" is said at once,
   and the hit (keys, what stands at the mass, the fleet, the dogfight)
   follows without the wait for the mass.
+
+## Trial 41 (build 3bfe3d8, 16 minutes) and what was built after it
+
+Measured: a hit of 394 men sent in 49 s (per man about 40% faster than
+trial 40; a box still about half a second); the fleet found 94 times,
+0.67 s each; three of four fights ended with the fleet going home by
+itself. But the Scouts still died (7 of 7 in 27 s; 18 to 6): they flew
+into the middle of Germany's army, twice after a Battlecruiser deep
+inside it. In the last hit the remembered Scout picture had become the
+artillery's and the bot "found" the fleet at Moscow. On the Balkan hit
+the minute of dogfight came before the army was sent on into Serbia,
+and at 9 minutes Berlin was chosen with the army on the Balkan road.
+
+Built (the owner's points and answers):
+
+- A Balkan hit: no dogfight until the army has been sent on into Serbia;
+  then the air.
+- No hit east while 40 or more of our minimap pixels are on the Balkan
+  road.
+- A find is refused when the unit centred is the gun (told by its
+  buttons); the gold check round the middle is tighter.
+- Three or more enemy patches near to one Scout: the fleet keeps back
+  behind our front and picks no target.
+- Phase 2, last part: the model's look for targets also points out
+  enemy fighters (Wraiths, Scouts). They are attacked first when our
+  Scouts are at least two to one of them, or when they have come over
+  our own army; left alone otherwise; with two or more of them to one
+  of our Scouts the fleet keeps back.
+- Not built: the early air attack on a lightly held target (it needs
+  the marines there counted, which the bot cannot do yet).

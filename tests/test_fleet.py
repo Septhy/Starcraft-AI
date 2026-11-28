@@ -1325,3 +1325,30 @@ def test_no_hit_east_while_our_troops_are_in_the_balkans(monkeypatch):
     io2.t = 500.0
     target = trial.choose_target(io2, StubWatch(blob(trial.MASS, 6), set()), st, m)
     assert trial.team_rules.front_of(target) == "east"
+
+
+def test_enemy_fighters_are_attacked_only_when_it_pays(monkeypatch):
+    """The owner: the enemy's air (Wraiths, Scouts) is attacked when our
+    Scouts are clearly more than theirs, or when their air has come too
+    far forward over our marines; a large air (two to one of our Scouts)
+    is kept away from."""
+    io = StubIO()
+    bc = {"kind": "battlecruiser", "xy": (1, 1)}
+    f = [{"kind": "fighter", "xy": (i, 0)} for i in range(6)]
+    # clearly more of ours: fighters first
+    out = trial.air_first(io, [bc] + f[:3], 8, False)
+    assert [t["kind"] for t in out] == ["fighter"] * 3 + ["battlecruiser"]
+    # about even, out over the enemy: fighters left alone
+    out = trial.air_first(io, [bc] + f[:5], 6, False)
+    assert [t["kind"] for t in out] == ["battlecruiser"]
+    # about even, but they have come over our own army: attacked
+    out = trial.air_first(io, [bc] + f[:5], 6, True)
+    assert out[0]["kind"] == "fighter"
+    # a large air: nothing, the fleet keeps back
+    assert trial.air_first(io, [bc] + f, 3, True) is None
+    assert any("a large air" in l for l in io.lines)
+    # no fighters: as before
+    assert trial.air_first(io, [bc], 3, False) == [bc]
+    from bot import team
+    assert "fighter" in team.TARGET_SCHEMA["properties"]["targets"]["items"][
+        "properties"]["kind"]["enum"]

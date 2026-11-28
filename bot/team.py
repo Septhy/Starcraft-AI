@@ -511,7 +511,9 @@ TARGET_SYSTEM = (
     "Russia, and teal, purple and orange are its allies: never point at "
     "those. Find: battlecruiser (the big Terran capital ship), scv (the "
     "Terran worker, here called Engineer, only those standing next to a "
-    "bunker), bunker (the low round Terran fortification). Only units "
+    "bunker), bunker (the low round Terran fortification), fighter (an "
+    "enemy fighter plane in the air: the small Terran Wraith or the "
+    "Protoss Scout; point at every one you see). Only units "
     "and bunkers of the red, blue or yellow players: a brown bunker is "
     "Russia's own and a teal, purple or orange one an ally's, never "
     "point at them. For each, give its owner's colour and the middle "
@@ -525,7 +527,7 @@ TARGET_SCHEMA = {
         "required": ["kind", "owner", "x", "y"],
         "properties": {
             "kind": {"type": "string",
-                     "enum": ["battlecruiser", "scv", "bunker"]},
+                     "enum": ["battlecruiser", "scv", "bunker", "fighter"]},
             "owner": {"type": "string",
                       "enum": ["red", "blue", "yellow", "brown", "teal",
                                "purple", "orange", "other"]},
@@ -767,7 +769,7 @@ class ChatEars:
                      "y": t + int(g["y"]) * sy}
                     for g in json.loads(body).get("targets", [])
                     if g.get("owner", "red") in ENEMY_COLOURS
-                    and 0 <= int(g["x"]) <= 1280 and 0 <= int(g["y"]) <= 480][:20]
+                    and 0 <= int(g["x"]) <= 1280 and 0 <= int(g["y"]) <= 480][:30]
         except Exception as e:          # never let a bad call stop the bot
             self.failures += 1
             self.last_error = type(e).__name__

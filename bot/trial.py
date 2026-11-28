@@ -5998,7 +5998,7 @@ def rank_targets(io, found, fleet, cam, picture=None):
     only those wearing an Axis colour on the screen."""
     if found is None:
         return None
-    rank = {k: i for i, k in enumerate(TARGET_PRIORITY)}
+    rank = {k: i for i, k in enumerate(TARGET_PRIORITY + ("fighter",))}
     near_ = [f for f in found if f["kind"] in rank]   # anywhere on the screen
     if hasattr(picture, "convert") and near_:
         masks = (axis_mask(picture), own_mask(picture))
@@ -6012,9 +6012,41 @@ def rank_targets(io, found, fleet, cam, picture=None):
     if near_:
         io.log("dogfight: targets seen: " + ", ".join(
             f"{sum(1 for f in near_ if f['kind'] == k)} {k}"
-            for k in TARGET_PRIORITY if any(f["kind"] == k for f in near_)))
+            for k in TARGET_PRIORITY + ("fighter",)
+            if any(f["kind"] == k for f in near_)))
     return [{"kind": f["kind"], "xy": screen_to_map(f["x"], f["y"], cam)}
             for f in near_]
+
+
+AIR_SUPERIOR = 2               # our Scouts to one enemy fighter: clearly more
+AIR_TOO_MANY = 2               # enemy fighters to one of our Scouts: a large air
+
+
+def air_first(io, targets, scouts, over_army):
+    """The targets in the order they are shot, the enemy's fighters put
+    in their place (the owner): attacked first when our Scouts are
+    clearly more than they, or when they have come forward over our own
+    army; left alone otherwise. With a large enemy air (two fighters to
+    one of our Scouts) nothing is attacked: returns None, and the fleet
+    keeps back."""
+    fighters = [t for t in targets if t["kind"] == "fighter"]
+    rest = [t for t in targets if t["kind"] != "fighter"]
+    if not fighters:
+        return rest
+    scouts = max(scouts or 0, 1)
+    if len(fighters) >= AIR_TOO_MANY * scouts:
+        io.log(f"dogfight: {len(fighters)} enemy fighters to {scouts} "
+               f"Scouts: a large air, the fleet keeps back")
+        return None
+    if scouts >= AIR_SUPERIOR * len(fighters):
+        io.log(f"dogfight: {scouts} Scouts to {len(fighters)} enemy "
+               f"fighters: they are attacked first")
+        return fighters + rest
+    if over_army:
+        io.log(f"dogfight: {len(fighters)} enemy fighters have come over "
+               f"our army: they are attacked first")
+        return fighters + rest
+    return rest
 
 
 class Scanner:
@@ -6276,6 +6308,18 @@ def dogfight(io, watch, mapdata, st, target):
         if not to_shoot:
             got = scanner.result(io)
             if got:
+                over_army = anchor != fleet_xy and \
+                    (fleet_xy[0] - anchor[0]) ** 2 + (fleet_xy[1] - anchor[1]) ** 2 \
+                    <= (ANCHOR_REACH * 32) ** 2
+                got = air_first(io, got, last_n or first, over_army)
+                if got is None:
+                    # a large enemy air: back behind our front, no target
+                    back = off_turrets(toward(fleet_xy, anchor if anchor != fleet_xy
+                                              else MASS, HOP * 2), mapdata)
+                    order_fleet(io, st, live.on_screen(back[0], back[1], cam))
+                    orders += 1
+                    io.sleep(TICK)
+                    continue
                 to_shoot = got[:FOCUS_MAX]
             elif not scanner.busy() and io.now() - last_scan >= TARGET_LOOK:
                 last_scan = io.now()
