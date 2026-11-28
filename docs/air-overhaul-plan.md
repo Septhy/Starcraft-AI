@@ -376,3 +376,11 @@ sent with it, not taken out; no long tail of leftover boxes; boxes of a
 dozen; the army moved to a line near the front and sent in from there
 together; orders forward every minute and to the units at the front
 again; ground orders during the dogfight.
+
+After trial 40 (the owner: the air did not come back although the hit
+had gone): in a dogfight, at every count, the ground troops of ours
+forward of the massing place are counted on the minimap (the Scouts'
+own pixels left out); fewer than 10 two counts in a row, from 8 s into
+the dogfight, and the fleet goes home, also when it has met no enemy
+(before, the ground under it was only judged once it had). The same is
+looked at when a dogfight ends.

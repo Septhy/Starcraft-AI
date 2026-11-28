@@ -5935,6 +5935,23 @@ def ground_cover(watch, picture, fleet_xy):
     return max(0, ours - COVER_FLEET), theirs
 
 
+HIT_GONE = 10                  # our minimap pixels forward of the mass, the
+                               # Scouts' own left out: fewer, and the hit is gone
+HIT_GONE_AFTER = 8             # seconds into a dogfight before that is judged
+HIT_GONE_COUNTS = 2            # counts in a row
+
+
+def hit_gone(watch, picture, mapdata, fleet_xy):
+    """True when hardly any ground troops of ours are forward of the
+    massing place any more (trial 40: the third hit was wiped out, supply
+    194 to 25, and the fleet stayed out a minute over empty ground).
+    None if it cannot be told."""
+    if watch is None or picture is None:
+        return None
+    ours = forward_units(watch.units(picture), mapdata)
+    return len(ours) - len(near(ours, fleet_xy, 3)) < HIT_GONE
+
+
 def covered(cover):
     """Enough of our ground under the Scouts to protect them."""
     if cover is None:
@@ -5974,6 +5991,7 @@ def dogfight(io, watch, mapdata, st, target):
     to_shoot, hop_back = [], False        # targets left from the last scan
     scanner = Scanner(st.ears)
     thin = 0                              # counts in a row without cover
+    gone = 0                              # counts in a row with the hit gone
     why = "time is up"
     while io.now() - start < DOGFIGHT_TIME:
         st.dogfight_look = centred(*fleet_xy)
@@ -6029,6 +6047,20 @@ def dogfight(io, watch, mapdata, st, target):
                 st.fleet_task = None
                 park_fleet(io, st, "dogfight without cover")
                 io.log(f"dogfight: {why}: the fleet goes home")
+                scanner.close()
+                return orders
+            # and is there still a hit to fly with? (also before the fleet
+            # has met anyone)
+            if io.now() - start >= HIT_GONE_AFTER and \
+                    hit_gone(watch, pic, mapdata, fleet_xy):
+                gone += 1
+            else:
+                gone = 0
+            if gone >= HIT_GONE_COUNTS:
+                st.fleet_task = None
+                park_fleet(io, st, "the hit is gone")
+                io.log("dogfight: hardly any ground troops of ours are "
+                       "forward any more: the fleet goes home")
                 scanner.close()
                 return orders
             n = fleet_left(io, st)
@@ -6125,10 +6157,14 @@ def dogfight(io, watch, mapdata, st, target):
         else:
             io.sleep(TICK)
     scanner.close()
-    set_air_state(io, st, "with the army", f"dogfight over: {why}",
-                  target=fleet_xy)
     io.log(f"dogfight: {orders} orders in {io.now() - start:.0f} s "
            f"({why})")
+    if hit_gone(watch, io.shot("dogfight", keep=False), mapdata, fleet_xy):
+        st.fleet_task = None            # nobody left to fly with: home
+        park_fleet(io, st, "the hit is gone")
+        return orders
+    set_air_state(io, st, "with the army", f"dogfight over: {why}",
+                  target=fleet_xy)
     return orders
 
 

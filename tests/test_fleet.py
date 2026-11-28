@@ -628,6 +628,8 @@ def fight_setup(monkeypatch, looks, counts=None):
     # (asked of the game: by default it answers where the fleet was sent)
     monkeypatch.setattr(trial, "where_is_fleet",
                         lambda io_, st_, quiet=False: trial.fleet_spot())
+    # (and the hit is still out there, unless a test says otherwise)
+    monkeypatch.setattr(trial, "hit_gone", lambda w, pic, m, xy: False)
     return st, io
 
 
@@ -1209,3 +1211,28 @@ def test_a_single_fleet_key_has_its_view_put_back_before_the_click(monkeypatch):
     io = StubIO()
     trial.order_fleet(io, st, (900, 400))
     assert [c[2] for c in io.clicks] == ["right", "right"]
+
+
+def test_the_fleet_goes_home_when_the_hit_is_gone(monkeypatch):
+    """Trial 40 (the owner): the third hit was wiped out and the fleet
+    stayed out a minute over empty ground. With hardly any ground troops
+    of ours forward any more, two counts in a row, it goes home; also
+    when it has not met an enemy."""
+    m = trial.load_map()
+    real = trial.hit_gone
+    fleet = trial.live.CENTRE
+    st, io = fight_setup(monkeypatch, [(fleet, [])] * 400)
+    monkeypatch.setattr(trial, "QUIET_END", 10 ** 6)
+    monkeypatch.setattr(trial, "hit_gone", lambda w, pic, m_, xy: True)
+    trial.dogfight(io, None, m, st, "Warsaw 200")
+    assert st.air.state == "parked"
+    assert io.t - 100 <= trial.HIT_GONE_AFTER + 3 * trial.COUNT_EVERY + 3
+    assert any("the fleet goes home" in l for l in io.lines)
+    # the real measure: forward of the mass, the Scouts' own pixels left out
+    from tests.test_trial import StubWatch, blob
+    front = (trial.MASS[0] - 40 * 32, trial.MASS[1])
+    assert real(StubWatch(blob(trial.MASS, 6), set()), "pic", m, front)     # all at the mass
+    assert real(StubWatch(blob(front, 2), set()), "pic", m, front)    # only the fleet
+    army = blob((front[0] - 6 * 32, front[1] + 5 * 32), 8)
+    assert not real(StubWatch(army, set()), "pic", m, front)
+    assert real(None, "pic", m, front) is None
