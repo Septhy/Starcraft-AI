@@ -941,6 +941,7 @@ def shetland_step(io, mapdata, st):
 # (only an SCV, alone, gets a build menu), put on key 9 and sent to
 # Arkhangelsk. From then on they are only ever called by that key, and
 # every order goes to one of them, picked by its picture.
+FRAME_AWAY = (1180, 640)       # a quiet screen point the mouse goes to after
 FRAME_HOVER = 0.08             # seconds the mouse rests on a picture in the
                                # selection before it is clicked
 
@@ -959,6 +960,12 @@ def frame_click(io, i, n, held=None, rest=FRAME_HOVER):
     else:
         io.click(x, y)
     io.sleep(0.12)
+    if getattr(io, "hover", None) is not None:
+        # the mouse off the pictures again: resting on one, the game shows
+        # a note over its neighbours (trial 62: four SCVs selected, two of
+        # their pictures under the note, and "2 SCVs" were counted)
+        io.hover(*FRAME_AWAY)
+        io.sleep(0.05)
 
 
 NOT_ARMY = ("scv", "dropship")  # kinds an army key must not hold
