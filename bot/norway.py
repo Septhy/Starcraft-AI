@@ -37,13 +37,18 @@ OPENING_LINE = "AF Norway AI v0.01"
 OPENING_TIME = 900             # real seconds the opening is played at most
 
 T = 32                         # map pixels a tile
-SHETLAND = (int(64.3 * T), int(31.5 * T))   # the beacon on Shetland's island
+SHETLAND = (int(66.5 * T), int(33.9 * T))   # the beacon on Shetland's island
+                               # (trial 63, read off the screen with the exact
+                               # view: 66.5, 33.9; the point taken from the
+                               # owner's recording, 64.3, 31.5, was the island's
+                               # north shore, and the Dropship hung off it
+                               # under the turret's fire)
                                # (the owner's recording: where they unloaded.
                                # Trial 60: the middle of the place "Shetland
                                # 300" is open sea, six tiles east of the
                                # island; the Dropship hung there and nobody
                                # got out)
-SHETLAND_BOX = (58.5, 28.5, 68.5, 35.5)    # tiles: the island, boxed for its men
+SHETLAND_BOX = (58.5, 30.0, 69.5, 36.5)    # tiles: the island, boxed for its men
 SHETLAND_OWNER = "6"           # the slot whose depot and turret stand there
 SHETLAND_REACH = 8             # tiles from the beacon its buildings are within
 SHETLAND_ATTACKS = 2
@@ -1510,12 +1515,17 @@ SPAWN_BOX = (3, 2.4)           # tiles: one small box over the new troops (a
                                # middle ones first
 SPAWN_TRIES = 3                # looks for the Vultures before giving up
 SPAWN_RETRY = 10               # seconds between them
-OSLO_VIEW = (88.5, 50.0)       # tile point looked at for the mines
-OSLO_MINES = [                 # tile points round Oslo's beacon (the first
-    (87.9, 51.3), (86.1, 49.2), (89.3, 49.5), (86.8, 48.1), (88.2, 47.5),
-    (87.6, 52.1), (86.8, 50.4), (88.5, 51.6), (86.3, 52.5), (90.7, 50.6),
-    (89.9, 51.3), (88.3, 49.7), (90.9, 48.5), (85.4, 50.9), (89.6, 52.6),
-]                              # nine are the owner's own clicks)
+OSLO_VIEW = (88.5, 51.5)       # tile point looked at for the mines
+OSLO_BEACON = (88.5, 51.9)     # tile point of Oslo's beacon (trial 63, off the
+                               # screen)
+OSLO_MINES = [                 # tile points round it, on open ground (trial 63:
+    # "Must target passable terrain": spots lay under our Factory, which had
+    # not lifted, 83.5 to 87.5 west of the beacon, and on rocks)
+    (88.5, 49.6), (90.6, 50.6), (89.7, 53.9), (87.3, 53.9), (90.8, 52.0),
+    (87.3, 49.8), (89.7, 49.8), (88.5, 54.1), (90.5, 53.2), (88.5, 48.6),
+    (90.3, 49.2), (89.6, 54.9), (87.6, 48.6), (91.2, 54.0), (88.4, 55.0),
+]
+MINE_SPOT_TRIES = 3            # spots tried for one mine when the game refuses
 MINE_ROUNDS = 3                # a Vulture carries three mines
 MINE_TRAVEL = 18               # seconds from the camp to Oslo
 MINE_EVERY = 5                 # seconds between a Vulture's mines once there
@@ -1564,6 +1574,17 @@ def kind_selected(io, kind, label):
     return m if len(live.frames_like(pic, m, kind)) == m else 0
 
 
+def leave_building(io, st):
+    """Select some of our units instead of the building that is selected
+    (an Esc with a building selected cancels what it is making)."""
+    key = st.army_keys[0] if st.army_keys else SCV_KEY
+    io.key(key)
+    io.sleep(0.08)
+    if live.building_card(io.card()):
+        io.key(SCV_KEY)                 # (that key was empty: the SCVs')
+        io.sleep(0.08)
+
+
 def order_dropships(io, st, n, quiet=False):
     """n Dropships at the Starport (on its key), gathering at DROP_RALLY.
     How many were ordered."""
@@ -1581,7 +1602,11 @@ def order_dropships(io, st, n, quiet=False):
     for _ in range(n):
         io.key("d")
         io.sleep(0.08)
-    clear_modes(io)
+    # No Esc now: with a building selected Esc cancels the last unit in
+    # its queue (trial 63: Esc, Esc after every order took two Dropships
+    # back out of the queue each time; three were out after 135 s).
+    # Something else is selected instead, so that the next Esc is harmless.
+    leave_building(io, st)
     st.drop_ordered += n
     if not quiet:
         io.log(f"norway: {n} Dropships ordered at the Starport (its queue "
@@ -1827,6 +1852,43 @@ def take_vultures(io, st):
     return n
 
 
+CAMP_HOME = (149.0, 36.0)      # tile point the camp's troops walk to: Finland,
+                               # by the Barracks (the owner: home is 149, 39)
+CAMP_BOXES = [(dx, dy) for dy in (-3.5, 0, 3.5) for dx in (-7, 0, 7)]
+CAMP_BOX = (7, 3.5)            # tiles
+CAMP_PASSES = 2                # a box takes twelve at most: twice over
+CAMP_CLEAR_WAIT = 4            # seconds the ring is given to open
+
+
+def clear_camp(io, st):
+    """Everything standing at the camp walks to Finland, box after box
+    (the Vultures on their key too: their mine orders come after and
+    take them out of it again). How many boxes took someone."""
+    clear_modes(io)
+    view = look(io, *SPAWN_VIEW)
+    w, h = CAMP_BOX
+    moved = 0
+    for _ in range(CAMP_PASSES):
+        for dx, dy in CAMP_BOXES:
+            cx, cy = SPAWN_VIEW[0] + dx, SPAWN_VIEW[1] + dy
+            a = on_view(cx - w / 2, cy - h / 2, view)
+            z = on_view(cx + w / 2, cy + h / 2, view)
+            l, t, r, b = live.GAME_AREA
+            box = (max(l + 4, a[0]), max(t + 4, a[1]),
+                   min(r - 4, z[0]), min(b - 4, z[1]))
+            if box[2] - box[0] < 30 or box[3] - box[1] < 30:
+                continue
+            io.drag(*box)
+            io.sleep(0.1)
+            if not live.move_shown(io.card()):
+                continue
+            io.click(*live.mm_point(*CAMP_HOME), button="right")
+            io.sleep(0.05)
+            moved += 1
+        io.sleep(0.4)
+    return moved
+
+
 def one_vulture(io, st, i):
     """Vulture i of the key selected alone; how many the key holds (0:
     none, or not that many)."""
@@ -1859,10 +1921,15 @@ def lay_mines(io, st, round_no):
         if not live.placing_shown(io.card()):
             clear_modes(io)             # no mine left, or not a Vulture
             continue
-        spot = OSLO_MINES[(round_no * VULTURES + i) % len(OSLO_MINES)]
-        io.click(*on_view(*spot, view))
-        io.sleep(0.08)
-        given += 1
+        for k in range(MINE_SPOT_TRIES):
+            # (a spot the game refuses leaves the mine on the cursor: the
+            # next spot is tried)
+            spot = OSLO_MINES[(round_no * VULTURES + i + 5 * k) % len(OSLO_MINES)]
+            io.click(*on_view(*spot, view))
+            io.sleep(0.1)
+            if not live.placing_shown(io.card()):
+                given += 1
+                break
     clear_modes(io)
     return given
 
@@ -1889,11 +1956,21 @@ def vultures_step(io, mapdata, st, t0):
                        "(picture 'no-vultures'): no mines")
             st.mine_next = now + SPAWN_RETRY
             return
-        io.log(f"norway: {n} Vultures on key {st.vulture_key} go to lay "
-               f"mines at Oslo")
+        # the Vultures stand in a ring of marines and cannot get out
+        # (the owner, trial 63): the troops round them walk off to Finland
+        # first, where they are wanted anyway; then the mines
+        moved = clear_camp(io, st)
+        io.log(f"norway: {n} Vultures on key {st.vulture_key}; the troops "
+               f"round them sent to Finland ({moved} boxes) so they can "
+               f"get out")
+        st.mine_round, st.mine_stage = 0, "mines"
+        st.mine_next = io.now() + CAMP_CLEAR_WAIT
+    elif st.mine_stage == "mines" and now >= st.mine_next and \
+            st.mine_round == 0:
         given = lay_mines(io, st, 0)
-        st.mine_round, st.mine_stage = 1, "mines"
+        st.mine_round = 1
         st.mine_next = io.now() + MINE_TRAVEL
+        io.log(f"norway: the Vultures go to lay mines at Oslo")
         if not given:
             st.mine_stage = "done"
             io.log("norway: the Vultures took no mine order (no mines?)")

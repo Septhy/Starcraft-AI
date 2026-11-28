@@ -866,3 +866,35 @@ the Dropships.
 The cycle: nine to twelve Dropships made and loaded; on the word they
 fly to the front and unload; back to Finland; marines made; the
 Dropships filled again; the SCVs repair them.
+
+## Trial 63 (build 107da81)
+
+Worked: 38 men, Finland clear at about 70 s; Barracks, Starport and
+Command Center down with one click each; twelve depots by 155 s; the
+men boarded the Dropship for Shetland (centred with Ctrl+C: four
+aboard) and it was sent to unload; five Vultures found and keyed; the
+men boarded the new Dropships as they came.
+
+Failed, and why:
+
+- Dropships "often cancelled" (the owner). After D, D, D the bot
+  pressed Esc twice with the Starport still selected, and with a
+  building selected Esc cancels the last unit in its queue: two
+  Dropships taken back out at every order. One was out at 161 s, three
+  at 261 s.
+- Shetland: the Dropship hung north-west of the island under the
+  turret's fire and nobody landed. The unload point (64.3, 31.5, taken
+  from the owner's recording) was the island's north shore. Read off
+  the screen with the exact view, the beacon is at 66.5, 33.9; the
+  turret (61, 34) and the depot (63.5, 33) are where the map file says.
+- Vultures stuck (the owner): they stand in a ring of marines at the
+  camp and cannot drive out. Also "Must target passable terrain": mine
+  spots lay under our Factory (it had not lifted this game) and on
+  rocks.
+
+Changed: no Esc after ordering at the Starport (an army key is selected
+instead); Shetland's beacon at 66.5, 33.9; before the mines, everything
+at the camp is boxed (nine boxes, twice over) and sent to Finland, by
+the Barracks, 4 s are waited, then the mines; mine spots round Oslo's
+beacon (88.5, 51.9) on open ground, and a spot the game refuses is
+followed by the next.

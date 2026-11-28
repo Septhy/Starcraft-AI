@@ -1674,6 +1674,11 @@ def test_dropships_are_made_until_there_are_enough_and_loaded_as_they_come(monke
     assert all(u["inside"] for u in w.units if u["kind"] == "marine")
     assert sorted(u.get("cargo", 0) for u in ships)[-3:] == [8, 8, 8]
     assert any("Dropships have men aboard" in l for l in w.lines)
+    # trial 63: Esc with the Starport selected cancels what it is making
+    for k, name in enumerate(w.keys):
+        if name == "d":
+            nxt = next((x for x in w.keys[k + 1:] if x != "d"), None)
+            assert nxt != "esc"
 
 
 def test_men_board_the_dropship_wherever_it_really_is(monkeypatch):
@@ -1714,12 +1719,20 @@ def test_five_vultures_lay_mines_at_oslo_when_the_new_troops_come(monkeypatch):
     w.t = norway.SPAWN_AT / trial.COUNTDOWN_RATE + 1
     step(w, st, norway.vultures_step, 60)
     assert w.kinds(st.vulture_key) == ["vulture"] * 5
+    # the ring of marines round them was sent off to Finland first
+    moves = [k for k, o in enumerate(w.orders) if o[0] == "move"
+             and any(w.units[i]["kind"] == "marine" for i in o[1])]
+    first_mine = next(k for k, o in enumerate(w.orders) if o[0] == "mine")
+    assert moves and max(moves) < first_mine
+    gone = {i for k in moves for i in w.orders[k][1] if w.units[i]["kind"] == "marine"}
+    assert len(gone) >= 24
     mines = [o for o in w.orders if o[0] == "mine"]
     assert len(mines) == 15 and all(len(who) == 1 for what, who, where in mines)
     assert len({who for what, who, where in mines}) == 5            # each lays three
     assert len({(round(x, 1), round(y, 1)) for what, who, (x, y) in mines}) == 15
     for what, who, (x, y) in mines:                                 # round Oslo's beacon
-        assert 84 <= x <= 92 and 46 <= y <= 54
+        assert 86 <= x <= 92 and 48 <= y <= 55.5                    # (clear of the Factory's ground)
+        assert not (83.5 <= x <= 87.2 and 50.2 <= y <= 53.2)
     assert st.mine_stage == "done"
     # none among the troops: looked for three times, then given up
     w, st = air_world([("marine", cx, cy), ("marine", cx + 1, cy)])
